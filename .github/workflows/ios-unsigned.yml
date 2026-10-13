@@ -2,6 +2,11 @@ name: Build unsigned iOS IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Publish a release with this version (for example 1.0.0). Leave empty for a normal build.'
+        required: false
+        default: ''
   push:
     branches-ignore: [develop]
     tags: ['v*']
@@ -49,9 +54,11 @@ jobs:
           PLIST="$APP/Info.plist"
           BASE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" "$PLIST"
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            # Release builds show the release version (v1.0.0 -> 1.0.0).
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${GITHUB_REF_NAME#v}" "$PLIST"
+          REL="${{ github.event.inputs.release_version }}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then REL="${GITHUB_REF_NAME#v}"; fi
+          if [[ -n "$REL" ]]; then
+            # Release builds show the release version (1.0.0).
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${REL}" "$PLIST"
           else
             /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE}-b${{ github.run_number }}" "$PLIST"
           fi
@@ -67,16 +74,20 @@ jobs:
           path: out/PaperReality-b${{ github.run_number }}-unsigned.ipa
 
       - name: Create the release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_version != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp out/PaperReality-b${{ github.run_number }}-unsigned.ipa "out/PaperReality-${GITHUB_REF_NAME}-unsigned.ipa"
-          NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+          REL="${{ github.event.inputs.release_version }}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then REL="${GITHUB_REF_NAME#v}"; fi
+          TAG="v${REL}"
+          cp out/PaperReality-b${{ github.run_number }}-unsigned.ipa "out/PaperReality-${TAG}-unsigned.ipa"
+          NOTES="docs/release-notes/${TAG}.md"
           if [ -f "$NOTES" ]; then
-            gh release create "$GITHUB_REF_NAME" "out/PaperReality-${GITHUB_REF_NAME}-unsigned.ipa" \
-              --title "PaperReality ${GITHUB_REF_NAME#v}" --notes-file "$NOTES"
+            NOTEARGS=(--notes-file "$NOTES")
           else
-            gh release create "$GITHUB_REF_NAME" "out/PaperReality-${GITHUB_REF_NAME}-unsigned.ipa" \
-              --title "PaperReality ${GITHUB_REF_NAME#v}" --generate-notes
+            NOTEARGS=(--generate-notes)
           fi
+          # Creates the tag on this commit if it doesn't exist yet.
+          gh release create "$TAG" "out/PaperReality-${TAG}-unsigned.ipa" \
+            --target "$GITHUB_SHA" --title "PaperReality ${REL}" "${NOTEARGS[@]}"

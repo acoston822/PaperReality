@@ -303,6 +303,14 @@ file(GLOB_RECURSE PORT_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 list(FILTER PORT_SOURCES EXCLUDE REGEX ".*.inc.c")
 
 if(IOS)
+    # Objective-C++ glue for the system file picker (first-run ROM import).
+    enable_language(OBJCXX)
+    file(GLOB_RECURSE IOS_MM_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} src/port/ios/*.mm)
+    set_source_files_properties(${IOS_MM_SOURCES} PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+    list(APPEND PORT_SOURCES ${IOS_MM_SOURCES})
+endif()
+
+if(IOS)
     set(IOS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ios)
     set(STORYBOARD_FILE ${IOS_DIR}/Launch.storyboard)
     set(IMAGE_FILES ${IOS_DIR}/PoweredBy.png)
@@ -477,6 +485,9 @@ add_custom_target(GeneratePortO2R DEPENDS "${PAPERBOAT_PORT_O2R}")
 add_dependencies(${PROJECT_NAME} GeneratePortO2R)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship torch yaml-cpp)
+if(IOS)
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers")
+endif()
 
 if(ANDROID)
     # libzip comes from libultraship's android.cmake, so its headers are in the

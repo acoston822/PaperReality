@@ -160,7 +160,7 @@ IMG_PTR port_tex_named_level(IMG_PTR raster, const char* suffix) {
 
 IMG_PTR port_named_image(const char* asset, const char* suffix, void* fallback) {
     IMG_PTR path = port_tex_named_level((IMG_PTR) asset, suffix);
-    if (path != NULL && GameEngine_GetDataExact((const char*) path) != NULL) {
+    if (path != NULL && (GameEngine_GetDataExact((const char*) path) != NULL || GameEngine_AltDataExists((const char*) path))) {
         return path;
     }
     return (IMG_PTR) fallback;

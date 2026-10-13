@@ -136,9 +136,10 @@ void RegisterPopup(
     std::string button1,
     std::string button2,
     std::function<void()> button1callback,
-    std::function<void()> button2callback
+    std::function<void()> button2callback,
+    float scale
 ) {
-    mModalWindow->RegisterPopup(title, message, button1, button2, button1callback, button2callback);
+    mModalWindow->RegisterPopup(title, message, button1, button2, button1callback, button2callback, scale);
 }
 
 size_t PopupsQueued() {

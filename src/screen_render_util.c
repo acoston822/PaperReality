@@ -227,15 +227,15 @@ void appendGfx_darkness_stencil(b32 isWorld, s32 posX, s32 posY, f32 alpha, f32 
                             camera->viewportStartX * 4, camera->viewportStartY * 4,
                             (camera->viewportStartX + camera->viewportW) * 4, (camera->viewportStartY + camera->viewportH) * 4,
                             G_TX_RENDERTILE,
-                            (12 - posX) * 32.0f / texScale + 16.0f + 1024.0f, (19 - posY) * 32.0f / texScale + 16.0f + 1024.0f,
-                            1024.0f / texScale, 1024.0f / texScale);
+                            (s32)((12 - posX) * 32.0f / texScale + 16.0f + 1024.0f), (s32)((19 - posY) * 32.0f / texScale + 16.0f + 1024.0f),
+                            (s32)(1024.0f / texScale), (s32)(1024.0f / texScale));
     } else {
         gSPTextureRectangle(gMainGfxPos++,
                             camera->viewportStartX * 4, camera->viewportStartY * 4,
                             (camera->viewportStartX + camera->viewportW) * 4, (camera->viewportStartY + camera->viewportH) * 4,
                             G_TX_RENDERTILE,
-                            (9 - posX) * 32.0f / texScale + 1024.0f, (32 - posY) * 32.0f / texScale + 1024.0f,
-                            1024.0f / texScale, 1024.0f / texScale);
+                            (s32)((9 - posX) * 32.0f / texScale + 1024.0f), (s32)((32 - posY) * 32.0f / texScale + 1024.0f),
+                            (s32)(1024.0f / texScale), (s32)(1024.0f / texScale));
     }
 }
 

@@ -1,0 +1,58 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [develop]
+
+jobs:
+  ios:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: brew install cmake ninja
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: ios-ccache-${{ github.ref }}
+          restore-keys: |
+            ios-ccache-
+
+      - name: Configure
+        run: |
+          cmake -S . -B build-ios -G Xcode \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/ios.paperboat.toolchain.cmake \
+            -DPLATFORM=OS64 -DIOS_SIGNING=OFF
+
+      - name: Build
+        run: cmake --build build-ios --config Release --parallel $(sysctl -n hw.logicalcpu)
+
+      - name: Package IPA
+        run: |
+          APP=$(find build-ios -name '*.app' -path '*Release-iphoneos*' -maxdepth 4 | head -1)
+          echo "App bundle: $APP"
+          test -n "$APP"
+          # Always ship our own icon, whatever an upstream merge did to ios/Icon.png.
+          cp ios/PaperReality-Icon.png "$APP/Icon.png"
+          # Stamp the run number into the app so each build can be told apart:
+          # it shows as the app's version/build and is printed at the top of Paperboat.log.
+          PLIST="$APP/Info.plist"
+          BASE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE}-b${{ github.run_number }}" "$PLIST"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          (cd out && zip -qry Paperboat-unsigned.ipa Payload)
+          mv out/Paperboat-unsigned.ipa out/Paperboat-b${{ github.run_number }}-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: Paperboat-unsigned-ipa-b${{ github.run_number }}
+          path: out/Paperboat-b${{ github.run_number }}-unsigned.ipa

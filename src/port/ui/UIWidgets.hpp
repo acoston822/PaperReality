@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include "port/ShipUtils.h"
 #include "port/ShipInit.hpp"
+#include "TouchDragScroll.h"
 
 namespace UIWidgets {
 

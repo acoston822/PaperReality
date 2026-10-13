@@ -11,6 +11,12 @@
 #include <fast/Fast3dGui.h>
 #include <spdlog/spdlog.h>
 
+#include "cvar_prefixes.h"
+#include "port/ios/IosHaptics.h"
+#include "PaperboatGui.hpp"
+#include "TouchDragScroll.h"
+#include "UIWidgets.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -55,6 +61,9 @@ struct TouchButton {
     float halfW;
     float halfH;
     bool pressed;
+    // Drawn as a vector disc (colored outline + label) instead of the bar artwork: L, R and Z.
+    bool disc;
+    ImU32 ring;
 };
 
 struct Finger {
@@ -160,6 +169,16 @@ bool Enabled() {
     return CVarGetInteger(CVAR_TOUCH("Enabled"), TOUCH_CONTROLS_DEFAULT) != 0;
 }
 
+// True while a real game controller is attached (updated by ControllerMenuShortcut_Poll each input read).
+bool sControllerPresent = false;
+
+// Touch controls are hidden and ignored while a controller is connected, unless the user turned that off. The
+// layout editor always shows them so they can still be arranged.
+bool HiddenByController() {
+    return sControllerPresent && CVarGetInteger(CVAR_TOUCH("AutoHide"), 1) != 0 &&
+           CVarGetInteger(CVAR_TOUCH("EditMode"), 0) == 0;
+}
+
 // Widget heights are multiples of the layout unit; widths follow the cropped
 // sprite's aspect ratio so the art is never stretched.
 void ComputeLayout(OverlayState& state) {
@@ -192,6 +211,7 @@ void ComputeLayout(OverlayState& state) {
     const ImU32 kYellow = IM_COL32(250, 190, 30, 255);
     const ImU32 kRed = IM_COL32(220, 60, 60, 255);
     const ImU32 kGray = IM_COL32(150, 150, 160, 255);
+    const ImU32 kPurple = IM_COL32(160, 90, 230, 255);
 
     // The default center can be overridden by a saved custom position (edit mode).
     const auto make = [w,
@@ -215,6 +235,24 @@ void ComputeLayout(OverlayState& state) {
         b.halfH = halfH;
         b.halfW = halfH * Aspect(r);
         b.pressed = false;
+        b.disc = false;
+        b.ring = color;
+        return b;
+    };
+    // Round shoulder/trigger buttons: a circle of radius r with a colored outline.
+    const auto makeDisc = [&](uint16_t mask, const char* id, const char* label, const Rect& r, ImU32 ring,
+                              ImVec2 center, float radius) {
+        TouchButton b = make(mask, id, label, "", "", "", "", r, ring, 0, 0, center, radius);
+        b.halfW = radius;
+        b.halfH = radius;
+        b.disc = true;
+        return b;
+    };
+    // Same, but a rounded rectangle halfW x halfH (L and R).
+    const auto makeRoundRect = [&](uint16_t mask, const char* id, const char* label, const Rect& r, ImU32 ring,
+                                   ImVec2 center, float halfW, float halfH) {
+        TouchButton b = makeDisc(mask, id, label, r, ring, center, halfH);
+        b.halfW = halfW;
         return b;
     };
 
@@ -245,8 +283,8 @@ void ComputeLayout(OverlayState& state) {
     ));
     // C buttons in a diamond, above the face buttons.
     const ImVec2 c(w - 3.3f * u, h - 8.8f * u);
-    const float cOff = 1.5f * u;
-    const float cR = 0.85f * u;
+    const float cOff = 1.6f * u;
+    const float cR = 0.95f * u;
     state.gameButtons.push_back(make(
         BTN_CUP, "CUp", "C", "C-Up", "textures/buttons/CUp.png", "C-Up Outline", "textures/buttons/CUpOutline.png",
         rCUp, kYellow, 0, -1, ImVec2(c.x, c.y - cOff), cR
@@ -264,22 +302,22 @@ void ComputeLayout(OverlayState& state) {
         "textures/buttons/CRightOutline.png", rCRight, kYellow, 1, 0, ImVec2(c.x + cOff, c.y), cR
     ));
     // Shoulder / trigger bars: L top-left (clear of the menu button), R and Z top-right.
-    state.gameButtons.push_back(make(
-        BTN_L, "L", "L", "L-Btn", "textures/buttons/LBtn.png", "L-Btn Outline", "textures/buttons/LBtnOutline.png", rL,
-        kGray, 0, 0, ImVec2(7.5f * u, 1.6f * u), 0.55f * u
-    ));
-    state.gameButtons.push_back(make(
-        BTN_R, "R", "R", "R-Btn", "textures/buttons/RBtn.png", "R-Btn Outline", "textures/buttons/RBtnOutline.png", rR,
-        kGray, 0, 0, ImVec2(w - 4.2f * u, 1.6f * u), 0.55f * u
-    ));
-    state.gameButtons.push_back(make(
-        BTN_Z, "Z", "Z", "Z-Btn", "textures/buttons/ZBtn.png", "Z-Btn Outline", "textures/buttons/ZBtnOutline.png", rZ,
-        kGray, 0, 0, ImVec2(w - 4.2f * u, 3.4f * u), 0.55f * u
-    ));
+    // Round, gray-ringed L/R slightly larger than A (1.5u); purple-ringed Z the same size as B (1.25u).
+    state.gameButtons.push_back(
+        makeRoundRect(BTN_L, "L", "L", rL, kGray, ImVec2(7.6f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+    );
+    state.gameButtons.push_back(
+        makeRoundRect(BTN_R, "R", "R", rR, kGray, ImVec2(w - 4.4f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+    );
+    state.gameButtons.push_back(makeDisc(BTN_Z, "Z", "Z", rZ, kPurple, ImVec2(w - 4.4f * u, 5.1f * u), 1.25f * u));
     // D-pad cross on the left, above the stick area. Each texture is one arm
     // (with the shared hub), so adjacent placement reassembles the cross.
     const ImVec2 d(3.4f * u, h - 9.8f * u);
     const float dOff = 0.75f * u;
+    // "Show Touch D-Pad" off: leave the four arms out entirely, so they are neither drawn, hit-tested nor
+    // draggable in the layout editor.
+    const bool showDpad = CVarGetInteger(CVAR_TOUCH("ShowDpad"), 1) != 0;
+    if (showDpad) {
     state.gameButtons.push_back(make(
         BTN_DUP, "DUp", "D", "Dpad-Up", "textures/buttons/DPadUp.png", "Dpad-Up Outline",
         "textures/buttons/DPadUpOutline.png", rDUp, kGray, 0, -1, ImVec2(d.x, d.y - dOff), 1.0f * u
@@ -296,6 +334,7 @@ void ComputeLayout(OverlayState& state) {
         BTN_DRIGHT, "DRight", "D", "Dpad-Right", "textures/buttons/DPadRight.png", "Dpad-Right Outline",
         "textures/buttons/DPadRightOutline.png", rDRight, kGray, 1, 0, ImVec2(d.x + dOff, d.y), 0.45f * u
     ));
+    }
     // Start, bottom-center.
     state.gameButtons.push_back(make(
         BTN_START, "Start", "S", "Start-Btn", "textures/buttons/StartBtn.png", "Start-Btn Outline",
@@ -464,7 +503,105 @@ std::vector<Finger> GatherFingers() {
 
 } // namespace
 
+#ifndef CVAR_IMGUI_CONTROLLER_NAV
+#define CVAR_IMGUI_CONTROLLER_NAV "gControlNav"
+#endif
+
+// Opens the port menu from a connected game controller's Select/Back/Share button.
+// Called once per input read. Controller menu navigation is switched on by default so the
+// pad can also move around the menu (D-pad, A to select, B to go back); a saved choice wins.
+// The engine's own Back handling closes the menu again, so this only has to open it.
+extern "C" void ControllerMenuShortcut_Poll(void) {
+    static bool sRegistered = false;
+    static bool sBackWasDown = false;
+    static bool sBackOpenOnRelease = false;
+
+    if (ImGui::GetCurrentContext() == nullptr) {
+        return;
+    }
+
+    bool backDown = false;
+    const int joysticks = SDL_NumJoysticks();
+    static int sLastJoysticks = -1;
+    static uint32_t sLastMask[8] = {};
+    for (int i = 0; i < joysticks && i < 8; i++) {
+        if (!SDL_IsGameController(i)) {
+            if (joysticks != sLastJoysticks) {
+                SPDLOG_INFO("[controller] device {} is a joystick but not a game controller", i);
+            }
+            continue;
+        }
+        SDL_GameController* pad = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
+        if (pad == nullptr) {
+            pad = SDL_GameControllerOpen(i); // already open returns the same handle
+        }
+        if (joysticks != sLastJoysticks) {
+            const char* name = SDL_GameControllerName(pad);
+            SPDLOG_INFO("[controller] device {} name={} opened={}", i, name ? name : "?", pad != nullptr);
+        }
+        if (pad == nullptr) {
+            continue;
+        }
+        uint32_t mask = 0;
+        for (int btn = 0; btn < SDL_CONTROLLER_BUTTON_MAX; btn++) {
+            if (SDL_GameControllerGetButton(pad, (SDL_GameControllerButton) btn)) {
+                mask |= 1u << btn;
+            }
+        }
+        if (mask != sLastMask[i]) {
+            SPDLOG_INFO("[controller] device {} button mask {:#x}", i, mask);
+            sLastMask[i] = mask;
+        }
+        if (mask & (1u << SDL_CONTROLLER_BUTTON_BACK)) {
+            backDown = true;
+        }
+    }
+    sLastJoysticks = joysticks;
+
+    {
+        bool present = false;
+        for (int i = 0; i < joysticks; i++) {
+            if (SDL_IsGameController(i)) {
+                present = true;
+                break;
+            }
+        }
+        sControllerPresent = present;
+    }
+
+    if (!sRegistered && joysticks > 0) {
+        CVarRegisterInteger(CVAR_IMGUI_CONTROLLER_NAV, 1);
+        sRegistered = true;
+    }
+
+    const auto window = Ship::Context::GetRawInstance()->GetWindow();
+    if (window == nullptr || window->GetGui() == nullptr) {
+        sBackWasDown = backDown;
+        return;
+    }
+    const auto menu = window->GetGui()->GetMenu();
+    const bool navOn = (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NavEnableGamepad) != 0;
+
+    // Opens on release, not press: the engine turns gamepad navigation on as soon as the menu shows,
+    // so opening on the press would let it see that same press and close the menu again.
+    if (backDown && !sBackWasDown) {
+        sBackOpenOnRelease = menu != nullptr && !menu->IsVisible() && !navOn;
+    }
+    if (!backDown && sBackWasDown && sBackOpenOnRelease) {
+        sBackOpenOnRelease = false;
+        if (menu != nullptr && !menu->IsVisible()) {
+            menu->ToggleVisibility();
+        }
+    }
+    sBackWasDown = backDown;
+}
+
 extern "C" void TouchControls_ApplyPad(void* pads) {
+    // Buttons held on the previous tick, for haptics on a fresh press. Cleared here so every early return
+    // below (disabled, menu open, layout editor) starts the next tick from "nothing held".
+    static uint16_t sPrevButtons = 0;
+    const uint16_t prevButtons = sPrevButtons;
+    sPrevButtons = 0;
     sState.active = false;
     sState.buttons = 0;
     sState.stickHeld = false;
@@ -474,7 +611,7 @@ extern "C" void TouchControls_ApplyPad(void* pads) {
         button.pressed = false;
     }
 
-    if (ImGui::GetCurrentContext() == nullptr || !Enabled()) {
+    if (ImGui::GetCurrentContext() == nullptr || !Enabled() || HiddenByController()) {
         sStickFinger = -1;
         return;
     }
@@ -583,6 +720,11 @@ extern "C" void TouchControls_ApplyPad(void* pads) {
         );
     }
 
+    sPrevButtons = sState.buttons;
+    if (CVarGetInteger(CVAR_TOUCH("Haptics"), 1) != 0 && (sState.buttons & ~prevButtons) != 0) {
+        Paperboat::HapticTap(CVarGetInteger(CVAR_TOUCH("HapticStrength"), 1));
+    }
+
     if (pads == nullptr || Ship::Context::GetRawInstance()->GetControlDeck() == nullptr
         || Ship::Context::GetRawInstance()->GetControlDeck()->GamepadGameInputBlocked())
     {
@@ -604,7 +746,10 @@ void TouchControlsOverlay::InitElement() {
 }
 
 void TouchControlsOverlay::Draw() {
-    if (!sState.active || !Enabled()) {
+    // This window is drawn every frame in-game, so it also drives swipe scrolling for open dropdown lists. It runs
+    // before the touch-control early returns so it works with touch controls off or hidden by a controller.
+    PaperboatGui::TouchDragScrollPopups();
+    if (!sState.active || !Enabled() || HiddenByController()) {
         return;
     }
 
@@ -623,6 +768,9 @@ void TouchControlsOverlay::Draw() {
             }
         };
         for (const auto& button : sState.gameButtons) {
+            if (button.disc) {
+                continue;
+            }
             ensure(button.texName, button.texPath);
             ensure(button.outlineName, button.outlinePath);
         }
@@ -664,6 +812,45 @@ void TouchControlsOverlay::Draw() {
     }
 
     for (const auto& button : sState.gameButtons) {
+        if (button.disc) {
+            // Gray buttons (L, R) are clear while idle; every disc fills with its ring color when pressed.
+            const bool grayRing = rgb(button.ring) == rgb(IM_COL32(150, 150, 160, 255));
+            const bool filled = button.pressed || !grayRing;
+            const ImU32 fillCol = rgb(button.ring) | alpha(button.pressed ? 0.55f : 0.22f);
+            const ImU32 ringCol = rgb(button.ring) | alpha(button.pressed ? 1.0f : 0.9f);
+            if (button.halfW > button.halfH * 1.05f) {
+                // L/R rounded rectangle. The ring keeps the thickness it had on the old 1.65u circle.
+                const float ringT = 1.65f * u * 0.26f;
+                const ImVec2 pMin(button.center.x - button.halfW, button.center.y - button.halfH);
+                const ImVec2 pMax(button.center.x + button.halfW, button.center.y + button.halfH);
+                const float rounding = button.halfH * 0.5f;
+                if (filled) {
+                    drawList->AddRectFilled(pMin, pMax, fillCol, rounding);
+                }
+                drawList->AddRect(
+                    ImVec2(pMin.x + ringT * 0.5f, pMin.y + ringT * 0.5f),
+                    ImVec2(pMax.x - ringT * 0.5f, pMax.y - ringT * 0.5f), ringCol,
+                    std::max(0.0f, rounding - ringT * 0.5f), 0, ringT
+                );
+            } else {
+                // Z circle: ring about as thick as the artwork outlines (13% of the diameter), no letter.
+                const float r = button.halfH;
+                const float ringT = r * 0.26f;
+                if (filled) {
+                    drawList->AddCircleFilled(button.center, r, fillCol);
+                }
+                drawList->AddCircle(button.center, r - ringT * 0.5f, ringCol, 0, ringT);
+            }
+            continue;
+        }
+        // Translucent color fill behind the colored round buttons (A, B, C, Start); the gray D-pad arms stay
+        // unfilled. Brighter while pressed, but always see-through.
+        if (rgb(button.color) != rgb(IM_COL32(150, 150, 160, 255))) {
+            drawList->AddCircleFilled(
+                button.center, std::min<float>(button.halfW, button.halfH),
+                rgb(button.color) | alpha(button.pressed ? 0.55f : 0.22f)
+            );
+        }
         ImTextureID solidTex = gui->GetTextureByName(button.texName);
         ImTextureID outlineTex = gui->GetTextureByName(button.outlineName);
         if (solidTex != nullptr || outlineTex != nullptr) {
@@ -701,32 +888,30 @@ void TouchControlsOverlay::Draw() {
     // the cap (deflected position); circles are the no-texture fallback.
     const ImVec2 base = sState.stickHeld ? sState.stickAnchor : sState.stickRest;
     const ImVec2 nub = sState.stickHeld ? sState.stickPos : sState.stickRest;
-    const float baseAlpha = sState.stickHeld ? 0.85f : 0.55f;
-    ImTextureID capTex = gui->GetTextureByName("Analog-Stick");
-    ImTextureID gateTex = gui->GetTextureByName("Analog-Stick Outline");
-    // Housing/gate crop within the 327x175 frame (ring around the cap's spot).
-    const ImVec2 gateUv0(18.0f / kFrameW, 40.0f / kFrameH);
-    const ImVec2 gateUv1(116.0f / kFrameW, 138.0f / kFrameH);
-    // Sized so the cap touches the gate ring at full deflection.
-    const float gateHalf = sState.stickTravel + sState.nubRadius;
-    if (gateTex != nullptr) {
-        drawList->AddImage(
-            gateTex, ImVec2(base.x - gateHalf, base.y - gateHalf), ImVec2(base.x + gateHalf, base.y + gateHalf),
-            gateUv0, gateUv1, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha)
-        );
-    } else {
-        drawList->AddCircleFilled(base, sState.stickTravel, IM_COL32(20, 20, 26, 0) | alpha(0.22f * baseAlpha));
-        drawList->AddCircle(base, sState.stickTravel, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha), 0, stroke);
+    // "Hide Joystick When Idle": the floating stick fades out while no finger is on it. The layout editor
+    // always shows it so it can still be repositioned.
+    static float sStickFade = 1.0f;
+    {
+        const bool hideIdle = CVarGetInteger(CVAR_TOUCH("HideStickIdle"), 0) != 0;
+        const float target = (hideIdle && !sState.stickHeld && !sState.editMode) ? 0.0f : 1.0f;
+        const float step = ImGui::GetIO().DeltaTime * (target > sStickFade ? 12.0f : 4.0f);
+        sStickFade = target > sStickFade ? std::min(target, sStickFade + step) : std::max(target, sStickFade - step);
     }
-    if (capTex != nullptr) {
-        drawList->AddImage(
-            capTex, ImVec2(nub.x - sState.nubRadius, nub.y - sState.nubRadius),
-            ImVec2(nub.x + sState.nubRadius, nub.y + sState.nubRadius), sState.stickUv0, sState.stickUv1,
-            IM_COL32(255, 255, 255, 0) | alpha(baseAlpha + 0.15f)
-        );
-    } else {
-        drawList->AddCircleFilled(nub, sState.nubRadius, IM_COL32(190, 190, 200, 0) | alpha(baseAlpha));
-        drawList->AddCircle(nub, sState.nubRadius, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha + 0.15f), 0, stroke);
+    const float baseAlpha = (sState.stickHeld ? 0.85f : 0.55f) * sStickFade;
+    // Fully gone (not just faint) once the fade-out has finished.
+    if (sStickFade > 0.001f) {
+        // Perfectly round gate ring; the thumb dot is a small translucent circle in the menu theme color.
+        // The Start button's radius is 0.9u; the thumb dot is 1% smaller than that.
+        const float nubR = 0.9f * u * 0.99f;
+        // Ring about as thick as the button outlines (those are 0.26 of the radius: 0.39u on A, 0.33u on B/Z),
+        // just a touch thinner. Its inner edge sits where the thumb dot stops at full deflection.
+        const float ringT = 0.3f * u;
+        const float gateR = sState.stickTravel + nubR + ringT * 0.5f;
+        drawList->AddCircle(base, gateR, IM_COL32(255, 255, 255, 0) | alpha(baseAlpha), 0, ringT);
+        const ImU32 themeCol = rgb(ImGui::ColorConvertFloat4ToU32(
+            UIWidgets::ColorValues.at(PaperboatGui::GetMenuThemeColor())
+        ));
+        drawList->AddCircleFilled(nub, nubR, themeCol | alpha(0.7f * sStickFade));
     }
 
     // Layout-edit chrome: highlight the dragged widget, Done/Reset pills, hint.

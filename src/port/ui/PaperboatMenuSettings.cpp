@@ -33,6 +33,12 @@ static std::unordered_map<int32_t, const char*> imguiScaleOptions = {
     { 3, "X-Large" },
 };
 
+static const std::unordered_map<int32_t, const char*> hapticStrengthOptions = {
+    { 0, "Light" },
+    { 1, "Medium" },
+    { 2, "Strong" },
+};
+
 static const std::unordered_map<int32_t, const char*> menuThemeOptions = {
     { UIWidgets::Colors::Red, "Red" },
     { UIWidgets::Colors::DarkRed, "Dark Red" },
@@ -307,6 +313,52 @@ void PaperboatMenu::AddMenuSettings() {
                 "Opacity of the on-screen controls."
             )
         );
+    AddWidget(path, "Show Touch D-Pad", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_TOUCH("ShowDpad"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(true).Tooltip(
+                "Shows the on-screen D-pad. Turn it off to remove the D-pad from the screen; the other "
+                "controls are unaffected."
+            )
+        );
+    AddWidget(path, "Hide With Controller", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_TOUCH("AutoHide"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(true).Tooltip(
+                "Hides the touch controls while a game controller is connected and brings them back when it is "
+                "disconnected. They always show in the layout editor."
+            )
+        );
+    AddWidget(path, "Hide Joystick When Idle", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_TOUCH("HideStickIdle"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(false).Tooltip(
+                "The joystick is floating, so it appears wherever you touch. Turn this on to fade it out while "
+                "no finger is on it. It still shows in the layout editor."
+            )
+        );
+#if defined(__IOS__)
+    AddWidget(path, "Haptic Feedback", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_TOUCH("Haptics"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(true).Tooltip(
+                "Vibrates briefly each time you press an on-screen button."
+            )
+        );
+    AddWidget(path, "Haptic Strength", WIDGET_CVAR_COMBOBOX)
+        .CVar(CVAR_TOUCH("HapticStrength"))
+        .RaceDisable(false)
+        .Options(
+            ComboboxOptions()
+                .ComboMap(hapticStrengthOptions)
+                .DefaultIndex(1)
+                .Tooltip("How strong the vibration is when you press an on-screen button.")
+        );
+#endif
     AddWidget(path, "Edit Touch Layout", WIDGET_BUTTON)
         .Options(
             ButtonOptions().Tooltip(

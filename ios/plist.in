@@ -34,10 +34,20 @@
 	<true/>
 	<key>UISupportsDocumentBrowser</key>
 	<true/>
+	<!-- Opt in to iOS Game Mode so sideloaded copies run at full speed. -->
+	<key>GCSupportsGameMode</key>
+	<true/>
+	<key>LSSupportsGameMode</key>
+	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.games</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>UILaunchStoryboardName</key>
 	<string>Launch.storyboard</string>
+	<!-- Lets the app run above 60 fps on ProMotion iPhones (90/120 Hz). -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>UIRequiresFullScreen</key>
 	<true/>
 	<key>UIStatusBarHidden</key>

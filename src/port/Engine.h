@@ -18,6 +18,8 @@ uint16_t ResourceGetTexHeightByName(const char* name);
 uint8_t GameEngine_OTRSigCheck(const char* data);
 // Vanilla bytes regardless of alt assets; for data the CPU reads or copies.
 void* GameEngine_GetDataExact(const char* name);
+// Non-zero when Alternate Assets is on and a pack ships `name` only under "alt/".
+int GameEngine_AltDataExists(const char* name);
 size_t GameEngine_GetSizeExact(const char* name);
 uint16_t GameEngine_GetTexWidthExact(const char* name);
 uint16_t GameEngine_GetTexHeightExact(const char* name);

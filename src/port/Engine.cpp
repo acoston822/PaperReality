@@ -13,8 +13,10 @@
 #include "port/os/OS.h"
 #include "port/DevTools/ThreadWatchdog.h"
 #include "port/TextureCache.h"
+#include "port/ios/IosFilePicker.h"
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
+#include "ui/TouchDragScroll.h"
 #include "ui/PaperboatModMenuWindow.h"
 #ifdef __EMSCRIPTEN__
 #include "port/web/WebUtils.h"
@@ -77,10 +79,18 @@
 
 using json = nlohmann::json;
 
-const float imguiScaleOptionToValue[4] = { 0.75f, 1.0f, 1.5f, 2.0f };
+// Small/Normal/Large/X-Large, sized for touch screens (the original steps were 0.75/1.0/1.5/2.0).
+const float imguiScaleOptionToValue[4] = { 1.5f, 1.75f, 2.1f, 2.3f };
 std::shared_ptr<Fast::Fast3dWindow> gsFast3dWindow;
 Ship::Context* gShipContext = nullptr;
 const uint32_t defaultImGuiScale = 1;
+// First-launch boxes (welcome, ROM found, unsupported ROM, run prompt, extraction progress) are 1.75x on iOS, where
+// they are read on a touch screen.
+#if defined(__IOS__)
+constexpr float kFirstRunPopupScale = 1.75f;
+#else
+constexpr float kFirstRunPopupScale = 1.0f;
+#endif
 int32_t previousImGuiScaleIndex = -1;
 float previousImGuiScale = defaultImGuiScale;
 
@@ -137,6 +147,8 @@ typedef enum PromptSteps {
     // Web only: no folder to scan, so the user is asked outright.
     PS_WEB_CHOICE,
     PS_WEB_UPLOAD,
+    // iOS only: the Files picker is open for the first-run ROM import.
+    PS_IOS_PICK,
     PS_NONE,
 } PromptSteps;
 
@@ -566,6 +578,29 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                         }
 #ifdef __EMSCRIPTEN__
                         promptStep = PS_WEB_CHOICE;
+#elif defined(__IOS__)
+                        // A ROM already in the app's folder (e.g. put there with the Files app) skips the greeting
+                        // and goes straight to the generate prompt.
+                        if (!GameExtractor::FindSupportedRoms({ installPath, Ship::Context::GetAppDirectoryPath("boat") })
+                                 .empty()) {
+                            promptStep = PS_LOCAL;
+                            continue;
+                        }
+                        // First launch: greet, then ask for the user's own copy of the game.
+                        PaperboatGui::RegisterPopup(
+                            "Welcome to PaperBoat",
+                            "To get started, PaperBoat needs your own copy of\nPaper Mario (Nintendo 64).\n\n"
+                            "Choose your ROM file to import it. It stays on\nthis device and is only used to "
+                            "create the game files.",
+                            "Open Files", "Cancel", [&]() { promptStep = PS_IOS_PICK; },
+                            [&]() {
+                                threadPool = nullptr;
+                                gsFast3dWindow = nullptr;
+                                context = nullptr;
+                                exit(0);
+                            },
+                            kFirstRunPopupScale
+                        );
 #else
                         PaperboatGui::RegisterPopup(
                             "No O2R Files", "No O2R files found. Generate one now?", "Yes", "No",
@@ -603,6 +638,38 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                         continue;
                     }
 #endif
+#ifdef __IOS__
+                    case PS_IOS_PICK: {
+                        promptStep = PS_WAIT;
+                        Paperboat::IosPickFile([&](std::string picked) {
+                            if (picked.empty()) {
+                                promptStep = PS_FILE_CHECK; // cancelled in the picker: show the greeting again
+                                return;
+                            }
+                            // Put the ROM where the extractor looks for it, then drop the picker's temp copy.
+                            const std::string appDir = Ship::Context::GetAppDirectoryPath("boat");
+                            const std::filesystem::path dest = std::filesystem::path(appDir) / "baserom.us.z64";
+                            std::error_code ec;
+                            std::filesystem::create_directories(appDir, ec);
+                            std::filesystem::copy_file(
+                                picked, dest, std::filesystem::copy_options::overwrite_existing, ec
+                            );
+                            std::filesystem::remove(picked, ec);
+                            if (ec || GameExtractor::FindSupportedRoms({ appDir }).empty()) {
+                                std::filesystem::remove(dest, ec);
+                                PaperboatGui::RegisterPopup(
+                                    "Unsupported ROM",
+                                    "That file isn't a supported Paper Mario ROM.\n\n"
+                                    "Choose a .z64 ROM of Paper Mario (N64).",
+                                    "OK", "", [&]() { promptStep = PS_FILE_CHECK; }, nullptr, kFirstRunPopupScale
+                                );
+                                return;
+                            }
+                            promptStep = PS_LOCAL; // continues to the "generate the game files" prompt
+                        });
+                        continue;
+                    }
+#endif
                     case PS_LOCAL: {
                         extract = GameExtractor();
                         // Only ROMs config.yml has a recipe for, named by their version.
@@ -623,7 +690,8 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                                 [&]() {
                                     args.clear();
                                     promptStep = PS_FIRST;
-                                }
+                                },
+                                kFirstRunPopupScale
                             );
                         } else {
                             promptStep = PS_FIRST;
@@ -678,7 +746,8 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                             gsFast3dWindow = nullptr;
                             context = nullptr;
                             exit(0);
-                        }
+                        },
+                        kFirstRunPopupScale
                     );
                     break;
                 }
@@ -776,7 +845,13 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
         }
         if (extracting) {
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f, 8.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * kFirstRunPopupScale, 8.0f * kFirstRunPopupScale));
+            ImGui::PushStyleVar(
+                ImGuiStyleVar_WindowPadding, ImVec2(
+                                                 ImGui::GetStyle().WindowPadding.x * kFirstRunPopupScale,
+                                                 ImGui::GetStyle().WindowPadding.y * kFirstRunPopupScale
+                                             )
+            );
             auto color = UIWidgets::ColorValues.at(THEME_COLOR);
             ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(color.x, color.y, color.z, 0.6f));
             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(color.x, color.y, color.z, 1.0f));
@@ -787,6 +862,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                         | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings
                 ))
             {
+                ImGui::SetWindowFontScale(kFirstRunPopupScale);
                 int phase = GameExtractor::sPhase;
                 float progress = 0.0f;
                 if (phase == 3) {
@@ -815,12 +891,15 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                 } else {
                     overlay = "Starting up...";
                 }
-                ImGui::ProgressBar(progress / 100.0f, ImVec2(600.0f, 50.0f), overlay.c_str());
+                ImGui::ProgressBar(
+                    progress / 100.0f, ImVec2(600.0f * kFirstRunPopupScale, 50.0f * kFirstRunPopupScale), overlay.c_str()
+                );
                 ImGui::EndPopup();
             }
             ImGui::PopStyleColor(3);
-            ImGui::PopStyleVar(2);
+            ImGui::PopStyleVar(3);
         }
+        PaperboatGui::TouchDragScrollPopups();
         gui->EndDraw();
         wnd->EndFrame();
         ImGui::PopStyleColor(2);
@@ -1183,6 +1262,21 @@ extern "C" void* GameEngine_GetDataExact(const char* name) {
     return res != nullptr ? resourceMgr->GetResourceRawPointer(res) : nullptr;
 }
 
+// True when Alternate Assets is on and a pack carries `name` only under "alt/". Texture packs
+// that ship their replacements exclusively in alt/ (no copy at the archive root) are otherwise
+// invisible to callers that probe for a named replacement by its exact path.
+extern "C" int GameEngine_AltDataExists(const char* name) {
+    if (name == nullptr || CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0) == 0) {
+        return 0;
+    }
+    std::string path = name;
+    if (GameEngine_OTRSigCheck(name)) {
+        path = path.substr(7);
+    }
+    path = std::string(Ship::IResource::gAltAssetPrefix) + path;
+    return Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path, /*loadExact=*/true) != nullptr;
+}
+
 // Size counterpart of GameEngine_GetDataExact.
 extern "C" size_t GameEngine_GetSizeExact(const char* name) {
     if (name == nullptr) {
@@ -1318,6 +1412,7 @@ void GameEngine::RenderGuiFrame() const {
     gui->StartDraw();
     wnd->StartFrame();
     wnd->RunGuiOnly();
+    PaperboatGui::TouchDragScrollPopups();
     gui->EndDraw();
     wnd->EndFrame();
     OS_ViNotifyPresent();

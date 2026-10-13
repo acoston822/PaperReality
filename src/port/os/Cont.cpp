@@ -43,6 +43,8 @@ namespace {
     std::atomic<bool> sPumpLive { false };
 } // namespace
 
+extern "C" void ControllerMenuShortcut_Poll(void);
+
 int32_t osContStartReadData(OSMesgQueue* mesg) {
     (void) mesg; // completion goes to whoever registered for OS_EVENT_SI
     sReadPending.store(true, std::memory_order_release);
@@ -64,6 +66,8 @@ extern "C" int OS_SiService(void) {
         Ship::Context::GetRawInstance()->GetControlDeck()->WriteToPad(sLatch);
         // Merges the on-screen controls into port 0; no-op unless enabled.
         TouchControls_ApplyPad(sLatch);
+        // Back/Select on a connected controller opens the port menu.
+        ControllerMenuShortcut_Poll();
     }
     sLatchValid.store(true, std::memory_order_release);
     OS_SendEventMesg(OS_EVENT_SI);

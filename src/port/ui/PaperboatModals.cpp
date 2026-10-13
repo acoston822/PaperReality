@@ -12,6 +12,8 @@ struct PaperboatModal {
     std::string button2_;
     std::function<void()> button1callback_;
     std::function<void()> button2callback_;
+    // Text, button and padding size multiplier for this popup (1 = normal).
+    float scale_ = 1.0f;
 };
 std::vector<PaperboatModal> modals;
 
@@ -37,12 +39,28 @@ void PaperboatModalWindow::DrawElement() {
             modals.erase(modals.begin());
             closePopup = false;
         }
+        const float scale = curModal.scale_;
+        if (scale != 1.0f) {
+            const ImGuiStyle& style = ImGui::GetStyle();
+            ImGui::PushStyleVar(
+                ImGuiStyleVar_WindowPadding, ImVec2(style.WindowPadding.x * scale, style.WindowPadding.y * scale)
+            );
+            ImGui::PushStyleVar(
+                ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x * scale, style.FramePadding.y * scale)
+            );
+            ImGui::PushStyleVar(
+                ImGuiStyleVar_ItemSpacing, ImVec2(style.ItemSpacing.x * scale, style.ItemSpacing.y * scale)
+            );
+        }
         if (ImGui::BeginPopupModal(
                 curModal.title_.c_str(), NULL,
                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
                     | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings
             ))
         {
+            if (scale != 1.0f) {
+                ImGui::SetWindowFontScale(scale);
+            }
             ImGui::Text("%s", curModal.message_.c_str());
             UIWidgets::PushStyleButton(THEME_COLOR);
             if (ImGui::Button(curModal.button1_.c_str())) {
@@ -67,6 +85,9 @@ void PaperboatModalWindow::DrawElement() {
             }
         }
         ImGui::EndPopup();
+        if (scale != 1.0f) {
+            ImGui::PopStyleVar(3);
+        }
     }
 }
 
@@ -76,9 +97,10 @@ void PaperboatModalWindow::RegisterPopup(
     std::string button1,
     std::string button2,
     std::function<void()> button1callback,
-    std::function<void()> button2callback
+    std::function<void()> button2callback,
+    float scale
 ) {
-    modals.push_back({ title, message, button1, button2, button1callback, button2callback });
+    modals.push_back({ title, message, button1, button2, button1callback, button2callback, scale });
 }
 
 size_t PaperboatModalWindow::PopupsQueued() {

@@ -7,9 +7,12 @@
 #include "UIWidgets.hpp"
 #include "cvar_prefixes.h"
 #include "port/Engine.h"
+#include "TouchDragScroll.h"
 #include <ship/window/gui/GuiElement.h>
 #include <ship/window/gui/GuiMenuBar.h>
 #include <spdlog/fmt/fmt.h>
+#include <algorithm>
+#include <imgui_internal.h>
 #include <tuple>
 #include <variant>
 
@@ -586,6 +589,23 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
             default:
                 break;
         }
+        switch (widget.type) {
+            case WIDGET_SLIDER_INT:
+            case WIDGET_CVAR_SLIDER_INT:
+            case WIDGET_SLIDER_FLOAT:
+            case WIDGET_CVAR_SLIDER_FLOAT:
+            case WIDGET_INPUT:
+            case WIDGET_CVAR_INPUT:
+            case WIDGET_COLOR_PICKER:
+            case WIDGET_CVAR_COLOR_PICKER:
+            case WIDGET_SEARCH:
+                if (ImGui::IsItemActive()) {
+                    PaperboatGui::TouchDragScrollBlock();
+                }
+                break;
+            default:
+                break;
+        }
         if (widget.postFunc != nullptr) {
             widget.postFunc(widget);
         }
@@ -1006,6 +1026,7 @@ void Menu::DrawElement() {
             }
             //}
             if (useColumns) {
+                PaperboatGui::TouchDragScroll();
                 ImGui::EndChild();
             }
             if (i < columns - 1) {
@@ -1014,6 +1035,7 @@ void Menu::DrawElement() {
         }
     }
     if (!useColumns || menuSearchText.length() > 0) {
+        PaperboatGui::TouchDragScroll();
         ImGui::EndChild();
     }
 

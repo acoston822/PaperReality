@@ -1,73 +1,44 @@
-# PaperBoat
-*Harbour Masters port of Paper Mario 64*
+# PaperReality
+*An iOS port of Paper Mario 64, built on HarbourMasters' PaperBoat*
 
-Developers:
+PaperReality is a community iOS build based on [PaperBoat](https://github.com/HarbourMasters/PaperBoat), the Harbour Masters port of Paper Mario 64. It is not an official Harbour Masters project. Please don't ask the Harbour Masters team for support with PaperReality, and do not report PaperReality issues to them.
+
+Everything here mirrors PaperBoat's code and files; the changes made for iOS are listed in [docs/CHANGES.md](docs/CHANGES.md), and [docs/UPSTREAM.md](docs/UPSTREAM.md) explains how PaperBoat's updates are merged in.
+
+Developers (of the original port):
 * Bass3l
 * JeodC
 * KiritoDv
 * Caladius
 
-## Website & Discord
-Official Website: https://www.harbourmasters.org/
-
-Official Discord: https://discord.gg/harbourmasters
-
-*If you're having any trouble after reading through this `README`, feel free ask for help in the PaperBoat text channels. Please keep in mind that we do not condone piracy.*
+*We do not condone piracy.*
 
 # Quick Start
 
-PaperBoat does not include any copyrighted assets.  You are required to provide a supported copy of the game.
+PaperReality does not include any copyrighted assets. You are required to provide a supported copy of the game.
 
 ### 1. Verify your ROM dump
 US SHA1 Hash: `3837f44cda784b466c9a2d99df70d77c322b97a0`
 You can verify you have dumped a supported copy of the game by using the compatibility checker at https://paperboat.equipment/.
 
-### 2. Download PaperBoat from [Releases](https://github.com/HarbourMasters/PaperBoat/releases)
+### 2. Install the app
+Builds are unsigned `.ipa` files produced by this repository's GitHub Actions workflow (`Build unsigned iOS IPA`). Open the workflow run you want and download the `PaperReality-unsigned-ipa-bN` artifact. Sign and install it with the tool of your choice (for example AltStore, Sideloadly or your own developer certificate).
 
-### 3. Launch the Game!
-#### Windows
-* Extract the zip
-* Launch `paperboat.exe`
-
-#### Linux
-* Place your supported copy of the game in the same folder as the appimage.
-* Execute `paperboat.appimage`. You may have to `chmod +x` the appimage via terminal.
-
-#### macOS
-* Run `paperboat.app`.
-* When prompted, select your supported copy of the game.
+### 3. Launch the game
+* On first launch, PaperReality asks you to import your copy of the game. Choose **Open Files** and pick your ROM in the Files app.
+* The app places it in the right folder and generates the game's asset archive (`.o2r`) on the device.
 
 ### 4. Play!
 
-Congratulations, you are now sailing with PaperBoat! Have fun!
+Congratulations, you are now sailing with PaperReality! Have fun!
 
-# Configuration
+# Controls
 
-### Default keyboard configuration
-| N64 | A | B | Z | Start | Analog stick | C buttons | D-Pad |
-| - | - | - | - | - | - | - | - |
-| Keyboard | X | C | Z | Space | WASD | Arrow keys | TFGH |
-
-### Other shortcuts
-| Keys | Action |
-| - | - |
-| Esc | Toggle menubar |
-| F11 | Fullscreen |
-| Tab | Toggle Alternate assets |
-| Ctrl+R | Reset |
-
-### Graphics Backends
-Currently, there are three rendering APIs supported: DirectX 11 (Windows), OpenGL (all platforms), and Metal (macOS). You can change which API to use in the `Settings` menu of the menubar, which requires a restart.
-
-If you're having an issue with crashing, you can also change the API manually in the `paperboat.cfg.json` file by finding the `"Backend": {` section and updating the backend ID and name. Be sure to use one of the valid values:
-
-- `0` = DirectX 11 (default on Windows)
-- `1` = OpenGL
-- `2` = Metal (default on macOS)
+Touch controls are on by default. You can move them, resize them and change their opacity from the settings menu, and the on-screen buttons give haptic feedback. When a game controller is connected, the touch controls hide automatically and come back when it disconnects (this can be turned off in the touch settings). The `Select`/`Back` button on a controller opens the menu.
 
 # Custom Assets
 
-Custom assets are packed in `.o2r` or `.otr` files. To use custom assets, place them in the `mods` folder.
+Custom assets are packed in `.o2r` or `.otr` files. In the **Mods** menu, tap **Add Files** and pick your files in the Files app; they are copied to the app's `mods` folder. Turn on **Alternate Assets** and restart the app to use texture packs.
 
 If you're interested in creating and/or packing your own custom asset `.o2r`/`.otr` files, check out the following tools:
 * [**retro - OTR and O2R generator**](https://github.com/HarbourMasters64/retro)
@@ -76,14 +47,7 @@ If you're interested in creating and/or packing your own custom asset `.o2r`/`.o
 # Development
 
 ### Building
-If you want to manually compile PaperBoat, please consult the [building instructions](docs/BUILDING.md).
-
-### Playtesting
-If you want to playtest a continuous integration build, you can find them at the links below. Keep in mind that these are for playtesting only, and you will likely encounter bugs and possibly crashes.
-
-* [Windows](https://nightly.link/HarbourMasters/PaperBoat/workflows/build/develop/Paperboat-windows.zip)
-* [macOS](https://nightly.link/HarbourMasters/PaperBoat/workflows/build/develop/Paperboat-mac.zip)
-* [Linux](https://nightly.link/HarbourMasters/PaperBoat/workflows/build/develop/Paperboat-linux.zip)
+Pushing to any branch other than `develop` runs the `Build unsigned iOS IPA` workflow, which builds the app and uploads the IPA. To build locally on a Mac, follow the iOS notes in [docs/android-ios-web.md](docs/android-ios-web.md).
 
 <a href="https://github.com/Kenix3/libultraship/">
   <picture>
@@ -96,9 +60,14 @@ If you want to playtest a continuous integration build, you can find them at the
 
 This wouldn't have been possible without your amazing work:
 
+* [Harbour Masters and the PaperBoat team](https://github.com/HarbourMasters/PaperBoat), whose port this is built on
+* [Kenix3 and the libultraship contributors](https://github.com/Kenix3/libultraship/)
+* [JeodC](https://github.com/JeodC/libultraship), whose libultraship branch (`lus-converge`) this build uses
 * [The Paper Mario decomp team](https://github.com/pmret/papermario)
 * [The Paper Mario DX team](https://github.com/bates64/papermario-dx)
 
-# AI Disclosure
+# License and AI Disclosure
 
-PaperBoat accepts pull requests that use AI, within policy guidelines. For more information please see the HarbourMasters [AI Policy](https://github.com/HarbourMasters/code-of-conduct/blob/main/AI_POLICY.md).
+PaperReality keeps PaperBoat's [CC0 1.0 license](LICENSE).
+
+PaperBoat accepts pull requests that use AI, within the HarbourMasters [AI Policy](https://github.com/HarbourMasters/code-of-conduct/blob/main/AI_POLICY.md). The iOS changes in PaperReality were written with the help of Claude (Anthropic) under the direction of the maintainer.

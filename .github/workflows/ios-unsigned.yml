@@ -48,11 +48,11 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE}-b${{ github.run_number }}" "$PLIST"
           mkdir -p out/Payload
           cp -R "$APP" out/Payload/
-          (cd out && zip -qry Paperboat-unsigned.ipa Payload)
-          mv out/Paperboat-unsigned.ipa out/Paperboat-b${{ github.run_number }}-unsigned.ipa
+          (cd out && zip -qry PaperReality-unsigned.ipa Payload)
+          mv out/PaperReality-unsigned.ipa out/PaperReality-b${{ github.run_number }}-unsigned.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7
         with:
-          name: Paperboat-unsigned-ipa-b${{ github.run_number }}
-          path: out/Paperboat-b${{ github.run_number }}-unsigned.ipa
+          name: PaperReality-unsigned-ipa-b${{ github.run_number }}
+          path: out/PaperReality-b${{ github.run_number }}-unsigned.ipa

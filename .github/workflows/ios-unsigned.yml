@@ -66,11 +66,17 @@ jobs:
           name: PaperReality-unsigned-ipa-b${{ github.run_number }}
           path: out/PaperReality-b${{ github.run_number }}-unsigned.ipa
 
-      - name: Attach IPA to the release
+      - name: Create the release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp out/PaperReality-b${{ github.run_number }}-unsigned.ipa "out/PaperReality-${GITHUB_REF_NAME}-unsigned.ipa"
-          # The release is created with its notes first; this just adds the file to it.
-          gh release upload "$GITHUB_REF_NAME" "out/PaperReality-${GITHUB_REF_NAME}-unsigned.ipa" --clobber
+          NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$NOTES" ]; then
+            gh release create "$GITHUB_REF_NAME" "out/PaperReality-${GITHUB_REF_NAME}-unsigned.ipa" \
+              --title "PaperReality ${GITHUB_REF_NAME#v}" --notes-file "$NOTES"
+          else
+            gh release create "$GITHUB_REF_NAME" "out/PaperReality-${GITHUB_REF_NAME}-unsigned.ipa" \
+              --title "PaperReality ${GITHUB_REF_NAME#v}" --generate-notes
+          fi

@@ -45,7 +45,7 @@ if(IOS)
         # Empty means "whatever the signing identity says".
         set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "$ENV{IOS_DEVELOPMENT_TEAM}")
     endif()
-    set(BUNDLE_ID "dev.net64.paperboat")
+    set(BUNDLE_ID "com.damien.paperreality")
     set(SIGN_LIBRARY ${IOS_SIGNING})
     set(PROJECT_ID "${BUNDLE_ID}")
 endif()

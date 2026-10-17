@@ -274,25 +274,26 @@ void ComputeLayout(OverlayState& state) {
     state.gameButtons.clear();
     // Face buttons, bottom-right.
     // Drawn as smooth vector discs (like L, R and Z) rather than the pixel-art sprites.
-    state.gameButtons.push_back(makeDisc(BTN_A, "A", "A", rA, kBlue, ImVec2(w - 2.6f * u, h - 3.0f * u), 1.5f * u));
-    state.gameButtons.push_back(makeDisc(BTN_B, "B", "B", rB, kGreen, ImVec2(w - 5.6f * u, h - 4.2f * u), 1.25f * u));
+    state.gameButtons.push_back(makeDisc(BTN_A, "A", "A", rA, kBlue, ImVec2(w - 5.8f * u, h - 3.9f * u), 1.5f * u));
+    state.gameButtons.push_back(makeDisc(BTN_B, "B", "B", rB, kGreen, ImVec2(w - 9.0f * u, h - 6.6f * u), 1.25f * u));
     // C buttons in a diamond, above the face buttons.
-    const ImVec2 c(w - 3.3f * u, h - 8.8f * u);
-    const float cOff = 1.6f * u;
+    const ImVec2 c(w - 5.0f * u, h - 10.2f * u);
+    const float cOffX = 1.8f * u;
+    const float cOffY = 1.9f * u;
     const float cR = 0.95f * u;
-    state.gameButtons.push_back(makeDisc(BTN_CUP, "CUp", "C", rCUp, kYellow, ImVec2(c.x, c.y - cOff), cR));
-    state.gameButtons.push_back(makeDisc(BTN_CDOWN, "CDown", "C", rCDown, kYellow, ImVec2(c.x, c.y + cOff), cR));
-    state.gameButtons.push_back(makeDisc(BTN_CLEFT, "CLeft", "C", rCLeft, kYellow, ImVec2(c.x - cOff, c.y), cR));
-    state.gameButtons.push_back(makeDisc(BTN_CRIGHT, "CRight", "C", rCRight, kYellow, ImVec2(c.x + cOff, c.y), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CUP, "CUp", "C", rCUp, kYellow, ImVec2(c.x, c.y - cOffY), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CDOWN, "CDown", "C", rCDown, kYellow, ImVec2(c.x, c.y + cOffY), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CLEFT, "CLeft", "C", rCLeft, kYellow, ImVec2(c.x - cOffX, c.y), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CRIGHT, "CRight", "C", rCRight, kYellow, ImVec2(c.x + cOffX, c.y), cR));
     // Shoulder / trigger bars: L top-left (clear of the menu button), R and Z top-right.
     // Round, gray-ringed L/R slightly larger than A (1.5u); purple-ringed Z the same size as B (1.25u).
     state.gameButtons.push_back(
-        makeRoundRect(BTN_L, "L", "L", rL, kGray, ImVec2(7.6f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+        makeRoundRect(BTN_L, "L", "L", rL, kGray, ImVec2(6.5f * u, 2.0f * u), 2.5f * u, 1.0f * u)
     );
     state.gameButtons.push_back(
-        makeRoundRect(BTN_R, "R", "R", rR, kGray, ImVec2(w - 4.4f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+        makeRoundRect(BTN_R, "R", "R", rR, kGray, ImVec2(w - 4.7f * u, 1.9f * u), 2.5f * u, 1.0f * u)
     );
-    state.gameButtons.push_back(makeDisc(BTN_Z, "Z", "Z", rZ, kPurple, ImVec2(w - 4.4f * u, 5.1f * u), 1.25f * u));
+    state.gameButtons.push_back(makeDisc(BTN_Z, "Z", "Z", rZ, kPurple, ImVec2(w - 10.2f * u, h - 2.9f * u), 1.25f * u));
     // D-pad cross on the left, above the stick area. Each texture is one arm
     // (with the shared hub), so adjacent placement reassembles the cross.
     const ImVec2 d(3.4f * u, h - 9.8f * u);

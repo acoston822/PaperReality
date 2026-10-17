@@ -435,6 +435,14 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
     std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
 
 #if defined(__IOS__)
+    // These screens are drawn as fast as the display allows. Present pacing (holding each frame back until a
+    // minimum time after the previous one) is for the game's fixed frame rate, and has been suspected of leaving
+    // the screen showing an old frame until iOS refreshes the display, so it is off here and restored afterwards.
+    const int savedPresentPacing = CVarGetInteger("gMetalPresentPacing", 1);
+    CVarSetInteger("gMetalPresentPacing", 0);
+#endif
+
+#if defined(__IOS__)
     // First-run diagnostics: record touches, app lifecycle events and long gaps between frames, so a log from a
     // device where these screens react late shows whether input is missing or only the drawing is late.
     spdlog::flush_every(std::chrono::seconds(1));
@@ -958,6 +966,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 
 #if defined(__IOS__)
     SDL_DelEventWatch(bootEventWatch, nullptr);
+    CVarSetInteger("gMetalPresentPacing", savedPresentPacing);
 #endif
 
     // Loading the game archive and setting the game up blocks this thread for several seconds with nothing drawn,

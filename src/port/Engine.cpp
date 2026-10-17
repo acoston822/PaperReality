@@ -441,25 +441,25 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
     const SDL_EventFilter bootEventWatch = [](void*, SDL_Event* e) -> int {
         switch (e->type) {
             case SDL_FINGERDOWN:
-                SPDLOG_INFO("[boot] touch down ({:.2f},{:.2f})", e->tfinger.x, e->tfinger.y);
+                SPDLOG_WARN("[boot] touch down ({:.2f},{:.2f})", e->tfinger.x, e->tfinger.y);
                 break;
             case SDL_FINGERUP:
-                SPDLOG_INFO("[boot] touch up");
+                SPDLOG_WARN("[boot] touch up");
                 break;
             case SDL_MOUSEBUTTONDOWN:
-                SPDLOG_INFO("[boot] mouse down (touch={})", e->button.which == SDL_TOUCH_MOUSEID);
+                SPDLOG_WARN("[boot] mouse down (touch={})", e->button.which == SDL_TOUCH_MOUSEID);
                 break;
             case SDL_MOUSEBUTTONUP:
-                SPDLOG_INFO("[boot] mouse up");
+                SPDLOG_WARN("[boot] mouse up");
                 break;
             case SDL_APP_WILLENTERBACKGROUND:
-                SPDLOG_INFO("[boot] app will enter background");
+                SPDLOG_WARN("[boot] app will enter background");
                 break;
             case SDL_APP_DIDENTERFOREGROUND:
-                SPDLOG_INFO("[boot] app entered foreground");
+                SPDLOG_WARN("[boot] app entered foreground");
                 break;
             case SDL_WINDOWEVENT:
-                SPDLOG_INFO("[boot] window event {}", (int) e->window.event);
+                SPDLOG_WARN("[boot] window event {}", (int) e->window.event);
                 break;
             default:
                 break;
@@ -947,7 +947,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
             const auto now = std::chrono::steady_clock::now();
             const auto gapMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - bootLastFrame).count();
             if (gapMs > 250) {
-                SPDLOG_INFO("[boot] frame gap {} ms (promptStep={})", (long long) gapMs, (int) promptStep);
+                SPDLOG_WARN("[boot] frame gap {} ms (promptStep={})", (long long) gapMs, (int) promptStep);
             }
             bootLastFrame = now;
         }

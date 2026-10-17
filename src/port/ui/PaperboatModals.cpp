@@ -65,7 +65,7 @@ void PaperboatModalWindow::DrawElement() {
             ImGui::Text("%s", curModal.message_.c_str());
             UIWidgets::PushStyleButton(THEME_COLOR);
             if (ImGui::Button(curModal.button1_.c_str())) {
-                SPDLOG_INFO("[popup] \"{}\": {}", curModal.title_, curModal.button1_);
+                SPDLOG_WARN("[popup] \"{}\": {}", curModal.title_, curModal.button1_);
                 if (curModal.button1callback_ != nullptr) {
                     curModal.button1callback_();
                 }
@@ -77,7 +77,7 @@ void PaperboatModalWindow::DrawElement() {
                 ImGui::SameLine();
                 UIWidgets::PushStyleButton(THEME_COLOR);
                 if (ImGui::Button(curModal.button2_.c_str())) {
-                    SPDLOG_INFO("[popup] \"{}\": {}", curModal.title_, curModal.button2_);
+                    SPDLOG_WARN("[popup] \"{}\": {}", curModal.title_, curModal.button2_);
                     if (curModal.button2callback_ != nullptr) {
                         curModal.button2callback_();
                     }

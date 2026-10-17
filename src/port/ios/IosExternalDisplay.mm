@@ -20,7 +20,6 @@ extern "C" void LUS_SetExternalDisplayLayer(void* layer);
 namespace Paperboat {
 namespace {
 
-bool sEnabled = true;
 bool sObserving = false;
 UIWindow* sWindow = nil;
 
@@ -61,7 +60,7 @@ void Attach(UIScreen* screen) {
 // Main thread only.
 void Refresh() {
     NSArray<UIScreen*>* screens = [UIScreen screens];
-    if (sEnabled && screens.count > 1) {
+    if (screens.count > 1) {
         Attach(screens[1]);
     } else {
         Detach();
@@ -70,8 +69,7 @@ void Refresh() {
 
 } // namespace
 
-void IosExternalDisplayInit(bool enabled) {
-    sEnabled = enabled;
+void IosExternalDisplayInit() {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (!sObserving) {
             sObserving = true;
@@ -89,13 +87,6 @@ void IosExternalDisplayInit(bool enabled) {
                                 Refresh();
                             }];
         }
-        Refresh();
-    });
-}
-
-void IosExternalDisplaySetEnabled(bool enabled) {
-    sEnabled = enabled;
-    dispatch_async(dispatch_get_main_queue(), ^{
         Refresh();
     });
 }

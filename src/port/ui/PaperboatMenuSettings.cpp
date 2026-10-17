@@ -3,7 +3,6 @@
 #include "PaperboatMenu.h"
 #include "PaperboatModals.h"
 #include "TouchControls.h"
-#include "port/ios/IosExternalDisplay.h"
 #include "UIWidgets.hpp"
 #include "port/Engine.h"
 #include "port/TextureCache.h"
@@ -397,20 +396,6 @@ void PaperboatMenu::AddMenuSettings() {
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", "Graphics", 2);
     AddWidget(path, "Graphics Options", WIDGET_SEPARATOR_TEXT);
-#if defined(__IOS__)
-    AddWidget(path, "Second Screen (AirPlay)", WIDGET_CVAR_CHECKBOX)
-        .CVar(CVAR_SETTING("ExternalDisplay"))
-        .RaceDisable(false)
-        .Callback([](WidgetInfo& info) {
-            Paperboat::IosExternalDisplaySetEnabled(CVarGetInteger(CVAR_SETTING("ExternalDisplay"), 1) != 0);
-        })
-        .Options(
-            CheckboxOptions().DefaultValue(true).Tooltip(
-                "When an AirPlay screen or other display is connected, shows only the game on it. The touch "
-                "controls and menus stay on this device. Turn this off to mirror this device's screen instead."
-            )
-        );
-#endif
     AddWidget(path, "Toggle Fullscreen", WIDGET_BUTTON)
         .RaceDisable(false)
         .Callback([](WidgetInfo& info) { Ship::Context::GetRawInstance()->GetWindow()->ToggleFullscreen(); })

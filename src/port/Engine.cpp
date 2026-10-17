@@ -922,7 +922,7 @@ void GameEngine::Create(int argc, char* argv[]) {
     instance->RunExtract(argc, argv);
     instance->FinishInit();
     PaperboatGui::SetupGuiElements();
-    Paperboat::IosExternalDisplayInit(CVarGetInteger(CVAR_SETTING("ExternalDisplay"), 1) != 0);
+    Paperboat::IosExternalDisplayInit();
     PortEnhancements_Init();
     ShipInit::InitAll();
     instance->AudioInit();

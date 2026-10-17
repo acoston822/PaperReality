@@ -135,10 +135,17 @@ extern "C"
     auto wnd = std::dynamic_pointer_cast<Fast::Fast3dWindow>(Ship::Context::GetRawInstance()->GetWindow());
 
     // Initialize game systems
+    const auto initStart = std::chrono::steady_clock::now();
     init_game_globals();
     load_engine_data();
+    SPDLOG_WARN(
+        "[boot] init_game_globals + load_engine_data took {} ms",
+        (long long) std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - initStart)
+            .count()
+    );
 
     Graphics_Start();
+    SPDLOG_WARN("[boot] entering main loop");
 
     while (wnd->IsRunning()) {
         ThreadWatchdog_Beat(WATCHDOG_MAIN_LOOP);

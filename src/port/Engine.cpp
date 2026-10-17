@@ -998,16 +998,37 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 void GameEngine::Create(int argc, char* argv[]) {
     const auto instance = Instance = new GameEngine();
     instance->RunExtract(argc, argv);
+#if defined(__IOS__)
+    // Time each start-up step; a step that waits on iOS rather than working shows up as a long one.
+    auto stepStart = std::chrono::steady_clock::now();
+    const auto stepDone = [&stepStart](const char* name) {
+        const auto now = std::chrono::steady_clock::now();
+        SPDLOG_WARN(
+            "[boot] {} took {} ms", name,
+            (long long) std::chrono::duration_cast<std::chrono::milliseconds>(now - stepStart).count()
+        );
+        stepStart = now;
+    };
+#else
+    const auto stepDone = [](const char*) {};
+#endif
+    stepDone("after first-run screens");
     instance->FinishInit();
+    stepDone("FinishInit");
     PaperboatGui::SetupGuiElements();
+    stepDone("SetupGuiElements");
     Paperboat::IosExternalDisplayInit();
 #if defined(__IOS__)
     // Write the log to disk every second, so it is complete even if the app is swiped away instead of quit.
     spdlog::flush_every(std::chrono::seconds(1));
 #endif
+    stepDone("IosExternalDisplayInit");
     PortEnhancements_Init();
+    stepDone("PortEnhancements_Init");
     ShipInit::InitAll();
+    stepDone("ShipInit::InitAll");
     instance->AudioInit();
+    stepDone("AudioInit");
 }
 
 bool GameEngine::sRelaunchRequested = false;

@@ -15,6 +15,8 @@
 #include "port/TextureCache.h"
 #include "port/ios/IosFilePicker.h"
 #include "port/ios/IosExternalDisplay.h"
+#include <spdlog/spdlog.h>
+#include <chrono>
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
 #include "ui/TouchDragScroll.h"
@@ -923,6 +925,10 @@ void GameEngine::Create(int argc, char* argv[]) {
     instance->FinishInit();
     PaperboatGui::SetupGuiElements();
     Paperboat::IosExternalDisplayInit();
+#if defined(__IOS__)
+    // Write the log to disk every second, so it is complete even if the app is swiped away instead of quit.
+    spdlog::flush_every(std::chrono::seconds(1));
+#endif
     PortEnhancements_Init();
     ShipInit::InitAll();
     instance->AudioInit();

@@ -7,6 +7,8 @@
 
 // In libultraship's Metal backend. Passing nullptr stops the second screen.
 extern "C" void LUS_SetExternalDisplayLayer(void* layer);
+// Writes a line to Paperboat.log (defined in TouchControls.cpp).
+extern "C" void IosExternalDisplay_Log(const char* message);
 
 @interface PRMetalView : UIView
 @end
@@ -22,6 +24,11 @@ namespace {
 
 bool sObserving = false;
 UIWindow* sWindow = nil;
+NSUInteger sLastScreenCount = 0;
+
+void Log(NSString* message) {
+    IosExternalDisplay_Log([message UTF8String]);
+}
 
 void Detach() {
     if (sWindow == nil) {
@@ -53,6 +60,8 @@ void Attach(UIScreen* screen) {
     window.rootViewController = controller;
     window.hidden = NO;
     sWindow = window;
+    Log([NSString stringWithFormat:@"window created on external screen %.0fx%.0f", screen.bounds.size.width,
+                                   screen.bounds.size.height]);
 
     LUS_SetExternalDisplayLayer((__bridge void*) layer);
 }
@@ -60,8 +69,14 @@ void Attach(UIScreen* screen) {
 // Main thread only.
 void Refresh() {
     NSArray<UIScreen*>* screens = [UIScreen screens];
-    if (screens.count > 1) {
-        Attach(screens[1]);
+    UIScreen* external = screens.count > 1 ? screens[1] : [UIScreen mainScreen].mirroredScreen;
+    if (screens.count != sLastScreenCount) {
+        sLastScreenCount = screens.count;
+        Log([NSString stringWithFormat:@"screens=%lu mirrored=%d external=%d", (unsigned long) screens.count,
+                                       [UIScreen mainScreen].mirroredScreen != nil, external != nil]);
+    }
+    if (external != nil && external != [UIScreen mainScreen]) {
+        Attach(external);
     } else {
         Detach();
     }
@@ -78,14 +93,23 @@ void IosExternalDisplayInit() {
                                 object:nil
                                  queue:[NSOperationQueue mainQueue]
                             usingBlock:^(NSNotification*) {
+                                Log(@"screen connected");
                                 Refresh();
                             }];
             [center addObserverForName:UIScreenDidDisconnectNotification
                                 object:nil
                                  queue:[NSOperationQueue mainQueue]
                             usingBlock:^(NSNotification*) {
+                                Log(@"screen disconnected");
                                 Refresh();
                             }];
+            // Some iOS versions don't post the connect notification for AirPlay mirroring, so also check regularly.
+            [NSTimer scheduledTimerWithTimeInterval:2.0
+                                            repeats:YES
+                                              block:^(NSTimer*) {
+                                                  Refresh();
+                                              }];
+            Log(@"watching for external screens");
         }
         Refresh();
     });

@@ -954,3 +954,8 @@ void TouchControlsOverlay::Draw() {
 }
 
 } // namespace PaperboatGui
+
+// Lets the Objective-C++ external display code write to Paperboat.log.
+extern "C" void IosExternalDisplay_Log(const char* message) {
+    SPDLOG_INFO("[external-display] {}", message);
+}

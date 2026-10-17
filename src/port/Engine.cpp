@@ -434,6 +434,42 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 
     std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
 
+#if defined(__IOS__)
+    // First-run diagnostics: record touches, app lifecycle events and long gaps between frames, so a log from a
+    // device where these screens react late shows whether input is missing or only the drawing is late.
+    spdlog::flush_every(std::chrono::seconds(1));
+    const SDL_EventFilter bootEventWatch = [](void*, SDL_Event* e) -> int {
+        switch (e->type) {
+            case SDL_FINGERDOWN:
+                SPDLOG_INFO("[boot] touch down ({:.2f},{:.2f})", e->tfinger.x, e->tfinger.y);
+                break;
+            case SDL_FINGERUP:
+                SPDLOG_INFO("[boot] touch up");
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+                SPDLOG_INFO("[boot] mouse down (touch={})", e->button.which == SDL_TOUCH_MOUSEID);
+                break;
+            case SDL_MOUSEBUTTONUP:
+                SPDLOG_INFO("[boot] mouse up");
+                break;
+            case SDL_APP_WILLENTERBACKGROUND:
+                SPDLOG_INFO("[boot] app will enter background");
+                break;
+            case SDL_APP_DIDENTERFOREGROUND:
+                SPDLOG_INFO("[boot] app entered foreground");
+                break;
+            case SDL_WINDOWEVENT:
+                SPDLOG_INFO("[boot] window event {}", (int) e->window.event);
+                break;
+            default:
+                break;
+        }
+        return 1;
+    };
+    SDL_AddEventWatch(bootEventWatch, nullptr);
+    auto bootLastFrame = std::chrono::steady_clock::now();
+#endif
+
     while (!extractDone) {
         if (PaperboatGui::PopupsQueued() > 0 || extracting) {
             goto render;
@@ -906,8 +942,21 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
         gui->EndDraw();
         wnd->EndFrame();
         ImGui::PopStyleColor(2);
+#if defined(__IOS__)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            const auto gapMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - bootLastFrame).count();
+            if (gapMs > 250) {
+                SPDLOG_INFO("[boot] frame gap {} ms (promptStep={})", (long long) gapMs, (int) promptStep);
+            }
+            bootLastFrame = now;
+        }
+#endif
     }
 
+#if defined(__IOS__)
+    SDL_DelEventWatch(bootEventWatch, nullptr);
+#endif
     threadPool = nullptr;
 
 #if !defined(__SWITCH__) && !defined(__WIIU__)

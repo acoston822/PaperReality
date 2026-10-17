@@ -470,8 +470,10 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
     auto bootLastFrame = std::chrono::steady_clock::now();
 #endif
 
+    bool showedFirstRunScreens = false;
     while (!extractDone) {
         if (PaperboatGui::PopupsQueued() > 0 || extracting) {
+            showedFirstRunScreens = true;
             goto render;
         }
 
@@ -957,6 +959,31 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 #if defined(__IOS__)
     SDL_DelEventWatch(bootEventWatch, nullptr);
 #endif
+
+    // Loading the game archive and setting the game up blocks this thread for several seconds with nothing drawn,
+    // which leaves the last dialog frozen on screen. After the first-run screens, draw a loading message first.
+    if (showedFirstRunScreens) {
+        for (int i = 0; i < 3 && WindowIsRunning(); i++) {
+            wnd->HandleEvents();
+            gui->StartDraw();
+            wnd->StartFrame();
+            wnd->RunGuiOnly();
+            ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+            if (ImGui::Begin(
+                    "Loading", nullptr,
+                    ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+                        | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings
+                        | ImGuiWindowFlags_AlwaysAutoResize
+                ))
+            {
+                ImGui::SetWindowFontScale(kFirstRunPopupScale);
+                ImGui::Text("Loading game...");
+            }
+            ImGui::End();
+            gui->EndDraw();
+            wnd->EndFrame();
+        }
+    }
     threadPool = nullptr;
 
 #if !defined(__SWITCH__) && !defined(__WIIU__)

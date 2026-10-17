@@ -273,34 +273,17 @@ void ComputeLayout(OverlayState& state) {
 
     state.gameButtons.clear();
     // Face buttons, bottom-right.
-    state.gameButtons.push_back(make(
-        BTN_A, "A", "A", "A-Btn", "textures/buttons/ABtn.png", "A-Btn Outline", "textures/buttons/ABtnOutline.png", rA,
-        kBlue, 0, 0, ImVec2(w - 2.6f * u, h - 3.0f * u), 1.5f * u
-    ));
-    state.gameButtons.push_back(make(
-        BTN_B, "B", "B", "B-Btn", "textures/buttons/BBtn.png", "B-Btn Outline", "textures/buttons/BBtnOutline.png", rB,
-        kGreen, 0, 0, ImVec2(w - 5.6f * u, h - 4.2f * u), 1.25f * u
-    ));
+    // Drawn as smooth vector discs (like L, R and Z) rather than the pixel-art sprites.
+    state.gameButtons.push_back(makeDisc(BTN_A, "A", "A", rA, kBlue, ImVec2(w - 2.6f * u, h - 3.0f * u), 1.5f * u));
+    state.gameButtons.push_back(makeDisc(BTN_B, "B", "B", rB, kGreen, ImVec2(w - 5.6f * u, h - 4.2f * u), 1.25f * u));
     // C buttons in a diamond, above the face buttons.
     const ImVec2 c(w - 3.3f * u, h - 8.8f * u);
     const float cOff = 1.6f * u;
     const float cR = 0.95f * u;
-    state.gameButtons.push_back(make(
-        BTN_CUP, "CUp", "C", "C-Up", "textures/buttons/CUp.png", "C-Up Outline", "textures/buttons/CUpOutline.png",
-        rCUp, kYellow, 0, -1, ImVec2(c.x, c.y - cOff), cR
-    ));
-    state.gameButtons.push_back(make(
-        BTN_CDOWN, "CDown", "C", "C-Down", "textures/buttons/CDown.png", "C-Down Outline",
-        "textures/buttons/CDownOutline.png", rCDown, kYellow, 0, 1, ImVec2(c.x, c.y + cOff), cR
-    ));
-    state.gameButtons.push_back(make(
-        BTN_CLEFT, "CLeft", "C", "C-Left", "textures/buttons/CLeft.png", "C-Left Outline",
-        "textures/buttons/CLeftOutline.png", rCLeft, kYellow, -1, 0, ImVec2(c.x - cOff, c.y), cR
-    ));
-    state.gameButtons.push_back(make(
-        BTN_CRIGHT, "CRight", "C", "C-Right", "textures/buttons/CRight.png", "C-Right Outline",
-        "textures/buttons/CRightOutline.png", rCRight, kYellow, 1, 0, ImVec2(c.x + cOff, c.y), cR
-    ));
+    state.gameButtons.push_back(makeDisc(BTN_CUP, "CUp", "C", rCUp, kYellow, ImVec2(c.x, c.y - cOff), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CDOWN, "CDown", "C", rCDown, kYellow, ImVec2(c.x, c.y + cOff), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CLEFT, "CLeft", "C", rCLeft, kYellow, ImVec2(c.x - cOff, c.y), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CRIGHT, "CRight", "C", rCRight, kYellow, ImVec2(c.x + cOff, c.y), cR));
     // Shoulder / trigger bars: L top-left (clear of the menu button), R and Z top-right.
     // Round, gray-ringed L/R slightly larger than A (1.5u); purple-ringed Z the same size as B (1.25u).
     state.gameButtons.push_back(
@@ -336,10 +319,7 @@ void ComputeLayout(OverlayState& state) {
     ));
     }
     // Start, bottom-center.
-    state.gameButtons.push_back(make(
-        BTN_START, "Start", "S", "Start-Btn", "textures/buttons/StartBtn.png", "Start-Btn Outline",
-        "textures/buttons/StartBtnOutline.png", rStart, kRed, 0, 0, ImVec2(w * 0.5f, h - 1.7f * u), 0.9f * u
-    ));
+    state.gameButtons.push_back(makeDisc(BTN_START, "Start", "S", rStart, kRed, ImVec2(w * 0.5f, h - 1.7f * u), 0.9f * u));
 }
 
 float Dist(const ImVec2& a, const ImVec2& b) {

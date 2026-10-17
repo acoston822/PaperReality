@@ -14,6 +14,7 @@
 #include "port/DevTools/ThreadWatchdog.h"
 #include "port/TextureCache.h"
 #include "port/ios/IosFilePicker.h"
+#include "port/ios/IosExternalDisplay.h"
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
 #include "ui/TouchDragScroll.h"
@@ -921,6 +922,7 @@ void GameEngine::Create(int argc, char* argv[]) {
     instance->RunExtract(argc, argv);
     instance->FinishInit();
     PaperboatGui::SetupGuiElements();
+    Paperboat::IosExternalDisplayInit(CVarGetInteger(CVAR_SETTING("ExternalDisplay"), 1) != 0);
     PortEnhancements_Init();
     ShipInit::InitAll();
     instance->AudioInit();

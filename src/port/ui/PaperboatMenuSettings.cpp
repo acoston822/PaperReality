@@ -317,9 +317,8 @@ void PaperboatMenu::AddMenuSettings() {
         .CVar(CVAR_TOUCH("ShowDpad"))
         .RaceDisable(false)
         .Options(
-            CheckboxOptions().DefaultValue(true).Tooltip(
-                "Shows the on-screen D-pad. Turn it off to remove the D-pad from the screen; the other "
-                "controls are unaffected."
+            CheckboxOptions().DefaultValue(false).Tooltip(
+                "Shows the on-screen D-pad when enabled. Off by default; the other controls are unaffected."
             )
         );
     AddWidget(path, "Hide With Controller", WIDGET_CVAR_CHECKBOX)

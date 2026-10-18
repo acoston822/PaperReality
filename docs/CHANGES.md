@@ -28,7 +28,7 @@ Base: HarbourMasters/PaperBoat `develop` at d98b4b63 (merged on branch `merge/up
 - Round L/R/Z buttons were tried, then L/R became rounded rectangles (about 5u by 2u) with gray rings; Z is a purple circle. Ring thickness matches the other buttons and the letters were removed.
 - Slightly larger C buttons; translucent colored fills; pressed buttons fill to the ring color. Gray L/R stay clear when idle.
 - Joystick: round themed ring, small translucent thumb dot in the menu theme color, optional "Hide Joystick When Idle" (fully invisible, still shown in the layout editor).
-- "Show Touch D-Pad" setting.
+- "Show Touch D-Pad" defaults to off. Users can enable it in settings; saved choices are preserved.
 - Haptic feedback setting with a strength dropdown (`IosHaptics.h/.mm`).
 - "Hide With Controller": touch controls hide and ignore touches while a game controller is connected, and return on disconnect. On by default; always visible in the layout editor.
 

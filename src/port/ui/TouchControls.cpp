@@ -300,7 +300,7 @@ void ComputeLayout(OverlayState& state) {
     const float dOff = 0.75f * u;
     // "Show Touch D-Pad" off: leave the four arms out entirely, so they are neither drawn, hit-tested nor
     // draggable in the layout editor.
-    const bool showDpad = CVarGetInteger(CVAR_TOUCH("ShowDpad"), 1) != 0;
+    const bool showDpad = CVarGetInteger(CVAR_TOUCH("ShowDpad"), 0) != 0;
     if (showDpad) {
     state.gameButtons.push_back(make(
         BTN_DUP, "DUp", "D", "Dpad-Up", "textures/buttons/DPadUp.png", "Dpad-Up Outline",

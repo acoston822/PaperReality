@@ -258,7 +258,7 @@ void ComputeLayout(OverlayState& state) {
 
     state.stickTravel = 2.4f * u;
     state.nubRadius = 1.6f * u;
-    state.stickRest = LoadPos("Stick", ImVec2(4.8f * u, h - 4.8f * u), w, h);
+    state.stickRest = LoadPos("Stick", ImVec2(8.4f * u, h - 5.6f * u), w, h);
     state.stickUv0 = UvMin(rStick);
     state.stickUv1 = UvMax(rStick);
 

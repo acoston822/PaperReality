@@ -1,6 +1,6 @@
 # PaperReality changes from HarbourMasters/PaperBoat
 
-Base: HarbourMasters/PaperBoat `develop` at 7f038b85. 35 files changed, 1263 insertions, 151 deletions. These changes have not all been tested on a device.
+Base: HarbourMasters/PaperBoat `develop` at d98b4b63 (merged on branch `merge/upstream-2026-10-18`: #262, #263, #264, #266; originally 7f038b85). 35 files changed, 1263 insertions, 151 deletions. These changes have not all been tested on a device.
 
 ## Since 1.0.0 (branch `feat/airplay-second-screen`)
 - **AirPlay second screen** (always on, no setting). When an external screen or AirPlay display is connected, the game image is shown there and the phone shows only the touch controls and menus, with black where the game image would be. Touch controls are not drawn on the external screen. Code: `src/port/ios/IosExternalDisplay.h/.mm` (watches UIScreen connect/disconnect, and polls for a mirrored screen), plus the libultraship fork (`external-display` branch): a second `CAMetalLayer` output of the finished game image without the UI, and skipping the game image on the device while an external screen is active.

@@ -23,6 +23,12 @@ These are the files PaperReality changes (full list in [CHANGES.md](CHANGES.md))
 * `ios/Icon.png`: if upstream changes it, keep ours. The workflow also overwrites the bundle icon from `ios/PaperReality-Icon.png`.
 * `external/libultraship`: pinned to a fork (JeodC's `lus-converge` plus Metal present pacing). If upstream changes the pin, check it against the fork before taking it.
 
+## Keep ours when merging
+* `src/screen_overlays.c`: the `gsSPEndDisplayList()` at the end of `D_8014EA48`. Without it the display list runs past its end on iOS and crashes on the first frame. If upstream touches that list, resolve the conflict in our favour (or confirm upstream added the terminator).
+
+## Merge log
+* 2026-10-18: merged upstream `develop` at d98b4b63 (#262, #263, #264, #266) with no conflicts. Upstream's `build.yml` (now with an iOS job) and `pages.yml` come with it; the PaperReality IPA workflow is `ios-unsigned.yml`.
+
 ## Rules that keep merges easy
 * Don't rename source files, folders, functions or the `Paperboat` strings in code. Only the README, docs and workflow output names say PaperReality.
 * Put new iOS-only code in new files (like `src/port/ios/` and `TouchDragScroll.*`) rather than rewriting upstream files.

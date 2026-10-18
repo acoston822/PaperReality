@@ -76,9 +76,10 @@
 #include <thread>
 #include <unordered_map>
 
-// The decomp EVT script API defines a function-like `Add(VAR, VALUE)` macro that
-// swallows ComponentList::Add(). Engine.cpp does not build EVT scripts, so we drop it.
+// The decomp EVT script API's Add and End macros collide with ComponentList::Add()
+// and ImGui::End(). Engine.cpp does not build EVT scripts, so we drop them.
 #undef Add
+#undef End
 
 using json = nlohmann::json;
 

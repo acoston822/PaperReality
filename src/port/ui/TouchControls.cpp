@@ -276,15 +276,14 @@ void ComputeLayout(OverlayState& state) {
     // Drawn as smooth vector discs (like L, R and Z) rather than the pixel-art sprites.
     state.gameButtons.push_back(makeDisc(BTN_A, "A", "A", rA, kBlue, ImVec2(w - 5.8f * u, h - 3.9f * u), 1.5f * u));
     state.gameButtons.push_back(makeDisc(BTN_B, "B", "B", rB, kGreen, ImVec2(w - 9.0f * u, h - 6.6f * u), 1.25f * u));
-    // C buttons in a diamond, above the face buttons.
+    // C buttons in a square diamond, above the face buttons.
     const ImVec2 c(w - 5.0f * u, h - 10.2f * u);
-    const float cOffX = 1.8f * u;
-    const float cOffY = 1.9f * u;
+    const float cOffset = 1.8f * u;
     const float cR = 0.95f * u;
-    state.gameButtons.push_back(makeDisc(BTN_CUP, "CUp", "C", rCUp, kYellow, ImVec2(c.x, c.y - cOffY), cR));
-    state.gameButtons.push_back(makeDisc(BTN_CDOWN, "CDown", "C", rCDown, kYellow, ImVec2(c.x, c.y + cOffY), cR));
-    state.gameButtons.push_back(makeDisc(BTN_CLEFT, "CLeft", "C", rCLeft, kYellow, ImVec2(c.x - cOffX, c.y), cR));
-    state.gameButtons.push_back(makeDisc(BTN_CRIGHT, "CRight", "C", rCRight, kYellow, ImVec2(c.x + cOffX, c.y), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CUP, "CUp", "C", rCUp, kYellow, ImVec2(c.x, c.y - cOffset), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CDOWN, "CDown", "C", rCDown, kYellow, ImVec2(c.x, c.y + cOffset), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CLEFT, "CLeft", "C", rCLeft, kYellow, ImVec2(c.x - cOffset, c.y), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CRIGHT, "CRight", "C", rCRight, kYellow, ImVec2(c.x + cOffset, c.y), cR));
     // L/R share their height and edge inset so their default positions are mirrored.
     const float shoulderInset = 5.0f * u;
     const float shoulderY = 1.9f * u;

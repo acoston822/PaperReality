@@ -5,7 +5,6 @@
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-#include <spdlog/spdlog.h>
 #include <utility>
 #include <vector>
 
@@ -96,12 +95,10 @@ void IosPickFiles(bool allowMultiple, std::function<void(std::vector<std::string
             }
             present = nil;
             sPresenting = false;
-            SPDLOG_WARN("[picker] no window to present from, giving up");
             onPicked({});
             return;
         }
         present = nil;
-        SPDLOG_WARN("[picker] presenting after {} retries", attempts);
         // Any file: N64 ROM extensions have no registered type, so filtering by type would hide them.
         UIDocumentPickerViewController* picker =
             [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ UTTypeData ] asCopy:YES];
@@ -110,7 +107,6 @@ void IosPickFiles(bool allowMultiple, std::function<void(std::vector<std::string
         sDelegate.onDone = ^(NSArray<NSString*>* paths) {
             sDelegate = nil;
             sPresenting = false;
-            SPDLOG_WARN("[picker] done, {} file(s)", (int) paths.count);
             std::vector<std::string> result;
             for (NSString* path in paths) {
                 if (path.UTF8String != nullptr) {

@@ -443,42 +443,6 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
     CVarSetInteger("gMetalPresentPacing", 0);
 #endif
 
-#if defined(__IOS__)
-    // First-run diagnostics: record touches, app lifecycle events and long gaps between frames, so a log from a
-    // device where these screens react late shows whether input is missing or only the drawing is late.
-    spdlog::flush_every(std::chrono::seconds(1));
-    const SDL_EventFilter bootEventWatch = [](void*, SDL_Event* e) -> int {
-        switch (e->type) {
-            case SDL_FINGERDOWN:
-                SPDLOG_WARN("[boot] touch down ({:.2f},{:.2f})", e->tfinger.x, e->tfinger.y);
-                break;
-            case SDL_FINGERUP:
-                SPDLOG_WARN("[boot] touch up");
-                break;
-            case SDL_MOUSEBUTTONDOWN:
-                SPDLOG_WARN("[boot] mouse down (touch={})", e->button.which == SDL_TOUCH_MOUSEID);
-                break;
-            case SDL_MOUSEBUTTONUP:
-                SPDLOG_WARN("[boot] mouse up");
-                break;
-            case SDL_APP_WILLENTERBACKGROUND:
-                SPDLOG_WARN("[boot] app will enter background");
-                break;
-            case SDL_APP_DIDENTERFOREGROUND:
-                SPDLOG_WARN("[boot] app entered foreground");
-                break;
-            case SDL_WINDOWEVENT:
-                SPDLOG_WARN("[boot] window event {}", (int) e->window.event);
-                break;
-            default:
-                break;
-        }
-        return 1;
-    };
-    SDL_AddEventWatch(bootEventWatch, nullptr);
-    auto bootLastFrame = std::chrono::steady_clock::now();
-#endif
-
     bool showedFirstRunScreens = false;
     while (!extractDone) {
         if (PaperboatGui::PopupsQueued() > 0 || extracting) {
@@ -953,20 +917,9 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
         gui->EndDraw();
         wnd->EndFrame();
         ImGui::PopStyleColor(2);
-#if defined(__IOS__)
-        {
-            const auto now = std::chrono::steady_clock::now();
-            const auto gapMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - bootLastFrame).count();
-            if (gapMs > 250) {
-                SPDLOG_WARN("[boot] frame gap {} ms (promptStep={})", (long long) gapMs, (int) promptStep);
-            }
-            bootLastFrame = now;
-        }
-#endif
     }
 
 #if defined(__IOS__)
-    SDL_DelEventWatch(bootEventWatch, nullptr);
     CVarSetInteger("gMetalPresentPacing", savedPresentPacing);
 #endif
 
@@ -1008,37 +961,16 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 void GameEngine::Create(int argc, char* argv[]) {
     const auto instance = Instance = new GameEngine();
     instance->RunExtract(argc, argv);
-#if defined(__IOS__)
-    // Time each start-up step; a step that waits on iOS rather than working shows up as a long one.
-    auto stepStart = std::chrono::steady_clock::now();
-    const auto stepDone = [&stepStart](const char* name) {
-        const auto now = std::chrono::steady_clock::now();
-        SPDLOG_WARN(
-            "[boot] {} took {} ms", name,
-            (long long) std::chrono::duration_cast<std::chrono::milliseconds>(now - stepStart).count()
-        );
-        stepStart = now;
-    };
-#else
-    const auto stepDone = [](const char*) {};
-#endif
-    stepDone("after first-run screens");
     instance->FinishInit();
-    stepDone("FinishInit");
     PaperboatGui::SetupGuiElements();
-    stepDone("SetupGuiElements");
     Paperboat::IosExternalDisplayInit();
 #if defined(__IOS__)
     // Write the log to disk every second, so it is complete even if the app is swiped away instead of quit.
     spdlog::flush_every(std::chrono::seconds(1));
 #endif
-    stepDone("IosExternalDisplayInit");
     PortEnhancements_Init();
-    stepDone("PortEnhancements_Init");
     ShipInit::InitAll();
-    stepDone("ShipInit::InitAll");
     instance->AudioInit();
-    stepDone("AudioInit");
 }
 
 bool GameEngine::sRelaunchRequested = false;

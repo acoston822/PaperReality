@@ -1,13 +1,23 @@
 # PaperReality changes from HarbourMasters/PaperBoat
 
-Base: HarbourMasters/PaperBoat `develop` at 7f038b85. 29 files changed, 863 insertions, 62 deletions. These changes have not all been tested on a device.
+Base: HarbourMasters/PaperBoat `develop` at 7f038b85. 35 files changed, 1263 insertions, 151 deletions. These changes have not all been tested on a device.
+
+## Since 1.0.0 (branch `feat/airplay-second-screen`)
+- **AirPlay second screen** (always on, no setting). When an external screen or AirPlay display is connected, the game image is shown there and the phone shows only the touch controls and menus, with black where the game image would be. Touch controls are not drawn on the external screen. Code: `src/port/ios/IosExternalDisplay.h/.mm` (watches UIScreen connect/disconnect, and polls for a mirrored screen), plus the libultraship fork (`external-display` branch): a second `CAMetalLayer` output of the finished game image without the UI, and skipping the game image on the device while an external screen is active.
+- **Touch layout**: new default positions for A, B, C, Z, L, R and Start.
+- **Smooth buttons**: A, B, C and Start now use the same smooth round outline as L, R and Z.
+- **Hide With Controller** only reacts to real game controllers, not other joystick-class devices.
+- **Popups and dropdowns**: swipe scrolling now runs for every open popup list (such as the colour dropdowns), not only the pane lists.
+- **First-run reliability**: the Files picker finds the game window even when it is not yet the key window and retries instead of treating that as a cancel, and ignores taps while open. First-run screens present frames without Metal present pacing (restored before the game starts), and a "Loading game..." message is drawn before game start-up blocks the thread, so the last dialog no longer sits frozen until the app is backgrounded.
+- **Logging**: `Paperboat.log` is flushed to disk every second so it survives the app being swiped away.
+- **Crash fix kept over upstream**: the missing `gsSPEndDisplayList()` at the end of `D_8014EA48` in `src/screen_overlays.c` stays. Upstream still crashes on first boot on iOS without it.
 
 ## Build and packaging (iOS)
 - GitHub Actions workflow `ios-unsigned.yml` builds an unsigned IPA on every push except `develop`. The run number is stamped in as the build number (CFBundleVersion, and `-bN` on the version string) and is logged at startup.
 - iOS build fixes in the first commit: Game Mode keys, display-list terminator, alt-only `_img` lookup, darkness-stencil cast (`screen_overlays.c`, `screen_render_util.c`, `MapTexturePatches.cpp`).
 - CMake: Objective-C++ (`src/port/ios/*.mm`, ARC) and the UIKit and UniformTypeIdentifiers frameworks on iOS.
 - App icon: red paper boat (`ios/Icon.png`). `ios/PaperReality-Icon.png` is a copy the workflow always copies over the bundle icon, so an upstream merge can't bring the old one back. `ios/plist.in` updated.
-- libultraship submodule now points at `acoston822/libultraship` (JeodC `lus-converge` plus Metal present pacing, branch `present-pacing-clean`).
+- libultraship submodule now points at `acoston822/libultraship` (JeodC `lus-converge`, Metal present pacing, and the second-screen output; branch `external-display`).
 
 ## Frame pacing
 - Metal present pacing comes from the libultraship fork. This repo only carries the submodule pin. The diagnostics and experiments used to find it (frame-stats logging, pipeline logging, preferred frame rate hint) were removed again.
@@ -35,5 +45,5 @@ Base: HarbourMasters/PaperBoat `develop` at 7f038b85. 29 files changed, 863 inse
 - Mods page "Add Files" button: picks .o2r files and copies them into `Documents/mods`, then shows a "Restart Required" prompt (Restart Now / Restart Later). Alternate Assets still has to be switched on for texture packs.
 
 ## Not in this repo but relevant
-- `acoston822/libultraship` branch `present-pacing-clean` (29f14dd6) holds the Metal present pacing.
+- `acoston822/libultraship` branch `external-display` (4f23b084) holds the Metal present pacing and the second-screen output.
 - Branches: `upstream-clean` (stable), `exp/present-pacing`, `feat/first-run-greeting`, `feat/touch-joystick-autohide-swipe-scroll`, `feat/mods-addfiles-stick-look` (latest), plus `hud-test` and `ios-standalone`.

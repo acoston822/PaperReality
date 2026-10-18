@@ -262,7 +262,7 @@ void ComputeLayout(OverlayState& state) {
     state.stickUv0 = UvMin(rStick);
     state.stickUv1 = UvMax(rStick);
 
-    state.menuCenter = LoadPos("Menu", ImVec2(2.0f * u, 1.8f * u), w, h);
+    state.menuCenter = LoadPos("Menu", ImVec2(2.0f * u, h - 1.4f * u), w, h);
     state.menuRadius = 1.0f * u;
 
     state.editMode = CVarGetInteger(CVAR_TOUCH("EditMode"), 0) != 0;
@@ -285,13 +285,14 @@ void ComputeLayout(OverlayState& state) {
     state.gameButtons.push_back(makeDisc(BTN_CDOWN, "CDown", "C", rCDown, kYellow, ImVec2(c.x, c.y + cOffY), cR));
     state.gameButtons.push_back(makeDisc(BTN_CLEFT, "CLeft", "C", rCLeft, kYellow, ImVec2(c.x - cOffX, c.y), cR));
     state.gameButtons.push_back(makeDisc(BTN_CRIGHT, "CRight", "C", rCRight, kYellow, ImVec2(c.x + cOffX, c.y), cR));
-    // Shoulder / trigger bars: L top-left (clear of the menu button), R and Z top-right.
-    // Round, gray-ringed L/R slightly larger than A (1.5u); purple-ringed Z the same size as B (1.25u).
+    // L/R share their height and edge inset so their default positions are mirrored.
+    const float shoulderInset = 5.0f * u;
+    const float shoulderY = 1.9f * u;
     state.gameButtons.push_back(
-        makeRoundRect(BTN_L, "L", "L", rL, kGray, ImVec2(6.5f * u, 2.0f * u), 2.5f * u, 1.0f * u)
+        makeRoundRect(BTN_L, "L", "L", rL, kGray, ImVec2(shoulderInset, shoulderY), 2.5f * u, 1.0f * u)
     );
     state.gameButtons.push_back(
-        makeRoundRect(BTN_R, "R", "R", rR, kGray, ImVec2(w - 4.7f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+        makeRoundRect(BTN_R, "R", "R", rR, kGray, ImVec2(w - shoulderInset, shoulderY), 2.5f * u, 1.0f * u)
     );
     state.gameButtons.push_back(makeDisc(BTN_Z, "Z", "Z", rZ, kPurple, ImVec2(w - 10.2f * u, h - 2.9f * u), 1.25f * u));
     // D-pad cross on the left, above the stick area. Each texture is one arm

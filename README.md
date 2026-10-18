@@ -70,4 +70,4 @@ This wouldn't have been possible without your amazing work:
 
 PaperReality keeps PaperBoat's [CC0 1.0 license](LICENSE).
 
-PaperBoat accepts pull requests that use AI, within the HarbourMasters [AI Policy](https://github.com/HarbourMasters/code-of-conduct/blob/main/AI_POLICY.md). The iOS changes in PaperReality were written with the help of Claude (Anthropic) under the direction of the maintainer.
+PaperBoat accepts pull requests that use AI, within the HarbourMasters [AI Policy](https://github.com/HarbourMasters/code-of-conduct/blob/main/AI_POLICY.md). The iOS changes in PaperReality were written with the help of Claude (Anthropic) and Codex (OpenAI) under the direction of the maintainer.

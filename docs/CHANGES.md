@@ -4,6 +4,7 @@ Base: HarbourMasters/PaperBoat `develop` at d98b4b63 (merged on branch `merge/up
 
 ## Since 1.0.0 (branch `feat/airplay-second-screen`)
 - **AirPlay second screen** (always on, no setting). When an external screen or AirPlay display is connected, the game image is shown there and the phone shows only the touch controls and menus, with black where the game image would be. Touch controls are not drawn on the external screen. Code: `src/port/ios/IosExternalDisplay.h/.mm` (watches UIScreen connect/disconnect, and polls for a mirrored screen), plus the libultraship fork (`external-display` branch): a second `CAMetalLayer` output of the finished game image without the UI, and skipping the game image on the device while an external screen is active.
+- **Second screen position fix**: on Apple the game picture could be shifted inside the render texture (shown on the TV as a corner image with garbage around it) when MSAA was on and the render size equalled the on-screen game size. The offset now only applies when the framebuffer really matches the window (libultraship `interpreter.cpp`).
 - **Touch layout**: new default positions for A, B, C, Z, L, R and Start.
 - **Smooth buttons**: A, B, C and Start now use the same smooth round outline as L, R and Z.
 - **Hide With Controller** only reacts to real game controllers, not other joystick-class devices.
@@ -45,5 +46,5 @@ Base: HarbourMasters/PaperBoat `develop` at d98b4b63 (merged on branch `merge/up
 - Mods page "Add Files" button: picks .o2r files and copies them into `Documents/mods`, then shows a "Restart Required" prompt (Restart Now / Restart Later). Alternate Assets still has to be switched on for texture packs.
 
 ## Not in this repo but relevant
-- `acoston822/libultraship` branch `external-display` (4f23b084) holds the Metal present pacing and the second-screen output.
+- `acoston822/libultraship` branch `external-display` (c4e02eae) holds the Metal present pacing and the second-screen output.
 - Branches: `upstream-clean` (stable), `exp/present-pacing`, `feat/first-run-greeting`, `feat/touch-joystick-autohide-swipe-scroll`, `feat/mods-addfiles-stick-look` (latest), plus `hud-test` and `ios-standalone`.

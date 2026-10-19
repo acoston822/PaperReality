@@ -5,7 +5,7 @@ on:
       run_id:
         description: Successful asset-free UIKit smoke run
         required: true
-        default: '39271420042'
+        default: 'latest'
   push:
     branches: [experimental/uikit-settings]
     paths:
@@ -22,8 +22,11 @@ jobs:
       - name: Download asset-free test captures
         env:
           GH_TOKEN: ${{ github.token }}
-          CAPTURE_RUN: ${{ inputs.run_id || '39271420042' }}
+          CAPTURE_RUN: ${{ inputs.run_id || 'latest' }}
         run: |
+          if [[ "$CAPTURE_RUN" == latest ]]; then
+            CAPTURE_RUN=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/uikit-smoke.yml/runs?branch=experimental%2Fuikit-settings&per_page=1" --jq '.workflow_runs[0].id')
+          fi
           [[ "$CAPTURE_RUN" =~ ^[0-9]+$ ]]
           for attempt in $(seq 1 100); do
             capture_status=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CAPTURE_RUN}" --jq '.status')

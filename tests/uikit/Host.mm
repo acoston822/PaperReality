@@ -184,6 +184,44 @@ static PRNativePage* PRSmokePage(UIViewController* controller) {
     self.window.rootViewController = [[UIViewController alloc] init];
     self.window.rootViewController.view.backgroundColor = UIColor.systemBackgroundColor;
     [self.window makeKeyAndVisible];
+    // Test-only file channel avoids Simulator's confirmation prompt for custom URLs.
+    [NSTimer
+        scheduledTimerWithTimeInterval:.2
+                               repeats:YES
+                                 block:^(NSTimer*) {
+                                     NSString* folder = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
+                                     NSString* commandPath = [folder stringByAppendingPathComponent:@"UIKitCommand"];
+                                     NSString* command = [NSString stringWithContentsOfFile:commandPath
+                                                                                   encoding:NSUTF8StringEncoding
+                                                                                      error:nil];
+                                     if (!command.length || !PRRoot.presentingViewController)
+                                         return;
+                                     [[NSFileManager defaultManager] removeItemAtPath:commandPath error:nil];
+                                     if ([command isEqualToString:@"sidebar"])
+                                         [PRRoot showColumn:UISplitViewControllerColumnPrimary];
+                                     else
+                                         [PRRoot openPage:[command isEqualToString:@"audio"] ? "audio"
+                                                                                             : "menu/Settings/General"];
+                                     dispatch_after(
+                                         dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC),
+                                         dispatch_get_main_queue(),
+                                         ^{
+                                             // Capture in the app view's own landscape coordinates, without rotating an
+                                             // existing image.
+                                             UIView* view = PRRoot.view;
+                                             UIGraphicsImageRenderer* capture =
+                                                 [[UIGraphicsImageRenderer alloc] initWithSize:view.bounds.size];
+                                             UIImage* image =
+                                                 [capture imageWithActions:^(UIGraphicsImageRendererContext*) {
+                                                     [view drawViewHierarchyInRect:view.bounds afterScreenUpdates:YES];
+                                                 }];
+                                             [UIImagePNGRepresentation(image)
+                                                 writeToFile:[folder stringByAppendingPathComponent:
+                                                                         [command stringByAppendingString:@".png"]]
+                                                  atomically:YES];
+                                         }
+                                     );
+                                 }];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         Progress("Opening settings");
         N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });

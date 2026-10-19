@@ -55,10 +55,14 @@ try:
     if report['status']=='passed':
         run('xcrun','simctl','status_bar',device,'override','--time','9:41','--batteryState','charged','--batteryLevel','100')
         for page in ['general','audio','sidebar']:
-            run('xcrun','simctl','openurl',device,'uikitsmoke://'+page)
-            time.sleep(2)
+            (data/'Documents/UIKitCommand').write_text(page)
+            source=data/('Documents/'+page+'.png')
+            for _ in range(50):
+                if source.exists():break
+                time.sleep(.2)
+            if not source.exists():raise RuntimeError('App view capture was not produced: '+page)
             screenshot=out/(page+'.png')
-            subprocess.run(['xcrun','simctl','io',device,'screenshot',str(screenshot)],check=True)
+            screenshot.write_bytes(source.read_bytes())
             if os.environ.get('UIKIT_EXPORT_SCREENSHOTS')=='1':
                 encoded=base64.b64encode(screenshot.read_bytes()).decode()
                 chunks=[encoded[i:i+18000] for i in range(0,len(encoded),18000)]

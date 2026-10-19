@@ -1,4 +1,5 @@
 #include "UIWidgets.hpp"
+#include "SettingsUI.h"
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include <imgui_internal.h>
 #include <libultraship/libultra/types.h>
@@ -176,6 +177,16 @@ void PopStyleHeader() {
 }
 
 bool Button(const char* label, const ButtonOptions& options) {
+    if (PaperboatGui::SettingsUI::Active()) {
+        ImGui::BeginDisabled(options.disabled);
+        ImVec2 size = options.size;
+        if (size.y <= 0)
+            size.y = 40 * PaperboatGui::SettingsUI::Unit();
+        const bool changed = ImGui::Button(label, size);
+        ImGui::EndDisabled();
+        PaperboatGui::SettingsUI::Help(options.disabled ? options.disabledTooltip : options.tooltip);
+        return changed;
+    }
     ImGui::BeginDisabled(options.disabled);
     PushStyleButton(options.color, options.padding);
     bool dirty = ImGui::Button(label, options.size);
@@ -297,6 +308,9 @@ void RenderText(ImVec2 pos, const char* text, const char* text_end, bool hide_te
 }
 
 bool Checkbox(const char* _label, bool* value, const CheckboxOptions& options) {
+    if (PaperboatGui::SettingsUI::Active()) {
+        return PaperboatGui::SettingsUI::Toggle(_label, value, options);
+    }
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems)
         return false;
@@ -477,6 +491,18 @@ float CalcComboWidth(const char* preview_value, ImGuiComboFlags flags) {
 }
 
 void PushStyleCombobox(const ImVec4& color) {
+    if (PaperboatGui::SettingsUI::Active()) {
+        const auto& s = ImGui::GetStyle();
+        for (auto c : { ImGuiCol_FrameBg, ImGuiCol_FrameBgHovered, ImGuiCol_FrameBgActive, ImGuiCol_Button,
+                        ImGuiCol_ButtonHovered, ImGuiCol_ButtonActive, ImGuiCol_Header, ImGuiCol_HeaderHovered,
+                        ImGuiCol_HeaderActive })
+            ImGui::PushStyleColor(c, s.Colors[c]);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, s.FrameRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, s.PopupRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, s.FramePadding);
+        return;
+    }
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(color.x, color.y, color.z, 0.8f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(color.x, color.y, color.z, 0.6f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(color.x, color.y, color.z, 0.6f));
@@ -502,6 +528,20 @@ void PopStyleCombobox() {
 }
 
 void PushStyleTabs(const ImVec4& color) {
+    if (PaperboatGui::SettingsUI::Active()) {
+        const auto& s = ImGui::GetStyle();
+        ImGui::PushStyleColor(ImGuiCol_Tab, s.Colors[ImGuiCol_Tab]);
+        ImGui::PushStyleColor(ImGuiCol_TabHovered, s.Colors[ImGuiCol_TabHovered]);
+        ImGui::PushStyleColor(ImGuiCol_TabActive, s.Colors[ImGuiCol_TabActive]);
+        ImGui::PushStyleColor(ImGuiCol_Header, s.Colors[ImGuiCol_Header]);
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, s.Colors[ImGuiCol_HeaderHovered]);
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, s.Colors[ImGuiCol_HeaderActive]);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, s.FrameRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, s.PopupRounding);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, s.FramePadding);
+        return;
+    }
     ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(color.x, color.y, color.z, 0.8f));
     ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(color.x, color.y, color.z, 0.6f));
     ImGui::PushStyleColor(ImGuiCol_TabActive, ImVec4(color.x, color.y, color.z, 0.6f));
@@ -543,6 +583,8 @@ void PopStyleSlider() {
 }
 
 bool SliderInt(const char* label, int32_t* value, const IntSliderOptions& options) {
+    if (PaperboatGui::SettingsUI::Active())
+        return PaperboatGui::SettingsUI::SliderInt(label, value, options);
     bool dirty = false;
     std::string invisibleLabelStr = "##" + std::string(label);
     const char* invisibleLabel = invisibleLabelStr.c_str();
@@ -679,6 +721,8 @@ void ClampFloat(float* value, float min, float max, float step) {
 }
 
 bool SliderFloat(const char* label, float* value, const FloatSliderOptions& options) {
+    if (PaperboatGui::SettingsUI::Active())
+        return PaperboatGui::SettingsUI::SliderFloat(label, value, options);
     bool dirty = false;
     std::string invisibleLabelStr = "##" + std::string(label);
     const char* invisibleLabel = invisibleLabelStr.c_str();

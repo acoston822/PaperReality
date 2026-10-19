@@ -960,6 +960,32 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 
 void GameEngine::Create(int argc, char* argv[]) {
     const auto instance = Instance = new GameEngine();
+#if !defined(__IOS__)
+    // Explicit desktop development preview: exercise the iOS menu without a ROM,
+    // extraction, save data, or starting game logic. Normal desktop startup is unchanged.
+    if (std::any_of(argv + 1, argv + argc, [](const char* arg) { return std::strcmp(arg, "--settings-preview") == 0; }))
+    {
+        PaperboatGui::SettingsUI::SetPreviewEnabled(true);
+        ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+        instance->context->InitAudio({ .SampleRate = 32000, .SampleLength = 1024, .DesiredBuffered = 1680 });
+        PaperboatGui::SetupGuiElements();
+        PaperboatGui::mPaperboatMenu->Show();
+        auto wnd = gsFast3dWindow;
+        auto gui = wnd->GetGui();
+        while (wnd->IsRunning()) {
+            wnd->HandleEvents();
+            gui->StartDraw();
+            wnd->StartFrame();
+            wnd->RunGuiOnly();
+            PaperboatGui::TouchDragScrollPopups();
+            gui->EndDraw();
+            wnd->EndFrame();
+            SDL_Delay(16);
+        }
+        PaperboatGui::SettingsUI::SetPreviewEnabled(false);
+        std::exit(0);
+    }
+#endif
     instance->RunExtract(argc, argv);
     instance->FinishInit();
     PaperboatGui::SetupGuiElements();

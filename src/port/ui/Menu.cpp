@@ -327,7 +327,8 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
             widget.options->disabledTooltip = disabledTempTooltip.c_str();
         }
     }
-    if (widget.raceDisable && raceDisableActive) {
+    if (widget.raceDisable && (PaperboatGui::SettingsUI::Active()
+                                  ? CVarGetInteger(CVAR_SETTING("DisableChanges"), 0) : raceDisableActive)) {
         widget.options->disabled = true;
         disabledTempTooltip += std::string("\n- Race Lockout Active");
         widget.options->disabledTooltip = disabledTempTooltip.c_str();
@@ -336,6 +337,24 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
     if (widget.sameLine) {
         ImGui::SameLine();
     }
+
+    struct SettingsCard {
+        bool enabled;
+        explicit SettingsCard(WidgetInfo& widget)
+            : enabled(
+                  PaperboatGui::SettingsUI::Active() && widget.type != WIDGET_CUSTOM
+                  && widget.type != WIDGET_WINDOW_BUTTON && widget.type != WIDGET_SEARCH
+                  && widget.type != WIDGET_SEPARATOR && widget.type != WIDGET_SEPARATOR_TEXT
+                  && widget.type != WIDGET_TEXT
+              ) {
+            if (enabled)
+                PaperboatGui::SettingsUI::BeginCard(widget.name.c_str());
+        }
+        ~SettingsCard() {
+            if (enabled)
+                PaperboatGui::SettingsUI::EndCard();
+        }
+    } settingsCard(widget);
 
     try {
         switch (widget.type) {

@@ -12,6 +12,8 @@
 #include "port/ShipUtils.h"
 #include "port/ShipInit.hpp"
 #include "TouchDragScroll.h"
+#include "SettingsUI.h"
+#include <algorithm>
 
 namespace UIWidgets {
 
@@ -649,6 +651,27 @@ float CalcComboWidth(const char* preview_value, ImGuiComboFlags flags);
 template <typename T>
 bool Combobox(const char* label, T* value, const std::unordered_map<T, const char*>& comboMap,
               const ComboboxOptions& options = {}) {
+    if (PaperboatGui::SettingsUI::Active()) {
+        const auto current = comboMap.find(*value);
+        bool changed = false;
+        if (PaperboatGui::SettingsUI::BeginChoice(label, current == comboMap.end() ? "Choose..." : current->second,
+                                                 options.disabled)) {
+            std::vector<T> keys;
+            for (const auto& pair : comboMap) keys.push_back(pair.first);
+            std::sort(keys.begin(), keys.end());
+            for (const auto key : keys) {
+                if (ImGui::Selectable(comboMap.at(key), key == *value, 0,
+                                      ImVec2(0, 38 * PaperboatGui::SettingsUI::Unit()))) {
+                    *value = key; changed = true; ImGui::CloseCurrentPopup();
+                }
+            }
+            PaperboatGui::TouchDragScroll();
+            ImGui::EndPopup();
+        }
+        PaperboatGui::SettingsUI::EndChoice();
+        PaperboatGui::SettingsUI::Help(options.disabled ? options.disabledTooltip : options.tooltip);
+        return changed;
+    }
     bool dirty = false;
     float startX = ImGui::GetCursorPosX();
     std::string invisibleLabelStr = "##" + std::string(label);

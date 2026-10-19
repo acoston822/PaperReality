@@ -1,5 +1,7 @@
 #include "ActorBlueprintEditor.h"
 #include "port/ui/UIWidgets.hpp"
+#include "port/ui/SettingsUI.h"
+#include "port/ui/TouchDragScroll.h"
 #include "port/ui/Notification.h"
 #include "port/ui/cvar_prefixes.h"
 #include "port/ActorTypeNames.h"
@@ -42,8 +44,9 @@ using namespace ActorBlueprints;
 #define ALL_TAB                  -1
 #define PORTRAIT_LOADS_PER_FRAME 6
 
-static const ImVec2 sListPortraitSize = ImVec2(36.0f, 36.0f);
-static const ImVec2 sDetailPortraitSize = ImVec2(112.0f, 112.0f);
+static ImVec2 sListPortraitSize = ImVec2(36.0f, 36.0f);
+static ImVec2 sDetailPortraitSize = ImVec2(112.0f, 112.0f);
+static bool sMobileDetails = false;
 static const ImVec4 sModifiedColor = ImVec4(1.0f, 0.78f, 0.25f, 1.0f);
 static const ImVec4 sDimColor = ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
 
@@ -199,8 +202,16 @@ static const u8* ResolveSpriteData(
     if (!IsArchivePath(ptr)) {
         return (const u8*) ptr;
     }
-    auto resource = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource((const char*) ptr, true);
+    auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
+    auto resource = manager->LoadResource((const char*) ptr, !PaperboatGui::SettingsUI::Active());
     auto texture = std::dynamic_pointer_cast<Fast::Texture>(resource);
+    if (PaperboatGui::SettingsUI::Active()
+        && (texture == nullptr || texture->Type != expected || (texture->Flags & TEX_FLAG_LOAD_AS_RAW)
+            || texture->ImageDataSize < minSize))
+    {
+        resource = manager->LoadResource((const char*) ptr, true);
+        texture = std::dynamic_pointer_cast<Fast::Texture>(resource);
+    }
     if (texture == nullptr || texture->Type != expected || (texture->Flags & TEX_FLAG_LOAD_AS_RAW)
         || texture->ImageData == nullptr || texture->ImageDataSize < minSize)
     {
@@ -297,7 +308,27 @@ static bool LoadPortrait(const ActorBlueprint* blueprint, const std::string& nam
         layer.y = -(part.pos[1] + comp->compOffset.y + height);
         layer.z = part.pos[2] + comp->compOffset.z;
         layer.pixels.resize(width * height);
+        // Pack replacements are commonly decoded RGBA images, rather than the
+        // original indexed CI4 data. Sample them into the original component's
+        // bounds so animation offsets and the assembled portrait stay aligned.
+        std::shared_ptr<Fast::Texture> replacement;
+        if (PaperboatGui::SettingsUI::Active() && IsArchivePath(entry->image)) {
+            replacement = std::dynamic_pointer_cast<Fast::Texture>(
+                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource((const char*) entry->image)
+            );
+            if (!replacement || !replacement->ImageData || !replacement->Width || !replacement->Height
+                || (!(replacement->Flags & TEX_FLAG_LOAD_AS_RAW) && replacement->Type != Fast::TextureType::RGBA32bpp)
+                || replacement->ImageDataSize < size_t(replacement->Width) * replacement->Height * 4)
+                replacement.reset();
+        }
         for (s32 i = 0; i < width * height; i++) {
+            if (replacement) {
+                const int x = (i % width) * replacement->Width / width;
+                const int y = (i / width) * replacement->Height / height;
+                const u8* px = replacement->ImageData + (y * replacement->Width + x) * 4;
+                layer.pixels[i] = u32(px[0]) | (u32(px[1]) << 8) | (u32(px[2]) << 16) | (u32(px[3]) << 24);
+                continue;
+            }
             u8 index = (i & 1) ? (image[i / 2] & 0xF) : (image[i / 2] >> 4);
             u16 color = (colors[index * 2] << 8) | colors[index * 2 + 1];
             u32 r = ((color >> 11) & 0x1F) * 0xFF / 0x1F;
@@ -349,12 +380,20 @@ static bool LoadPortrait(const ActorBlueprint* blueprint, const std::string& nam
 }
 
 static ImTextureID GetPortrait(const ActorBlueprint* blueprint, ImVec2* textureSize) {
-    static std::unordered_map<const ActorBlueprint*, bool> sLoaded;
+    static std::unordered_map<std::string, bool> sLoaded;
     static int sBudgetFrame = -1;
     static int sBudget = 0;
     std::string name = fmt::format("ActorPortrait_{:p}", (const void*) blueprint);
+    if (PaperboatGui::SettingsUI::Active()) {
+        if (!Sprite_AssetsAvailable())
+            return nullptr;
+        // Mods are applied on restart; toggling Alternate Assets swaps the cache
+        // immediately without changing the classic desktop portrait cache.
+        name +=
+            Ship::Context::GetRawInstance()->GetResourceManager()->IsAltAssetsEnabled() ? "_ios_alt" : "_ios_original";
+    }
 
-    auto it = sLoaded.find(blueprint);
+    auto it = sLoaded.find(name);
     if (it == sLoaded.end()) {
         if (sBudgetFrame != ImGui::GetFrameCount()) {
             sBudgetFrame = ImGui::GetFrameCount();
@@ -364,7 +403,7 @@ static ImTextureID GetPortrait(const ActorBlueprint* blueprint, ImVec2* textureS
             return nullptr;
         }
         sBudget--;
-        it = sLoaded.emplace(blueprint, LoadPortrait(blueprint, name)).first;
+        it = sLoaded.emplace(name, LoadPortrait(blueprint, name)).first;
     }
     if (!it->second) {
         return nullptr;
@@ -384,6 +423,10 @@ static void DrawPortraitAt(const ActorBlueprint* blueprint, ImVec2 min, ImVec2 b
         drawList->AddImage(texture, drawMin, ImVec2(drawMin.x + size.x * scale, drawMin.y + size.y * scale));
     } else {
         ImVec2 max = ImVec2(min.x + box.x, min.y + box.y);
+        if (PaperboatGui::SettingsUI::Active()) {
+            drawList->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border), 8 * PaperboatGui::SettingsUI::Unit());
+            return;
+        }
         ImVec2 textSize = ImGui::CalcTextSize("?");
         drawList->AddRect(min, max, ImGui::GetColorU32(sDimColor), 4.0f);
         drawList->AddText(
@@ -455,6 +498,31 @@ static bool PassesFilters(const CatalogEntry& entry, int32_t tab) {
 }
 
 static void DrawToolbar() {
+    if (PaperboatGui::SettingsUI::Active()) {
+        const float u = PaperboatGui::SettingsUI::Unit();
+        if (ImGui::CollapsingHeader("Blueprint Options")) {
+            bool enabled = IsEnabled();
+            if (UIWidgets::Checkbox("Apply Blueprint Overrides", &enabled))
+                SetEnabled(enabled);
+            ImGui::TextDisabled("%d modified", CountModifiedActors());
+            const float width =
+                std::max(1.0f, (ImGui::GetContentRegionAvail().x - 2 * ImGui::GetStyle().ItemSpacing.x) / 3);
+            if (UIWidgets::Button("Import", UIWidgets::ButtonOptions().Size(ImVec2(width, 40 * u))))
+                ImportPresetWithPicker();
+            ImGui::SameLine();
+            if (UIWidgets::Button("Export", UIWidgets::ButtonOptions().Size(ImVec2(width, 40 * u))))
+                ExportPresetWithPicker();
+            ImGui::SameLine();
+            if (UIWidgets::Button("Reset All", UIWidgets::ButtonOptions().Size(ImVec2(width, 40 * u))))
+                ClearAll();
+            UIWidgets::Checkbox("Modified Only", &sModifiedOnly);
+        }
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputTextWithHint("##actorFilter", "Filter by name...", sFilter, sizeof(sFilter));
+        if (ImGui::IsItemActive())
+            PaperboatGui::TouchDragScrollBlock();
+        return;
+    }
     bool enabled = IsEnabled();
     if (UIWidgets::Checkbox("Apply blueprint overrides", &enabled, UIWidgets::CheckboxOptions().Color(WIDGET_COLOR))) {
         SetEnabled(enabled);
@@ -512,6 +580,8 @@ static void DrawActorList(const std::vector<CatalogEntry>& catalog, int32_t tab)
         bool modified = GetOverride(entry.actorType).Any();
         if (ImGui::Selectable("##row", selected, 0, ImVec2(0, sListPortraitSize.y))) {
             sSelectedActorType = entry.actorType;
+            if (PaperboatGui::SettingsUI::Active())
+                sMobileDetails = true;
         }
         ImVec2 rowMin = ImGui::GetItemRectMin();
         DrawPortraitAt(entry.blueprint, rowMin, sListPortraitSize);
@@ -545,6 +615,50 @@ static const s32* GetMainDefenseTable(const ActorBlueprint* blueprint) {
 }
 
 static void DrawDefenseSection(const CatalogEntry& entry, const Override& ov) {
+    if (PaperboatGui::SettingsUI::Active()) {
+        const s32* table = GetMainDefenseTable(entry.blueprint);
+        if (!table) {
+            ImGui::TextDisabled("No defense data.");
+            return;
+        }
+        ImGui::TextWrapped(
+            "Defense is subtracted from each hit. Negative values are weaknesses. Unlisted elements inherit Normal "
+            "defense."
+        );
+        for (int i = 0; i < DEFENSE_ELEMENT_COUNT; ++i) {
+            const auto element = static_cast<DefenseElement>(i);
+            const auto& info = GetDefenseElementInfo(element);
+            const int vanilla = lookup_defense((s32*) table, info.element);
+            ImGui::PushID(i);
+            PaperboatGui::SettingsUI::BeginCard(info.label);
+            if (vanilla >= DEFENSE_IMMUNE)
+                ImGui::Text("%s: Immune", info.label);
+            else {
+                int value = GetElementDefense(table, element, ov);
+                if (UIWidgets::SliderInt(
+                        info.label, &value,
+                        UIWidgets::IntSliderOptions()
+                            .Min(DEFENSE_MIN)
+                            .Max(std::min<int>(vanilla + DEFENSE_EDIT_MAX, DEFENSE_IMMUNE - 1))
+                    ))
+                {
+                    const int inherited =
+                        element != DEFENSE_NORMAL && !DefenseTableLists(table, element) && ov.defenseSet[DEFENSE_NORMAL]
+                        ? ov.defenseDelta[DEFENSE_NORMAL]
+                        : 0;
+                    if (value - vanilla == inherited)
+                        ClearDefenseDelta(entry.actorType, element);
+                    else
+                        SetDefenseDelta(entry.actorType, element, value - vanilla);
+                }
+                if (ov.defenseSet[i] && UIWidgets::Button("Reset"))
+                    ClearDefenseDelta(entry.actorType, element);
+            }
+            PaperboatGui::SettingsUI::EndCard();
+            ImGui::PopID();
+        }
+        return;
+    }
     ImGui::TextColored(
         sDimColor,
         "Defense is subtracted from each hit; a negative value is a weakness (extra damage).\n"
@@ -755,10 +869,35 @@ static void DrawActorDetails(const CatalogEntry& entry) {
 }
 
 static void DrawTabContents(const std::vector<CatalogEntry>& catalog, int32_t tab) {
+    const bool mobile = PaperboatGui::SettingsUI::Active();
+    const bool compact = mobile && ImGui::GetContentRegionAvail().x < 620 * PaperboatGui::SettingsUI::Unit();
+    if (compact) {
+        if (sMobileDetails && UIWidgets::Button(ICON_FA_CHEVRON_LEFT " Characters"))
+            sMobileDetails = false;
+        if (ImGui::BeginChild("##compact-blueprint", ImVec2(0, 0))) {
+            if (!sMobileDetails)
+                DrawActorList(catalog, tab);
+            else {
+                for (const auto& entry : catalog) {
+                    if (entry.actorType == sSelectedActorType) {
+                        ImGui::PushTextWrapPos(0);
+                        DrawActorDetails(entry);
+                        ImGui::PopTextWrapPos();
+                        break;
+                    }
+                }
+            }
+            PaperboatGui::TouchDragScroll();
+        }
+        ImGui::EndChild();
+        return;
+    }
     float listWidth = std::max<float>(220.0f, ImGui::GetContentRegionAvail().x * 0.34f);
 
     if (ImGui::BeginChild("ActorList", ImVec2(listWidth, 0), ImGuiChildFlags_Borders)) {
         DrawActorList(catalog, tab);
+        if (mobile)
+            PaperboatGui::TouchDragScroll();
     }
     ImGui::EndChild();
     ImGui::SameLine();
@@ -772,18 +911,39 @@ static void DrawTabContents(const std::vector<CatalogEntry>& catalog, int32_t ta
             }
         }
         if (selected != nullptr) {
+            if (mobile)
+                ImGui::PushTextWrapPos(0);
             DrawActorDetails(*selected);
+            if (mobile)
+                ImGui::PopTextWrapPos();
         } else {
             ImGui::TextColored(sDimColor, "Select an enemy to edit its blueprint.");
         }
+        if (mobile)
+            PaperboatGui::TouchDragScroll();
     }
     ImGui::EndChild();
 }
 
 static void DrawEditor() {
+    const bool mobile = PaperboatGui::SettingsUI::Active();
+    sListPortraitSize = mobile ? ImVec2(44, 44) * PaperboatGui::SettingsUI::Unit() : ImVec2(36, 36);
+    sDetailPortraitSize = mobile ? ImVec2(72, 72) * PaperboatGui::SettingsUI::Unit() : ImVec2(112, 112);
     std::vector<CatalogEntry> catalog = GetCatalog();
 
     DrawToolbar();
+    if (mobile) {
+        static int chapter = ALL_TAB;
+        std::unordered_map<int, const char*> categories = { { ALL_TAB, "All Enemies" } };
+        for (int i = 0; i < CHAPTER_COUNT; ++i) {
+            if (std::any_of(catalog.begin(), catalog.end(), [i](const auto& entry) { return entry.chapter == i; }))
+                categories.emplace(i, GetChapterName(static_cast<Chapter>(i)));
+        }
+        if (UIWidgets::Combobox("##category", &chapter, categories))
+            sMobileDetails = false;
+        DrawTabContents(catalog, chapter);
+        return;
+    }
     UIWidgets::PushStyleTabs(WIDGET_COLOR);
     if (ImGui::BeginTabBar("ActorBlueprintTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
         if (ImGui::BeginTabItem("All")) {

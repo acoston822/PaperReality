@@ -77,6 +77,17 @@ void PaperboatMenu::AddMenuSettings() {
     AddSidebarEntry("Settings", "General", 2);
     WidgetPath path = { "Settings", "General", SECTION_COLUMN_1 };
 
+#if defined(__IOS__)
+    AddWidget(path, "Use iOS-style Settings", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_SETTING("Menu.ExperimentalIOS"))
+        .RaceDisable(false)
+        .Options(
+            CheckboxOptions().DefaultValue(true).Tooltip(
+                "Experimental settings interface. Turn off to use the classic menu."
+            )
+        );
+#endif
+
     // Settings > General
     AddWidget(path, "Menu Settings", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Menu Theme", WIDGET_CVAR_COMBOBOX)

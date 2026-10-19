@@ -1,5 +1,6 @@
 #include "PaperboatMenu.h"
 #include "PaperboatInputEditorWindow.h"
+#include "SettingsUI.h"
 
 #include "ShipInit.hpp"
 #include "port/ui/cvar_prefixes.h"
@@ -158,6 +159,10 @@ void PaperboatMenu::Draw() {
 }
 
 void PaperboatMenu::DrawElement() {
-    Ship::Menu::DrawElement();
+    if (SettingsUI::Enabled()) {
+        DrawExperimentalSettings();
+    } else {
+        Ship::Menu::DrawElement();
+    }
 }
 } // namespace PaperboatGui

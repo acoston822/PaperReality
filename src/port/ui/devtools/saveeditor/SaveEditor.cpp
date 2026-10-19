@@ -6,6 +6,9 @@
 #include <imgui.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
+#include <cctype>
+#include "port/ui/SettingsUI.h"
+#include "port/ui/TouchDragScroll.h"
 #include <libultraship/bridge/windowbridge.h>
 #include "fast/interpreter.h"
 #include "fast/Fast3dWindow.h"
@@ -1345,6 +1348,8 @@ void SaveEditor_DrawStarPiecesMenu() {
             ImGui::PopStyleVar(1);
             ImGui::EndTable();
         }
+        if (PaperboatGui::SettingsUI::Active())
+            PaperboatGui::TouchDragScroll();
         ImGui::EndChild();
     }
 }
@@ -1429,11 +1434,340 @@ void SaveEditor_DrawTattlesMenu() {
             ImGui::PopStyleVar(1);
             ImGui::EndTable();
         }
+        if (PaperboatGui::SettingsUI::Active())
+            PaperboatGui::TouchDragScroll();
         ImGui::EndChild();
     }
 }
 
+namespace {
+namespace Mobile = PaperboatGui::SettingsUI;
+
+std::string MobileItemName(int item) {
+    const char* path = reinterpret_cast<const char*>(gItemIconRasterOffsets[item]);
+    const char* name = GetNameFromPath(path);
+    if (!name)
+        return "Empty";
+    std::string result;
+    for (const char* p = name; *p && *p != '.'; ++p) {
+        if (*p == '_')
+            result += ' ';
+        else {
+            if (p != name && std::isupper(static_cast<unsigned char>(*p))
+                && std::islower(static_cast<unsigned char>(p[-1])))
+                result += ' ';
+            result += *p;
+        }
+    }
+    return result;
+}
+
+void MobileItemImage(int item) {
+    Mobile::GameImage(
+        reinterpret_cast<const char*>(gItemIconRasterOffsets[item]),
+        reinterpret_cast<const char*>(gItemIconPaletteOffsets[item]), ImVec2(38, 38) * Mobile::Unit()
+    );
+}
+
+template <typename T> bool MobileStat(const char* name, T& field, int min, int max, int step = 1) {
+    ImGui::TableNextColumn();
+    Mobile::BeginCard(name);
+    int value = field;
+    const bool changed = UIWidgets::SliderInt(name, &value, UIWidgets::IntSliderOptions().Min(min).Max(max).Step(step));
+    if (changed)
+        field = value;
+    Mobile::EndCard();
+    return changed;
+}
+
+void MobilePlayer() {
+    const int columns = ImGui::GetContentRegionAvail().x > 540 * Mobile::Unit() ? 2 : 1;
+    if (ImGui::BeginTable("##player-stats", columns, ImGuiTableFlags_SizingStretchSame)) {
+        MobileStat("Current HP", gPlayerData.curHP, 1, gPlayerData.curMaxHP);
+        const bool hpChanged = MobileStat("Max HP", gPlayerData.hardMaxHP, 5, 50, 5);
+        MobileStat("Current FP", gPlayerData.curFP, 1, gPlayerData.curMaxFP);
+        const bool fpChanged = MobileStat("Max FP", gPlayerData.hardMaxFP, 5, 50, 5);
+        if (hpChanged || fpChanged)
+            enforce_hpfp_limits();
+        MobileStat("BP", gPlayerData.maxBP, 3, 30);
+        MobileStat("Level", gPlayerData.level, 1, 30);
+        MobileStat("Coins", gPlayerData.coins, 0, 999);
+        MobileStat("Star Points", gPlayerData.starPoints, 0, 99);
+        MobileStat("Current Star Pieces", gPlayerData.starPieces, 0, TOTAL_STAR_PIECES);
+        MobileStat("Collected Star Pieces", gPlayerData.starPiecesCollected, 0, TOTAL_STAR_PIECES);
+        int energy = gPlayerData.starPower / 256;
+        if (MobileStat("Star Energy", energy, 0, gPlayerData.maxStarPower))
+            gPlayerData.starPower = energy * 256;
+        MobileStat("Max Star Energy", gPlayerData.maxStarPower, 0, 7);
+        int minutes = gPlayerData.frameCounter / 3600;
+        const int before = minutes;
+        MobileStat("Play Time (minutes)", minutes, 0, 5998);
+        if (before != minutes)
+            gPlayerData.frameCounter = minutes * 3600;
+        ImGui::TableNextColumn();
+        Mobile::BeginCard("##equipment");
+        static const std::unordered_map<int, const char*> boots = { { 0, "Boots" },
+                                                                    { 1, "Super Boots" },
+                                                                    { 2, "Ultra Boots" } };
+        static const std::unordered_map<int, const char*> hammers = {
+            { -1, "None" }, { 0, "Hammer" }, { 1, "Super Hammer" }, { 2, "Ultra Hammer" }
+        };
+        int b = gPlayerData.bootsLevel, h = gPlayerData.hammerLevel;
+        if (UIWidgets::Combobox("Boots", &b, boots))
+            gPlayerData.bootsLevel = b;
+        if (UIWidgets::Combobox("Hammer", &h, hammers))
+            gPlayerData.hammerLevel = h;
+        Mobile::EndCard();
+        ImGui::EndTable();
+    }
+}
+
+void MobileItemList(bool badges, bool battle = false) {
+    static char filter[64] = "";
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputTextWithHint("##item-filter", "Filter by name...", filter, sizeof(filter));
+    if (ImGui::IsItemActive())
+        PaperboatGui::TouchDragScrollBlock();
+    const char* type = badges ? "badge/" : (battle ? "battle/" : "food/");
+    const int columns = ImGui::GetContentRegionAvail().x > 560 * Mobile::Unit() ? 2 : 1;
+    if (ImGui::BeginTable("##item-list", columns, ImGuiTableFlags_SizingStretchSame)) {
+        for (int item = 0; item < MAX_ICON_RASTER_SIZE; ++item) {
+            const char* path = reinterpret_cast<const char*>(gItemIconRasterOffsets[item]);
+            if (!path || !std::strstr(path, type))
+                continue;
+            const std::string name = MobileItemName(item);
+            if (!ContainsIgnoreCase(name.c_str(), filter))
+                continue;
+            ImGui::TableNextColumn();
+            ImGui::PushID(item);
+            Mobile::BeginCard("##item");
+            MobileItemImage(item);
+            ImGui::SameLine();
+            if (badges) {
+                bool owned = PlayerHasBadge(item);
+                if (UIWidgets::Checkbox(name.c_str(), &owned))
+                    AddRemove_Badge(item, !owned);
+            } else if (ImGui::Button((name + "  " ICON_FA_PLUS).c_str(), ImVec2(-1, 40 * Mobile::Unit()))) {
+                AddRemove_Item(item, false);
+            }
+            Mobile::EndCard();
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+}
+
+void MobileItems() {
+    int used = 0;
+    for (int item : gPlayerData.invItems)
+        used += item != ITEM_NONE;
+    ImGui::Text("Inventory: %d / %d", used, MAX_INVENTORY_SIZE);
+    ImGui::TextWrapped("Tap a held item to remove it. Add available items below.");
+    const int columns = std::max(1, std::min(5, int(ImGui::GetContentRegionAvail().x / (95 * Mobile::Unit()))));
+    if (ImGui::BeginTable("##inventory", columns, ImGuiTableFlags_SizingStretchSame)) {
+        for (int slot = 0; slot < MAX_INVENTORY_SIZE; ++slot) {
+            ImGui::TableNextColumn();
+            ImGui::PushID(slot);
+            const int item = gPlayerData.invItems[slot];
+            if (item != ITEM_NONE) {
+                MobileItemImage(item);
+                if (ImGui::Button(MobileItemName(item).c_str(), ImVec2(-1, 40 * Mobile::Unit())))
+                    gPlayerData.invItems[slot] = ITEM_NONE;
+            } else {
+                Mobile::Placeholder(ImVec2(38, 38) * Mobile::Unit());
+                ImGui::TextDisabled("Empty");
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    static int category = 0;
+    static const std::unordered_map<int, const char*> categories = { { 0, "Food" }, { 1, "Battle" } };
+    UIWidgets::Combobox("Available Items", &category, categories);
+    ImGui::BeginDisabled(used == MAX_INVENTORY_SIZE);
+    MobileItemList(false, category == 1);
+    ImGui::EndDisabled();
+}
+
+void MobileParty() {
+    static const char* palettes[] = { ui_goombario_pal, ui_kooper_pal, ui_bombette_pal, ui_parakarry_pal,
+                                      ui_bow_pal,       ui_watt_pal,   ui_sushie_pal,   ui_lakilester_pal };
+    static const std::unordered_map<int, const char*> ranks = { { 0, "Normal" }, { 1, "Super" }, { 2, "Ultra" } };
+    const int columns = ImGui::GetContentRegionAvail().x > 560 * Mobile::Unit() ? 2 : 1;
+    if (ImGui::BeginTable("##party", columns, ImGuiTableFlags_SizingStretchSame)) {
+        for (size_t index = 0; index < partyMemberList.size(); ++index) {
+            ImGui::TableNextColumn();
+            ImGui::PushID(int(index));
+            const auto& member = partyMemberList[index];
+            auto& partner = gPlayerData.partners[gPausePartnersPartnerIDs[index]];
+            Mobile::BeginCard(member.first);
+            Mobile::GameImage(member.second, palettes[index], ImVec2(44, 44) * Mobile::Unit());
+            ImGui::SameLine();
+            ImGui::TextUnformatted(member.first);
+            bool unlocked = partner.enabled;
+            if (UIWidgets::Checkbox("Unlocked", &unlocked))
+                partner.enabled = unlocked;
+            int rank = partner.level;
+            if (UIWidgets::Combobox("Rank", &rank, ranks))
+                partner.level = rank;
+            Mobile::EndCard();
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+}
+
+void MobileRecipes() {
+    int discovered = 0;
+    for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i)
+        discovered += get_global_flag(CookableDiscoveredFlags[i]) != 0;
+    ImGui::Text("Discovered: %d / %d", discovered, NUM_COOKABLE_RECIPES);
+    if (UIWidgets::Button("Discover All"))
+        for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i)
+            set_global_flag(CookableDiscoveredFlags[i]);
+    ImGui::SameLine();
+    if (UIWidgets::Button("Forget All"))
+        for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i)
+            clear_global_flag(CookableDiscoveredFlags[i]);
+    for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i) {
+        ImGui::PushID(i);
+        Mobile::BeginCard("##recipe");
+        MobileItemImage(CookableItemIDs[i]);
+        ImGui::SameLine();
+        bool found = get_global_flag(CookableDiscoveredFlags[i]);
+        if (UIWidgets::Checkbox(MobileItemName(CookableItemIDs[i]).c_str(), &found)) {
+            if (found)
+                set_global_flag(CookableDiscoveredFlags[i]);
+            else
+                clear_global_flag(CookableDiscoveredFlags[i]);
+        }
+        Mobile::EndCard();
+        ImGui::PopID();
+    }
+}
+
+void MobileLetters() {
+    int delivered = 0, held = 0;
+    for (const auto& letter : letterList) {
+        delivered += GetLetterState(letter) == LETTER_DELIVERED;
+        held += GetLetterState(letter) == LETTER_IN_ITEMS;
+    }
+    for (size_t i = 0; i < chainLetterList.size(); ++i) {
+        delivered += GetChainLetterState(i) == LETTER_DELIVERED;
+        held += GetChainLetterState(i) == LETTER_IN_ITEMS;
+    }
+    ImGui::Text("Delivered: %d / %d", delivered, int(letterList.size() + chainLetterList.size()));
+    ImGui::Text("In Items: %d    Key items: %d / %d", held, CountUsedKeyItemSlots(), MAX_KEY_ITEM_SIZE);
+    const float width = std::max(1.0f, (ImGui::GetContentRegionAvail().x - 2 * ImGui::GetStyle().ItemSpacing.x) / 3);
+    auto options = UIWidgets::ButtonOptions().Size(ImVec2(width, 40 * Mobile::Unit()));
+    if (UIWidgets::Button("Collect All", options)) {
+        for (const auto& letter : letterList) {
+            const auto state = GetLetterState(letter);
+            if (state == LETTER_NOT_FOUND || state == LETTER_WITH_PARAKARRY)
+                SetLetterState(letter, LETTER_IN_ITEMS);
+        }
+        if (GetChainLetterProgress() <= 0)
+            SetChainLetterProgress(1);
+    }
+    ImGui::SameLine();
+    if (UIWidgets::Button("Deliver All", options)) {
+        for (const auto& letter : letterList)
+            SetLetterState(letter, LETTER_DELIVERED);
+        SetChainLetterProgress(chainLetterList.size() + 1);
+    }
+    ImGui::SameLine();
+    if (UIWidgets::Button("Clear All", options)) {
+        for (const auto& letter : letterList)
+            SetLetterState(letter, LETTER_NOT_FOUND);
+        SetChainLetterProgress(0);
+    }
+    ImGui::TextWrapped("Delivery rewards are not granted. Chain letters update in sequence.");
+    static const std::unordered_map<LetterState, const char*> states = { { LETTER_NOT_FOUND, "Not Found" },
+                                                                         { LETTER_IN_ITEMS, "In Items" },
+                                                                         { LETTER_DELIVERED, "Delivered" } };
+    for (int group = 0; group < 2; ++group) {
+        ImGui::SeparatorText(group ? "Chain Letters" : "Letters");
+        const auto& letters = group ? chainLetterList : letterList;
+        ImGui::PushID(group);
+        for (size_t i = 0; i < letters.size(); ++i) {
+            ImGui::PushID(int(i));
+            const auto& letter = letters[i];
+            LetterState state = group ? GetChainLetterState(i) : GetLetterState(letter);
+            Mobile::BeginCard(letter.name);
+            // Preserve the special pre-join state while offering the three
+            // transitions supported by the existing letter editing functions.
+            auto choices = states;
+            if (state == LETTER_WITH_PARAKARRY)
+                choices.emplace(state, "With Parakarry");
+            if (UIWidgets::Combobox(letter.name, &state, choices)) {
+                if (group)
+                    SetChainLetterState(i, state);
+                else
+                    SetLetterState(letter, state);
+            }
+            Mobile::EndCard();
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+    }
+}
+
+void DrawMobileSaveEditor() {
+    static int tab = 0;
+    static const char* labels[] = {
+        "Player", "Badges", "Items", "Party", "Letters", "Recipes", "Star Pieces", "Tattles"
+    };
+    const int columns = ImGui::GetContentRegionAvail().x > 480 * Mobile::Unit() ? 4 : 2;
+    if (ImGui::BeginTable("##save-navigation", columns, ImGuiTableFlags_SizingStretchSame)) {
+        for (int i = 0; i < 8; ++i) {
+            ImGui::TableNextColumn();
+            ImGui::PushStyleColor(
+                ImGuiCol_Button, ImGui::GetStyleColorVec4(tab == i ? ImGuiCol_Header : ImGuiCol_FrameBg)
+            );
+            if (ImGui::Button(labels[i], ImVec2(-1, 40 * Mobile::Unit())))
+                tab = i;
+            ImGui::PopStyleColor();
+        }
+        ImGui::EndTable();
+    }
+    if (ImGui::BeginChild(labels[tab], ImVec2(0, 0))) {
+        switch (tab) {
+            case 0:
+                MobilePlayer();
+                break;
+            case 1:
+                MobileItemList(true);
+                break;
+            case 2:
+                MobileItems();
+                break;
+            case 3:
+                MobileParty();
+                break;
+            case 4:
+                MobileLetters();
+                break;
+            case 5:
+                MobileRecipes();
+                break;
+            case 6:
+                SaveEditor_DrawStarPiecesMenu();
+                break;
+            case 7:
+                SaveEditor_DrawTattlesMenu();
+                break;
+        }
+        PaperboatGui::TouchDragScroll();
+    }
+    ImGui::EndChild();
+}
+} // namespace
+
 void SaveEditor_DrawTabBar() {
+    if (PaperboatGui::SettingsUI::Active()) {
+        DrawMobileSaveEditor();
+        return;
+    }
     UIWidgets::PushStyleTabs(WIDGET_COLOR);
     if (ImGui::BeginTabBar("SaveEditorTabBar")) {
         if (ImGui::BeginTabItem("Player")) {

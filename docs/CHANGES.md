@@ -36,6 +36,7 @@ Base: HarbourMasters/PaperBoat `develop` at d98b4b63 (merged on branch `merge/up
 - Select/Back opens the port menu; the engine still closes it. Controller menu navigation defaults on once a controller is detected. Controller detection and button presses are logged (`[controller]`).
 
 ## Menus and UI
+- **Experimental iOS settings branch**: `experimental/settings-ui` adds four expandable sidebar groups, consistent Settings/Dev Tools styling, rounded cards and touch-sized controls. Save/blueprint editor layouts and runtime portraits are adapted for iOS. Desktop defaults keep the classic interface. See [experimental-ios-settings.md](experimental-ios-settings.md) for scope and device checks.
 - Swipe-to-scroll with flick momentum for settings panes and every popup/dropdown list (`TouchDragScroll.h/.cpp`, `Menu.cpp`, `Engine.cpp`).
 - ImGui Menu Scaling options: 1.5, 1.75, 2.1, 2.3.
 - Popups can have their own scale (`PaperboatModals`, `PaperboatGui`).

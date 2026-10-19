@@ -25,6 +25,10 @@ class PaperboatMenu : public Ship::Menu {
     void AddMenuDevTools();
 
   private:
+    void DrawExperimentalSettings();
+    std::string mExpandedSettingsGroup;
+    std::string mMobileDetailWindow;
+    bool mMobileShowSidebar = true;
     char mGitCommitHashTruncated[8];
     bool mIsTaggedVersion;
 };

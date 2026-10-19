@@ -159,6 +159,10 @@ static void Uncaught(NSException* exception) {
                                    [exception.callStackSymbols componentsJoinedByString:@"\n"]]
     );
 }
+static void Require(bool condition, NSString* message) {
+    if (!condition)
+        [NSException raise:@"UIKitLayoutRegression" format:@"%@", message];
+}
 static PRNativePage* PRSmokePage(UIViewController* controller) {
     if ([controller isKindOfClass:PRNativePage.class])
         return (PRNativePage*) controller;
@@ -197,11 +201,14 @@ static PRNativePage* PRSmokePage(UIViewController* controller) {
                                      if (!command.length || !PRRoot.presentingViewController)
                                          return;
                                      [[NSFileManager defaultManager] removeItemAtPath:commandPath error:nil];
+                                     PRRoot.overrideUserInterfaceStyle = [command hasSuffix:@"-dark"]
+                                         ? UIUserInterfaceStyleDark
+                                         : UIUserInterfaceStyleLight;
                                      if ([command isEqualToString:@"sidebar"])
                                          [PRRoot showColumn:UISplitViewControllerColumnPrimary];
                                      else
-                                         [PRRoot openPage:[command isEqualToString:@"audio"] ? "audio"
-                                                                                             : "menu/Settings/General"];
+                                         [PRRoot
+                                             openPage:[command hasPrefix:@"audio"] ? "audio" : "menu/Settings/General"];
                                      dispatch_after(
                                          dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC),
                                          dispatch_get_main_queue(),
@@ -228,70 +235,124 @@ static PRNativePage* PRSmokePage(UIViewController* controller) {
     });
     __block NSInteger phase = 0;
     const double started = NSProcessInfo.processInfo.systemUptime;
-    [NSTimer scheduledTimerWithTimeInterval:.25
-                                    repeats:YES
-                                      block:^(NSTimer* timer) {
-                                          if (NSProcessInfo.processInfo.systemUptime - started > 60) {
-                                              Report(
-                                                  @"failed",
-                                                  [NSString
-                                                      stringWithFormat:
-                                                          @"Timed out in phase %ld. Root: %@; detail: %@; children: %@",
-                                                          (long) phase,
-                                                          PRRoot,
-                                                          PRRoot.detail,
-                                                          PRRoot.childViewControllers]
-                                              );
-                                              [timer invalidate];
-                                              return;
-                                          }
-                                          if (phase == 0 || phase == 5) {
-                                              if (!PRRoot.presentingViewController || PRRoot.isBeingPresented)
-                                                  return;
-                                              [PRRoot showColumn:UISplitViewControllerColumnSecondary];
-                                              Progress(phase == 0 ? "Settings presented" : "Settings reopened");
-                                              ++phase;
-                                              return;
-                                          }
-                                          if (phase == 1 || phase == 2 || phase == 6) {
-                                              PRNativePage* page = PRSmokePage(PRRoot);
-                                              if (!page || ![page.tableView numberOfSections])
-                                                  return;
-                                              if (phase == 2 && ![page.title isEqualToString:@"Control Types"])
-                                                  return;
-                                              for (NSInteger section = 0; section < [page.tableView numberOfSections];
-                                                   ++section)
-                                                  for (NSInteger row = 0; row < [page.tableView
-                                                                              numberOfRowsInSection:section];
-                                                       ++row)
-                                                      [page tableView:page.tableView
-                                                          cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row
-                                                                                                   inSection:section]];
-                                              Progress("Page loaded");
-                                              if (phase == 1) {
-                                                  [PRRoot openPage:"controls-test"];
-                                                  phase = 2;
-                                                  return;
-                                              }
-                                              if (phase == 2) {
-                                                  [PRRoot closeSettings];
-                                                  phase = 3;
-                                                  return;
-                                              }
-                                              Report(
-                                                  @"passed",
-                                                  @"Opened settings, rendered every control type, navigated, closed "
-                                                  @"and reopened."
-                                              );
-                                              [timer invalidate];
-                                              return;
-                                          }
-                                          if (phase == 3 && !PRRoot) {
-                                              Progress("Settings closed");
-                                              N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });
-                                              phase = 5;
-                                          }
-                                      }];
+    [NSTimer
+        scheduledTimerWithTimeInterval:.25
+                               repeats:YES
+                                 block:^(NSTimer* timer) {
+                                     if (NSProcessInfo.processInfo.systemUptime - started > 60) {
+                                         Report(
+                                             @"failed",
+                                             [NSString
+                                                 stringWithFormat:
+                                                     @"Timed out in phase %ld. Root: %@; detail: %@; children: %@",
+                                                     (long) phase,
+                                                     PRRoot,
+                                                     PRRoot.detail,
+                                                     PRRoot.childViewControllers]
+                                         );
+                                         [timer invalidate];
+                                         return;
+                                     }
+                                     if (phase == 0 || phase == 5) {
+                                         if (!PRRoot.presentingViewController || PRRoot.isBeingPresented)
+                                             return;
+                                         [PRRoot showColumn:UISplitViewControllerColumnSecondary];
+                                         Progress(phase == 0 ? "Settings presented" : "Settings reopened");
+                                         ++phase;
+                                         return;
+                                     }
+                                     if (phase == 1 || phase == 2 || phase == 6) {
+                                         PRNativePage* page = PRSmokePage(PRRoot);
+                                         if (!page || ![page.tableView numberOfSections])
+                                             return;
+                                         if (phase == 2 && ![page.title isEqualToString:@"Control Types"])
+                                             return;
+                                         for (NSInteger section = 0; section < [page.tableView numberOfSections];
+                                              ++section)
+                                             for (NSInteger row = 0; row < [page.tableView
+                                                                         numberOfRowsInSection:section];
+                                                  ++row)
+                                                 [page tableView:page.tableView
+                                                     cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row
+                                                                                              inSection:section]];
+                                         Progress("Page loaded");
+                                         if (phase == 1) {
+                                             [PRRoot.view layoutIfNeeded];
+                                             Require(
+                                                 !PRRoot.primary.view.superview.hidden
+                                                     && !PRRoot.detail.view.superview.hidden,
+                                                 @"Landscape must show both the categories and the page."
+                                             );
+                                             [PRRoot openPage:"controls-test"];
+                                             phase = 2;
+                                             return;
+                                         }
+                                         if (phase == 2) {
+                                             CGRect bounds = PRRoot.view.bounds;
+                                             PRRoot.view.bounds = CGRectMake(0, 0, 375, 700);
+                                             [PRRoot.view setNeedsLayout];
+                                             [PRRoot.view layoutIfNeeded];
+                                             [PRRoot browse];
+                                             Require(
+                                                 !PRRoot.primary.view.superview.hidden
+                                                     && PRRoot.detail.view.superview.hidden,
+                                                 @"Compact layout must allow browsing categories."
+                                             );
+                                             [PRRoot showColumn:UISplitViewControllerColumnSecondary];
+                                             Require(
+                                                 PRRoot.primary.view.superview.hidden
+                                                     && !PRRoot.detail.view.superview.hidden,
+                                                 @"Compact layout must return to its settings page."
+                                             );
+                                             PRRoot.view.bounds = bounds;
+                                             [PRRoot.view setNeedsLayout];
+                                             [PRRoot.view layoutIfNeeded];
+                                             [page tableView:page.tableView
+                                                 didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:7 inSection:0]];
+                                             phase = 7;
+                                             return;
+                                         }
+                                         if (phase == 6) {
+                                             Report(
+                                                 @"passed",
+                                                 @"Opened and reopened settings, rendered every control type, "
+                                                 @"verified landscape/compact navigation and nested pages."
+                                             );
+                                             [timer invalidate];
+                                             return;
+                                         }
+                                     }
+                                     if (phase == 7 && PRRoot.detail.viewControllers.count == 2) {
+                                         [PRRoot.detail popViewControllerAnimated:NO];
+                                         phase = 8;
+                                         return;
+                                     }
+                                     if (phase == 8 && PRRoot.detail.viewControllers.count == 1) {
+                                         PRNativePage* page = PRSmokePage(PRRoot);
+                                         [page tableView:page.tableView
+                                             didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:4 inSection:0]];
+                                         phase = 9;
+                                         return;
+                                     }
+                                     if (phase == 9 &&
+                                         [PRRoot.detail.topViewController isKindOfClass:PRNativeChoices.class]) {
+                                         PRNativeChoices* choices = (PRNativeChoices*) PRRoot.detail.topViewController;
+                                         [choices tableView:choices.tableView
+                                             didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+                                         phase = 10;
+                                         return;
+                                     }
+                                     if (phase == 10 && PRRoot.detail.viewControllers.count == 1) {
+                                         [PRRoot closeSettings];
+                                         phase = 3;
+                                         return;
+                                     }
+                                     if (phase == 3 && !PRRoot) {
+                                         Progress("Settings closed");
+                                         N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });
+                                         phase = 5;
+                                     }
+                                 }];
     return YES;
 }
 - (BOOL)application:(UIApplication*)application openURL:(NSURL*)url options:(NSDictionary*)options {

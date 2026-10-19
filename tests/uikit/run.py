@@ -53,7 +53,7 @@ try:
     (out/'simulator.log').write_text(logs)
     if report['status']=='passed':
         run('xcrun','simctl','status_bar',device,'override','--time','9:41','--batteryState','charged','--batteryLevel','100')
-        for page in ['general','audio','sidebar']:
+        for page in ['general','audio','sidebar','audio-dark','general-dark']:
             (data/'Documents/UIKitCommand').write_text(page)
             source=data/('Documents/'+page+'.png')
             for _ in range(50):

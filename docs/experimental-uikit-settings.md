@@ -13,8 +13,13 @@ in the classic General page restores UIKit.
 
 - Four expandable sidebar groups: Settings, Enhancements, Shaders, and Dev Tools.
   Destinations are generated from the existing menu definitions, including Input
-  Viewer, Notifications and Mod Menu. Compact screens use native navigation.
-- Native grouped lists, switches, sliders with precise increment/decrement buttons,
+  Viewer, Notifications and Mod Menu. The sidebar stays beside the page on landscape
+  iPhones with enough usable width. Narrow layouts and accessibility text use a
+  category browser button, with native navigation inside each page.
+- Rounded material cards, a shared PaperReality header, blue selected sidebar rows,
+  and consistent spacing across settings and editor submenus. Materials and colors
+  follow the system Light/Dark appearance; no game artwork is bundled for the backdrop.
+- Native lists, switches, sliders with precise increment/decrement buttons,
   choice submenus, search, color pickers and confirmation alerts. System colors,
   Dynamic Type, safe areas and light/dark appearance follow iOS.
 - Existing CVar defaults, callbacks, race locks and disabled reasons are reused.
@@ -93,6 +98,11 @@ python3 tests/uikit/run.py
 The screenshots from that harness use sample preferences and blank portraits.
 They contain no game files, saves or extracted artwork. Private game assets must
 never be uploaded to these GitHub runners for testing or screenshots.
+
+The card-layout regression also checks landscape sidebar visibility, compact
+category/page switching, nested editor-style pages and choice navigation. Captures
+include both Light and Dark appearance. These checks do not establish controller
+navigation or in-game behavior on a physical device.
 
 Verified for the opening fix: unsigned iOS build 40 succeeded, and the iPhone
 simulator regression passed. General, Audio and navigation captures are made

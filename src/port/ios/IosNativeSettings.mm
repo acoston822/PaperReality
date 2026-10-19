@@ -8,6 +8,57 @@
 #include <cmath>
 
 namespace N = Paperboat::NativeSettings;
+// Shared materials keep the settings pages and editor submenus visually consistent.
+// Use dynamic colors so a system appearance change also updates an already-open menu.
+static UIColor* PRSurface() {
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? [UIColor colorWithRed:.09 green:.12 blue:.17 alpha:.90]
+            : [UIColor colorWithWhite:1 alpha:.92];
+    }];
+}
+static UIColor* PRCanvas() {
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? [UIColor colorWithRed:.025 green:.045 blue:.08 alpha:.82]
+            : [UIColor colorWithRed:.93 green:.95 blue:.98 alpha:.86];
+    }];
+}
+static UIFont* PRFont(CGFloat size, UIFontWeight weight, UIFontTextStyle style) {
+    return [[UIFontMetrics metricsForTextStyle:style] scaledFontForFont:[UIFont systemFontOfSize:size weight:weight]];
+}
+static void PRStyleTable(UITableView* table) {
+    table.backgroundColor = UIColor.clearColor;
+    table.separatorStyle = UITableViewCellSeparatorStyleNone;
+    table.contentInset = UIEdgeInsetsMake(4, 0, 20, 0);
+    table.sectionHeaderTopPadding = 0;
+    table.estimatedSectionHeaderHeight = 38;
+    table.estimatedSectionFooterHeight = 20;
+}
+static void PRStyleCard(UITableViewCell* cell) {
+    UIBackgroundConfiguration* background = [UIBackgroundConfiguration clearConfiguration];
+    background.backgroundColor = PRSurface();
+    background.cornerRadius = 16;
+    background.backgroundInsets = NSDirectionalEdgeInsetsMake(5, 12, 5, 12);
+    background.strokeColor = [UIColor.separatorColor colorWithAlphaComponent:.16];
+    background.strokeWidth = .5;
+    cell.backgroundConfiguration = background;
+    cell.contentView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(17, 30, 17, 30);
+    cell.tintColor = UIColor.systemBlueColor;
+}
+static void PRStyleNavigation(UINavigationController* navigation) {
+    UINavigationBarAppearance* appearance = [[UINavigationBarAppearance alloc] init];
+    [appearance configureWithTransparentBackground];
+    appearance.titleTextAttributes = @ {
+        NSFontAttributeName : PRFont(22, UIFontWeightBold, UIFontTextStyleTitle2),
+        NSForegroundColorAttributeName : UIColor.labelColor
+    };
+    navigation.navigationBar.standardAppearance = appearance;
+    navigation.navigationBar.scrollEdgeAppearance = appearance;
+    navigation.navigationBar.compactAppearance = appearance;
+    navigation.navigationBar.prefersLargeTitles = NO;
+    navigation.view.backgroundColor = UIColor.clearColor;
+}
 static NSString* PRText(const std::string& text) {
     return [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding] ?: @"";
 }
@@ -108,9 +159,21 @@ static UIImage* PRBlankPortrait() {
 - (instancetype)initWithGroups:(std::vector<N::Group>)groups initial:(std::string)initial host:(PRNativeRoot*)host;
 @end
 
-@interface PRNativeRoot : UISplitViewController <UISplitViewControllerDelegate>
+@interface PRNativeRoot : UIViewController {
+    UIView* _header;
+    UIView* _primaryPanel;
+    UIView* _detailPanel;
+    UILabel* _category;
+    UIButton* _menuButton;
+    BOOL _showPrimary;
+    BOOL _wide;
+}
+@property (nonatomic, strong) UINavigationController* primary;
 @property (nonatomic, strong) UINavigationController* detail;
+- (void)setViewController:(UIViewController*)controller forColumn:(UISplitViewControllerColumn)column;
+- (void)showColumn:(UISplitViewControllerColumn)column;
 - (void)openPage:(std::string)key;
+- (void)setCategory:(NSString*)title;
 - (void)closeSettings;
 @end
 static PRNativeRoot* PRRoot = nil;
@@ -131,15 +194,17 @@ static PRNativeRoot* PRRoot = nil;
         return nil;
     _row = row;
     _owner = owner;
+    PRStyleCard(self);
     self.selectionStyle = UITableViewCellSelectionStyleNone;
     UILabel* title = [[UILabel alloc] init];
     title.text = PRText(row.title);
-    title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    title.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody);
     title.numberOfLines = 0;
     title.adjustsFontForContentSizeCategory = YES;
     _value = [[UILabel alloc] init];
-    _value.font = [UIFont preferredFontForTextStyle:UIFontTextStyleSubheadline];
-    _value.textColor = UIColor.secondaryLabelColor;
+    _value.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleSubheadline]
+        scaledFontForFont:[UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightSemibold]];
+    _value.textColor = UIColor.systemBlueColor;
     _value.adjustsFontForContentSizeCategory = YES;
     [_value setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     UIStackView* heading = [[UIStackView alloc] initWithArrangedSubviews:@[ title, _value ]];
@@ -190,7 +255,7 @@ static PRNativeRoot* PRRoot = nil;
     if (!row.detail.empty()) {
         UILabel* help = [[UILabel alloc] init];
         help.text = PRText(row.detail);
-        help.font = [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+        help.font = PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote);
         help.textColor = UIColor.secondaryLabelColor;
         help.numberOfLines = 0;
         help.adjustsFontForContentSizeCategory = YES;
@@ -230,7 +295,7 @@ static PRNativeRoot* PRRoot = nil;
 
 @implementation PRNativePage
 - (instancetype)initWithKey:(std::string)key {
-    self = [super initWithStyle:UITableViewStyleInsetGrouped];
+    self = [super initWithStyle:UITableViewStylePlain];
     if (self) {
         _key = std::move(key);
         _images = [NSMutableDictionary dictionary];
@@ -240,14 +305,11 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
+    PRStyleTable(self.tableView);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 62;
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone
-                                                      target:PRRoot
-                                                      action:@selector(closeSettings)];
-    self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
+    self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
     self.refreshControl = [[UIRefreshControl alloc] init];
     [self.refreshControl addTarget:self action:@selector(refresh) forControlEvents:UIControlEventValueChanged];
     [self refresh];
@@ -313,15 +375,38 @@ static PRNativeRoot* PRRoot = nil;
 - (NSString*)tableView:(UITableView*)tableView titleForFooterInSection:(NSInteger)section {
     return PRText(_sections[section].footer);
 }
+- (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
+    return _sections[section].title.empty() ? 6 : UITableViewAutomaticDimension;
+}
+- (UIView*)tableView:(UITableView*)tableView viewForHeaderInSection:(NSInteger)section {
+    if (_sections[section].title.empty())
+        return nil;
+    UITableViewHeaderFooterView* header = [[UITableViewHeaderFooterView alloc] initWithReuseIdentifier:nil];
+    UIListContentConfiguration* content = [UIListContentConfiguration groupedHeaderConfiguration];
+    content.text = PRText(_sections[section].title);
+    content.textProperties.font = PRFont(15, UIFontWeightSemibold, UIFontTextStyleSubheadline);
+    content.textProperties.color = UIColor.secondaryLabelColor;
+    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(18, 28, 6, 28);
+    header.contentConfiguration = content;
+    header.backgroundView = [[UIView alloc] init];
+    return header;
+}
 - (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
     const N::Row row = _sections[indexPath.section].rows[indexPath.row];
     if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal)
         return [[PRNativeSliderCell alloc] initWithRow:row owner:self];
     UITableViewCell* cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    PRStyleCard(cell);
     UIListContentConfiguration* content = cell.defaultContentConfiguration;
+    content.textProperties.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody);
+    content.secondaryTextProperties.font = PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote);
+    content.secondaryTextProperties.color = UIColor.secondaryLabelColor;
+    content.textToSecondaryTextVerticalPadding = 5;
+    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(18, 30, 18, 30);
+    content.imageProperties.tintColor = UIColor.systemBlueColor;
     content.text = PRText(row.title);
     content.secondaryText = PRText(row.detail);
-    content.secondaryTextProperties.numberOfLines = 3;
+    content.secondaryTextProperties.numberOfLines = 0;
     if (!row.symbol.empty())
         content.image = [UIImage systemImageNamed:PRText(row.symbol)];
     if (row.portrait) {
@@ -475,7 +560,7 @@ static PRNativeRoot* PRRoot = nil;
 
 @implementation PRNativeChoices
 - (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner {
-    self = [super initWithStyle:UITableViewStyleInsetGrouped];
+    self = [super initWithStyle:UITableViewStylePlain];
     if (self) {
         _row = row;
         _choices = row.choices;
@@ -486,6 +571,7 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
+    PRStyleTable(self.tableView);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 52;
     if (_row.choices.size() > 12) {
@@ -510,6 +596,7 @@ static PRNativeRoot* PRRoot = nil;
 - (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
     const auto& choice = _choices[indexPath.row];
     UITableViewCell* cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    PRStyleCard(cell);
     UIListContentConfiguration* content = cell.defaultContentConfiguration;
     content.text = PRText(choice.title);
     cell.contentConfiguration = content;
@@ -525,13 +612,13 @@ static PRNativeRoot* PRRoot = nil;
 
 @implementation PRNativeSidebar
 - (instancetype)initWithGroups:(std::vector<N::Group>)groups initial:(std::string)initial host:(PRNativeRoot*)host {
-    self = [super initWithStyle:UITableViewStyleInsetGrouped];
+    self = [super initWithStyle:UITableViewStylePlain];
     if (self) {
         _groups = std::move(groups);
         _host = host;
         _expanded = 0;
         _selected = PRText(initial);
-        self.title = @"PaperReality";
+        self.title = @"Browse";
         for (size_t index = 0; index < _groups.size(); ++index)
             for (const auto& page : _groups[index].pages)
                 if (page.key == initial)
@@ -541,12 +628,16 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
+    PRStyleTable(self.tableView);
+    self.tableView.contentInset = UIEdgeInsetsMake(8, 0, 12, 0);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
-    self.tableView.estimatedRowHeight = 52;
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone
-                                                      target:_host
-                                                      action:@selector(closeSettings)];
+    self.tableView.estimatedRowHeight = 46;
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
+    return section ? 6 : 0;
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
+    return 0;
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView*)tableView {
     return _groups.size();
@@ -557,28 +648,37 @@ static PRNativeRoot* PRRoot = nil;
 - (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
     const auto& group = _groups[indexPath.section];
     UITableViewCell* cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    UIBackgroundConfiguration* background = [UIBackgroundConfiguration clearConfiguration];
+    background.cornerRadius = 12;
+    background.backgroundInsets = NSDirectionalEdgeInsetsMake(2, 8, 2, 8);
     UIListContentConfiguration* content = cell.defaultContentConfiguration;
+    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(11, 18, 11, 18);
+    content.imageToTextPadding = 12;
+    content.imageProperties.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:18];
+    content.imageProperties.reservedLayoutSize = CGSizeMake(22, 22);
+    content.imageProperties.tintColor = UIColor.secondaryLabelColor;
     if (!indexPath.row) {
         content.text = PRText(group.title);
         content.image = [UIImage systemImageNamed:PRText(group.symbol)];
-        content.textProperties.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
+        content.textProperties.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleHeadline);
         cell.accessoryView = [[UIImageView alloc]
             initWithImage:[UIImage
                               systemImageNamed:_expanded == indexPath.section ? @"chevron.down" : @"chevron.right"]];
         cell.accessoryView.tintColor = UIColor.tertiaryLabelColor;
     } else {
         const auto& page = group.pages[indexPath.row - 1];
+        content.textProperties.font = PRFont(15, UIFontWeightMedium, UIFontTextStyleSubheadline);
         content.text = PRText(page.title);
         content.image = [UIImage systemImageNamed:PRText(page.symbol)];
-        cell.indentationLevel = 1;
-        cell.indentationWidth = 12;
+        content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(10, 24, 10, 18);
         if ([_selected isEqualToString:PRText(page.key)]) {
-            UIBackgroundConfiguration* background = [UIBackgroundConfiguration listGroupedCellConfiguration];
-            background.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:.13];
-            cell.backgroundConfiguration = background;
-            content.textProperties.color = UIColor.systemBlueColor;
+            background.backgroundColor = UIColor.systemBlueColor;
+            content.textProperties.color = UIColor.whiteColor;
+            content.imageProperties.tintColor = UIColor.whiteColor;
+            cell.accessibilityTraits |= UIAccessibilityTraitSelected;
         }
     }
+    cell.backgroundConfiguration = background;
     cell.contentConfiguration = content;
     return cell;
 }
@@ -590,6 +690,7 @@ static PRNativeRoot* PRRoot = nil;
     } else {
         const auto& page = _groups[indexPath.section].pages[indexPath.row - 1];
         _selected = PRText(page.key);
+        [_host setCategory:PRText(_groups[indexPath.section].title)];
         [_host openPage:page.key];
         [tableView reloadData];
     }
@@ -598,19 +699,134 @@ static PRNativeRoot* PRRoot = nil;
 
 @implementation PRNativeRoot
 - (instancetype)init {
-    self = [super initWithStyle:UISplitViewControllerStyleDoubleColumn];
+    self = [super init];
     if (self) {
-        self.preferredDisplayMode = UISplitViewControllerDisplayModeOneBesideSecondary;
-        self.preferredSplitBehavior = UISplitViewControllerSplitBehaviorTile;
-        self.minimumPrimaryColumnWidth = 230;
-        self.maximumPrimaryColumnWidth = 320;
-        self.preferredPrimaryColumnWidthFraction = .28;
-        self.delegate = self;
         self.modalPresentationStyle = UIModalPresentationOverFullScreen;
         self.modalInPresentation = YES;
-        self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     }
     return self;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = UIColor.clearColor;
+    UIVisualEffectView* material = [[UIVisualEffectView alloc]
+        initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial]];
+    material.frame = self.view.bounds;
+    material.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    material.userInteractionEnabled = NO;
+    [self.view addSubview:material];
+    UIView* canvas = [[UIView alloc] initWithFrame:self.view.bounds];
+    canvas.backgroundColor = PRCanvas();
+    canvas.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    canvas.userInteractionEnabled = NO;
+    [self.view addSubview:canvas];
+    _header = [[UIView alloc] init];
+    [self.view addSubview:_header];
+    UIImageView* logo = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"paperplane.fill"]];
+    logo.tintColor = UIColor.systemRedColor;
+    logo.contentMode = UIViewContentModeScaleAspectFit;
+    [logo.widthAnchor constraintEqualToConstant:28].active = YES;
+    UILabel* name = [[UILabel alloc] init];
+    name.text = @"PaperReality";
+    name.font = PRFont(20, UIFontWeightBold, UIFontTextStyleHeadline);
+    name.adjustsFontForContentSizeCategory = YES;
+    name.adjustsFontSizeToFitWidth = YES;
+    name.minimumScaleFactor = .7;
+    _category = [[UILabel alloc] init];
+    _category.text = @"Settings";
+    _category.font = PRFont(15, UIFontWeightRegular, UIFontTextStyleSubheadline);
+    _category.textColor = UIColor.secondaryLabelColor;
+    _category.adjustsFontForContentSizeCategory = YES;
+    UIStackView* brand = [[UIStackView alloc] initWithArrangedSubviews:@[ logo, name, _category ]];
+    brand.spacing = 12;
+    brand.alignment = UIStackViewAlignmentCenter;
+    brand.translatesAutoresizingMaskIntoConstraints = NO;
+    [_header addSubview:brand];
+    UIButton* done = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration* config = [UIButtonConfiguration filledButtonConfiguration];
+    config.title = @"Done";
+    config.cornerStyle = UIButtonConfigurationCornerStyleMedium;
+    config.contentInsets = NSDirectionalEdgeInsetsMake(10, 20, 10, 20);
+    done.configuration = config;
+    [done addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
+    done.translatesAutoresizingMaskIntoConstraints = NO;
+    [_header addSubview:done];
+    [NSLayoutConstraint activateConstraints:@[
+        [brand.leadingAnchor constraintEqualToAnchor:_header.leadingAnchor constant:8],
+        [brand.centerYAnchor constraintEqualToAnchor:_header.centerYAnchor],
+        [brand.trailingAnchor constraintLessThanOrEqualToAnchor:done.leadingAnchor constant:-16],
+        [done.trailingAnchor constraintEqualToAnchor:_header.trailingAnchor constant:-8],
+        [done.centerYAnchor constraintEqualToAnchor:_header.centerYAnchor],
+        [done.heightAnchor constraintGreaterThanOrEqualToConstant:44]
+    ]];
+    _primaryPanel = [[UIView alloc] init];
+    _primaryPanel.backgroundColor = PRSurface();
+    _primaryPanel.layer.cornerRadius = 18;
+    _primaryPanel.clipsToBounds = YES;
+    [self.view addSubview:_primaryPanel];
+    _detailPanel = [[UIView alloc] init];
+    [self.view addSubview:_detailPanel];
+    _menuButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_menuButton setImage:[UIImage systemImageNamed:@"sidebar.left"] forState:UIControlStateNormal];
+    _menuButton.accessibilityLabel = @"Browse settings categories";
+    [_menuButton addTarget:self action:@selector(browse) forControlEvents:UIControlEventTouchUpInside];
+    _menuButton.frame = CGRectMake(0, 0, 44, 44);
+}
+- (void)setCategory:(NSString*)title {
+    _category.text = title;
+}
+- (void)setViewController:(UIViewController*)controller forColumn:(UISplitViewControllerColumn)column {
+    [self loadViewIfNeeded];
+    [self addChildViewController:controller];
+    UIView* panel = column == UISplitViewControllerColumnPrimary ? _primaryPanel : _detailPanel;
+    controller.view.frame = panel.bounds;
+    controller.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [panel addSubview:controller.view];
+    [controller didMoveToParentViewController:self];
+    if (column == UISplitViewControllerColumnPrimary) {
+        self.primary = (UINavigationController*) controller;
+        [self.primary setNavigationBarHidden:YES];
+    } else {
+        self.detail = (UINavigationController*) controller;
+    }
+    [self.view setNeedsLayout];
+}
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    UIEdgeInsets safe = self.view.safeAreaInsets;
+    CGFloat width = self.view.bounds.size.width - safe.left - safe.right - 24;
+    CGFloat height = self.view.bounds.size.height - safe.top - safe.bottom;
+    // Use the available width, not iPhone's compact size class, for the landscape sidebar.
+    // Large accessibility text falls back to one pane so controls retain room to wrap.
+    _wide = width >= 700
+        && !UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
+    CGFloat headerHeight =
+        UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory) ? 76 : 56;
+    _header.frame = CGRectMake(safe.left + 12, safe.top, width, headerHeight);
+    CGFloat y = safe.top + headerHeight + 6;
+    CGFloat bodyHeight = MAX(0, height - headerHeight - 14);
+    CGFloat sidebarWidth = _wide ? std::clamp(width * .28, 220., 290.) : width;
+    _primaryPanel.frame = CGRectMake(safe.left + 12, y, sidebarWidth, bodyHeight);
+    CGFloat x = safe.left + 12 + (_wide ? sidebarWidth + 12 : 0);
+    _detailPanel.frame = CGRectMake(x, y, width - (_wide ? sidebarWidth + 12 : 0), bodyHeight);
+    _primaryPanel.hidden = !_wide && !_showPrimary;
+    _detailPanel.hidden = !_wide && _showPrimary;
+    _category.hidden =
+        width < 500 || UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
+    UIViewController* page = self.detail.viewControllers.firstObject;
+    page.navigationItem.leftBarButtonItem = _wide ? nil : [[UIBarButtonItem alloc] initWithCustomView:_menuButton];
+}
+- (void)traitCollectionDidChange:(UITraitCollection*)previous {
+    [super traitCollectionDidChange:previous];
+    [self.view setNeedsLayout];
+}
+- (void)browse {
+    [self showColumn:UISplitViewControllerColumnPrimary];
+}
+- (void)showColumn:(UISplitViewControllerColumn)column {
+    _showPrimary = column == UISplitViewControllerColumnPrimary;
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
 }
 - (void)openPage:(std::string)key {
     N::Enqueue([key] { N::RememberPage(key); });
@@ -620,10 +836,6 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)closeSettings {
     N::Enqueue([] { N::Close(); });
-}
-- (UISplitViewControllerColumn)splitViewController:(UISplitViewController*)controller
-         topColumnForCollapsingToProposedTopColumn:(UISplitViewControllerColumn)column {
-    return UISplitViewControllerColumnPrimary;
 }
 - (NSArray<UIKeyCommand*>*)keyCommands {
     return @[ [UIKeyCommand keyCommandWithInput:UIKeyInputEscape modifierFlags:0 action:@selector(closeSettings)] ];
@@ -696,12 +908,16 @@ static void PRPresentSettings(
     PRRoot = [[PRNativeRoot alloc] init];
     PRNativeSidebar* sidebar = [[PRNativeSidebar alloc] initWithGroups:*groups initial:initial host:PRRoot];
     UINavigationController* primary = [[UINavigationController alloc] initWithRootViewController:sidebar];
-    primary.navigationBar.prefersLargeTitles = YES;
+    PRStyleNavigation(primary);
     PRRoot.detail =
         [[UINavigationController alloc] initWithRootViewController:[[PRNativePage alloc] initWithKey:initial]];
-    PRRoot.detail.navigationBar.prefersLargeTitles = YES;
+    PRStyleNavigation(PRRoot.detail);
     [PRRoot setViewController:primary forColumn:UISplitViewControllerColumnPrimary];
     [PRRoot setViewController:PRRoot.detail forColumn:UISplitViewControllerColumnSecondary];
+    for (const auto& group : *groups)
+        for (const auto& page : group.pages)
+            if (page.key == initial)
+                [PRRoot setCategory:PRText(group.title)];
     [top presentViewController:PRRoot animated:YES completion:nil];
 }
 

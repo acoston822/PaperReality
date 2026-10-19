@@ -39,6 +39,8 @@ static UIWindow* FindWindow() {
             continue;
         }
         for (UIWindow* candidate in ((UIWindowScene*) scene).windows) {
+            if (candidate.screen != UIScreen.mainScreen)
+                continue;
             if (candidate.isKeyWindow && candidate.rootViewController != nil) {
                 return candidate;
             }
@@ -54,7 +56,7 @@ static UIWindow* FindWindow() {
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
     // Apps without the scene lifecycle keep their windows here.
     for (UIWindow* candidate in UIApplication.sharedApplication.windows) {
-        if (candidate.rootViewController != nil && !candidate.isHidden) {
+        if (candidate.screen == UIScreen.mainScreen && candidate.rootViewController != nil && !candidate.isHidden) {
             return candidate;
         }
     }
@@ -71,6 +73,17 @@ static UIViewController* TopViewController() {
 }
 
 namespace Paperboat {
+void IosExportFile(std::string path) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController* top = TopViewController();
+        if (!top || top.isBeingPresented || top.isBeingDismissed)
+            return;
+        NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.c_str()]];
+        UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForExportingURLs:@[ url ]
+                                                                                                       asCopy:YES];
+        [top presentViewController:picker animated:YES completion:nil];
+    });
+}
 
 void IosPickFiles(bool allowMultiple, std::function<void(std::vector<std::string>)> onPicked) {
     // Held until the picker answers; the delegate is only weakly referenced by the controller.

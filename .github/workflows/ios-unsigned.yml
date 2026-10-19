@@ -23,6 +23,12 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Check UIKit sources
+        run: |
+          xcrun --sdk iphoneos clang++ -std=c++20 -fobjc-arc -fsyntax-only \
+            -target arm64-apple-ios16.3 -D__IOS__ -Isrc \
+            src/port/ios/IosNativeSettings.mm src/port/ios/IosFilePicker.mm
+
       - name: Install dependencies
         run: brew install cmake ninja
 

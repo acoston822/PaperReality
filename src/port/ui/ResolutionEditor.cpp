@@ -2,6 +2,7 @@
 #include "PaperboatGui.hpp"
 #include "PaperboatMenu.h"
 #include "UIWidgets.hpp"
+#include "NativeSettings.h"
 #include "port/Engine.h"
 #include "port/TextureCache.h"
 #include <fast/Fast3dWindow.h>
@@ -716,3 +717,55 @@ static RegisterMenuUpdateFunc updateFunc(UpdateResolutionVars, "Settings", "Grap
 static RegisterMenuInitFunc menuInitFunc(RegisterResolutionWidgets);
 
 } // namespace PaperboatGui
+
+namespace Paperboat::NativeSettings {
+void AppendResolutionRows(Page& page) {
+    using namespace PaperboatGui;
+    Section aspect { "Custom Aspect Ratio", "Set either value to zero to stop forcing an aspect ratio.", { } };
+    auto x = Number("Width", "gSettings.AdvancedResolution.AspectRatioX", false, 0, 32, .01, 4);
+    x.value = aspectRatioX;
+    x.enabled = !disabled_everything;
+    x.change = [](double value) {
+        aspectRatioX = std::clamp(float(value), 0.f, 32.f);
+        item_aspectRatio = default_aspectRatio;
+        update[UPDATE_aspectRatioX] = true;
+        UpdateResolutionVars();
+    };
+    auto y = Number("Height", "gSettings.AdvancedResolution.AspectRatioY", false, 0, 24, .01, 3);
+    y.value = aspectRatioY;
+    y.enabled = !disabled_everything;
+    y.change = [](double value) {
+        aspectRatioY = std::clamp(float(value), 0.f, 24.f);
+        item_aspectRatio = default_aspectRatio;
+        update[UPDATE_aspectRatioY] = true;
+        UpdateResolutionVars();
+    };
+    aspect.rows = { x, y };
+    page.sections.push_back(std::move(aspect));
+    auto fixed = Toggle("Fixed Vertical Resolution", "gSettings.AdvancedResolution.VerticalResolutionToggle", false);
+    fixed.enabled = !disabled_everything;
+    auto count = Number(
+        "Vertical Pixels", "gSettings.AdvancedResolution.VerticalPixelCount", true, minVerticalPixelCount,
+        maxVerticalPixelCount, 8, 480
+    );
+    count.value = verticalPixelCount;
+    count.enabled = !disabled_everything && !disabled_pixelCount;
+    count.change = [](double value) {
+        verticalPixelCount = std::clamp(int(value), int(minVerticalPixelCount), int(maxVerticalPixelCount));
+        item_pixelCount = default_pixelCount;
+        update[UPDATE_verticalPixelCount] = true;
+        UpdateResolutionVars();
+    };
+    page.sections.push_back({ "Resolution", "", { fixed, count } });
+    auto pixel = Toggle("Pixel Perfect Mode", "gSettings.AdvancedResolution.PixelPerfectMode", false);
+    pixel.enabled = !disabled_everything && !disabled_pixelCount;
+    auto fit = Toggle("Fit Automatically", "gSettings.AdvancedResolution.IntegerScale.FitAutomatically", true);
+    fit.enabled = !disabled_everything && CVarGetInteger("gSettings.AdvancedResolution.PixelPerfectMode", 0);
+    auto factor = Number(
+        "Integer Scale", "gSettings.AdvancedResolution.IntegerScale.Factor", true, 1,
+        std::max<int>(1, max_integerScaleFactor), 1, 1
+    );
+    factor.enabled = fit.enabled && !CVarGetInteger("gSettings.AdvancedResolution.IntegerScale.FitAutomatically", 1);
+    page.sections.push_back({ "Pixel Perfect", "", { pixel, fit, factor } });
+}
+}

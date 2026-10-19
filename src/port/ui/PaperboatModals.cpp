@@ -1,6 +1,7 @@
 #include "PaperboatModals.h"
 #include "PaperboatGui.hpp"
 #include "UIWidgets.hpp"
+#include "NativeSettings.h"
 #include <imgui.h>
 #include <string>
 #include <vector>
@@ -100,6 +101,8 @@ void PaperboatModalWindow::RegisterPopup(
     std::function<void()> button2callback,
     float scale
 ) {
+    if (Paperboat::NativeSettings::Alert(title, message, button1, button2, button1callback, button2callback))
+        return;
     modals.push_back({ title, message, button1, button2, button1callback, button2callback, scale });
 }
 

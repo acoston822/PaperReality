@@ -1,6 +1,9 @@
 #include "SaveEditor.h"
 #include "port/ui/UIWidgets.hpp"
 #include "port/ActorTypeNames.h"
+#include "port/ui/NativeSettings.h"
+#include <cctype>
+#include <cmath>
 #include <string>
 #include <spdlog/fmt/fmt.h>
 #include <imgui.h>
@@ -1515,3 +1518,410 @@ void SaveEditorWindow::InitElement() {
 }
 
 #pragma pop_macro("End")
+
+namespace Paperboat::NativeSettings {
+namespace {
+    bool SaveLoaded() {
+        return gCurrentSaveFile.magicString[0] != 0;
+    }
+    std::function<void()> EditSave(std::function<void()> action) {
+        return [action] {
+            if (SaveLoaded())
+                action();
+        };
+    }
+    std::function<void(double)> ChangeSave(std::function<void(double)> action) {
+        return [action](double value) {
+            if (SaveLoaded() && std::isfinite(value))
+                action(value);
+        };
+    }
+    template <typename T>
+    Row Stat(const std::string& title, T& field, int min, int max, int step = 1, std::function<void()> after = { }) {
+        Row row;
+        row.title = title;
+        row.kind = Kind::Integer;
+        row.value = field;
+        row.minimum = min;
+        row.maximum = max;
+        row.step = step;
+        row.change = ChangeSave([ptr = &field, min, max, step, after](double value) {
+            int result = std::clamp(int(std::lround(value)), min, max);
+            if (step > 1)
+                result = std::clamp(min + int(std::lround(double(result - min) / step)) * step, min, max);
+            *ptr = result;
+            if (after)
+                after();
+        });
+        return row;
+    }
+    Row SaveAction(std::string title, std::function<void()> action, bool destructive = false) {
+        Row row;
+        row.title = std::move(title);
+        row.kind = Kind::Action;
+        row.activate = EditSave(std::move(action));
+        row.destructive = destructive;
+        return row;
+    }
+    std::string ItemTitle(int item) {
+        const char* path = reinterpret_cast<const char*>(gItemIconRasterOffsets[item]);
+        const char* base = GetNameFromPath(path);
+        if (!base)
+            return "Empty";
+        std::string title;
+        for (const char* p = base; *p && *p != '.'; ++p) {
+            if (*p == '_')
+                title += ' ';
+            else {
+                if (p != base && std::isupper(static_cast<unsigned char>(*p))
+                    && std::islower(static_cast<unsigned char>(p[-1])))
+                    title += ' ';
+                title += *p;
+            }
+        }
+        return title;
+    }
+    void ItemPortrait(Row& row, int item) {
+        row.id = "item/" + std::to_string(item);
+        row.portrait = [item] {
+            return LoadImage(
+                reinterpret_cast<const char*>(gItemIconRasterOffsets[item]),
+                reinterpret_cast<const char*>(gItemIconPaletteOffsets[item])
+            );
+        };
+    }
+}
+Page SaveEditorPage(const std::string& key) {
+    Page page { key, "Save Editor", "", { } };
+    if (key == "save/root") {
+        Section sections { "Current Game", "Edits change the loaded game. Save in game to keep those changes.", { } };
+        const std::vector<std::pair<std::string, std::string>> tabs = { { "Player", "player" },
+                                                                        { "Badges", "badges" },
+                                                                        { "Items", "items" },
+                                                                        { "Party", "party" },
+                                                                        { "Letters", "letters" },
+                                                                        { "Recipes", "recipes" },
+                                                                        { "Star Pieces", "star-pieces" },
+                                                                        { "Tattles", "tattles" } };
+        const char* icons[] = { "person",   "seal",       "bag",  "person.2",
+                                "envelope", "fork.knife", "star", "text.book.closed" };
+        for (size_t i = 0; i < tabs.size(); ++i) {
+            auto row = Link(tabs[i].first, "save/" + tabs[i].second, icons[i]);
+            row.enabled = SaveLoaded();
+            sections.rows.push_back(std::move(row));
+        }
+        if (!SaveLoaded()) {
+            Row empty;
+            empty.title = "No Save Loaded";
+            empty.detail = "Load a game before editing its save data.";
+            page.sections.push_back({ "", "", { empty } });
+        }
+        page.sections.push_back(std::move(sections));
+        return page;
+    }
+    if (!SaveLoaded()) {
+        Row empty;
+        empty.title = "No Save Loaded";
+        empty.detail = "Load a game before editing its save data.";
+        page.sections.push_back({ "", "", { empty } });
+        return page;
+    }
+    if (key == "save/player") {
+        page.title = "Player";
+        page.sections.push_back(
+            { "Status",
+              "",
+              { Stat("Current HP", gPlayerData.curHP, 1, gPlayerData.curMaxHP),
+                Stat("Max HP", gPlayerData.hardMaxHP, 5, 50, 5, [] { enforce_hpfp_limits(); }),
+                Stat("Current FP", gPlayerData.curFP, 0, gPlayerData.curMaxFP),
+                Stat("Max FP", gPlayerData.hardMaxFP, 5, 50, 5, [] { enforce_hpfp_limits(); }),
+                Stat("BP", gPlayerData.maxBP, 3, 30), Stat("Level", gPlayerData.level, 1, 30) } }
+        );
+        Row boots;
+        boots.title = "Boots";
+        boots.kind = Kind::Choice;
+        boots.value = gPlayerData.bootsLevel;
+        boots.choices = { { 0, "Boots" }, { 1, "Super Boots" }, { 2, "Ultra Boots" } };
+        boots.change = ChangeSave([](double value) { gPlayerData.bootsLevel = std::clamp(int(value), 0, 2); });
+        Row hammer;
+        hammer.title = "Hammer";
+        hammer.kind = Kind::Choice;
+        hammer.value = gPlayerData.hammerLevel;
+        hammer.choices = { { -1, "None" }, { 0, "Hammer" }, { 1, "Super Hammer" }, { 2, "Ultra Hammer" } };
+        hammer.change = ChangeSave([](double value) { gPlayerData.hammerLevel = std::clamp(int(value), -1, 2); });
+        Row energy;
+        energy.title = "Star Energy";
+        energy.kind = Kind::Integer;
+        energy.value = gPlayerData.starPower / 256;
+        energy.minimum = 0;
+        energy.maximum = gPlayerData.maxStarPower;
+        energy.change = ChangeSave([](double value) {
+            gPlayerData.starPower = std::clamp(int(value), 0, int(gPlayerData.maxStarPower)) * 256;
+        });
+        Row minutes;
+        minutes.title = "Play Time (minutes)";
+        minutes.kind = Kind::Integer;
+        minutes.value = gPlayerData.frameCounter / 3600;
+        minutes.minimum = 0;
+        minutes.maximum = 5998;
+        minutes.change =
+            ChangeSave([](double value) { gPlayerData.frameCounter = std::clamp(int(value), 0, 5998) * 3600; });
+        page.sections.push_back(
+            { "Equipment & Progress",
+              "",
+              { boots, hammer, energy, Stat("Max Star Energy", gPlayerData.maxStarPower, 0, 7),
+                Stat("Coins", gPlayerData.coins, 0, 999), Stat("Star Points", gPlayerData.starPoints, 0, 99),
+                minutes } }
+        );
+    } else if (key == "save/party") {
+        page.title = "Party";
+        static const char* palettes[] = { ui_goombario_pal, ui_kooper_pal, ui_bombette_pal, ui_parakarry_pal,
+                                          ui_bow_pal,       ui_watt_pal,   ui_sushie_pal,   ui_lakilester_pal };
+        for (size_t i = 0; i < partyMemberList.size(); ++i) {
+            const auto& member = partyMemberList[i];
+            auto& data = gPlayerData.partners[gPausePartnersPartnerIDs[i]];
+            Row unlock;
+            unlock.title = member.first;
+            unlock.id = "partner/" + std::to_string(i);
+            unlock.kind = Kind::Toggle;
+            unlock.value = data.enabled;
+            unlock.portrait = [i] { return LoadImage(partyMemberList[i].second, palettes[i]); };
+            unlock.change = ChangeSave([i](double value) {
+                gPlayerData.partners[gPausePartnersPartnerIDs[i]].enabled = value != 0;
+            });
+            Row rank;
+            rank.title = "Rank";
+            rank.kind = Kind::Choice;
+            rank.value = data.level;
+            rank.choices = { { 0, "Normal" }, { 1, "Super" }, { 2, "Ultra" } };
+            rank.change = ChangeSave([i](double value) {
+                gPlayerData.partners[gPausePartnersPartnerIDs[i]].level = std::clamp(int(value), 0, 2);
+            });
+            page.sections.push_back({ member.first, "", { unlock, rank } });
+        }
+    } else if (key == "save/badges" || key == "save/food" || key == "save/battle") {
+        const bool badges = key == "save/badges", battle = key == "save/battle";
+        page.title = badges ? "Badges" : battle ? "Battle Items" : "Food";
+        page.searchable = true;
+        Section items { "",
+                        badges ? "Switch a badge on to add it to your collection. This does not equip it."
+                               : "Tap an item to add it to the current inventory.",
+                        { } };
+        bool full = true;
+        for (const int item : gPlayerData.invItems)
+            if (!item)
+                full = false;
+        for (int id = 0; id < MAX_ICON_RASTER_SIZE; ++id) {
+            const char* path = reinterpret_cast<const char*>(gItemIconRasterOffsets[id]);
+            if (!path || !std::strstr(path, badges ? "badge/" : battle ? "battle/" : "food/"))
+                continue;
+            Row row;
+            row.title = ItemTitle(id);
+            ItemPortrait(row, id);
+            if (badges) {
+                row.kind = Kind::Toggle;
+                row.value = PlayerHasBadge(id);
+                row.change = ChangeSave([id](double value) {
+                    bool has = PlayerHasBadge(id);
+                    if (bool(value) != has)
+                        AddRemove_Badge(id, has);
+                });
+            } else {
+                row.kind = Kind::Action;
+                row.enabled = !full;
+                row.activate = EditSave([id] { AddRemove_Item(id, false); });
+            }
+            items.rows.push_back(std::move(row));
+        }
+        page.sections.push_back(std::move(items));
+    } else if (key == "save/items") {
+        page.title = "Items";
+        Section inventory { "Inventory", "Tap a held item to remove it. Inventory holds ten items.", { } };
+        for (int i = 0; i < MAX_INVENTORY_SIZE; ++i) {
+            const int id = gPlayerData.invItems[i];
+            Row row;
+            row.id = "inventory/" + std::to_string(i);
+            row.title = id ? ItemTitle(id) : "Empty Slot";
+            row.detail = "Slot " + std::to_string(i + 1);
+            if (id) {
+                ItemPortrait(row, id);
+                row.kind = Kind::Action;
+                row.activate = EditSave([i] { gPlayerData.invItems[i] = ITEM_NONE; });
+            } else
+                row.enabled = false;
+            inventory.rows.push_back(std::move(row));
+        }
+        page.sections.push_back(std::move(inventory));
+        page.sections.push_back(
+            { "Add Items", "", { Link("Food", "save/food", "carrot"), Link("Battle Items", "save/battle", "bolt") } }
+        );
+    } else if (key == "save/letters") {
+        page.title = "Letters";
+        page.searchable = true;
+        auto collect = SaveAction("Collect All", [] {
+            for (const auto& letter : letterList) {
+                const auto state = GetLetterState(letter);
+                if (state == LETTER_NOT_FOUND || state == LETTER_WITH_PARAKARRY)
+                    SetLetterState(letter, LETTER_IN_ITEMS);
+            }
+            if (GetChainLetterProgress() <= 0)
+                SetChainLetterProgress(1);
+        });
+        auto deliver = SaveAction("Deliver All", [] {
+            for (const auto& letter : letterList)
+                SetLetterState(letter, LETTER_DELIVERED);
+            SetChainLetterProgress(chainLetterList.size() + 1);
+        });
+        auto clear = SaveAction(
+            "Clear All",
+            [] {
+                for (const auto& letter : letterList)
+                    SetLetterState(letter, LETTER_NOT_FOUND);
+                SetChainLetterProgress(0);
+            },
+            true
+        );
+        page.sections.push_back(
+            { "Letters",
+              "Delivering letters here does not grant rewards. Key items share 32 slots. Chain letters update in "
+              "sequence.",
+              { collect, deliver, clear } }
+        );
+        for (int chain = 0; chain < 2; ++chain) {
+            Section letters { chain ? "Chain Letters" : "Individual Letters", "", { } };
+            const auto& list = chain ? chainLetterList : letterList;
+            for (size_t i = 0; i < list.size(); ++i) {
+                Row row;
+                row.title = list[i].name;
+                row.id = "letter/" + std::to_string(chain) + "/" + std::to_string(i);
+                row.kind = Kind::Choice;
+                const auto state = chain ? GetChainLetterState(i) : GetLetterState(list[i]);
+                row.value = state;
+                row.choices = { { LETTER_NOT_FOUND, "Not Found" },
+                                { LETTER_IN_ITEMS, "In Items" },
+                                { LETTER_DELIVERED, "Delivered" } };
+                if (state == LETTER_WITH_PARAKARRY)
+                    row.choices.push_back({ state, "With Parakarry" });
+                row.change = ChangeSave([chain, i](double value) {
+                    const auto state = static_cast<LetterState>(int(value));
+                    if (state == LETTER_WITH_PARAKARRY)
+                        return;
+                    if (chain)
+                        SetChainLetterState(i, state);
+                    else
+                        SetLetterState(letterList[i], state);
+                });
+                letters.rows.push_back(std::move(row));
+            }
+            page.sections.push_back(std::move(letters));
+        }
+    } else if (key == "save/recipes") {
+        page.title = "Recipes";
+        page.searchable = true;
+        auto all = SaveAction("Discover All", [] {
+            for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i)
+                set_global_flag(CookableDiscoveredFlags[i]);
+        });
+        auto none = SaveAction(
+            "Forget All",
+            [] {
+                for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i)
+                    clear_global_flag(CookableDiscoveredFlags[i]);
+            },
+            true
+        );
+        page.sections.push_back({ "Cookbook", "", { all, none } });
+        Section recipes { "Recipes", "", { } };
+        for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i) {
+            const int id = CookableItemIDs[i];
+            Row row;
+            row.title = ItemTitle(id);
+            row.kind = Kind::Toggle;
+            row.value = get_global_flag(CookableDiscoveredFlags[i]);
+            ItemPortrait(row, id);
+            row.change = ChangeSave([i](double value) {
+                if (value)
+                    set_global_flag(CookableDiscoveredFlags[i]);
+                else
+                    clear_global_flag(CookableDiscoveredFlags[i]);
+            });
+            recipes.rows.push_back(std::move(row));
+        }
+        page.sections.push_back(std::move(recipes));
+    } else if (key == "save/star-pieces") {
+        page.title = "Star Pieces";
+        page.searchable = true;
+        page.sections.push_back(
+            { "Counts",
+              "",
+              { Stat("Current Pieces", gPlayerData.starPieces, 0, TOTAL_STAR_PIECES),
+                Stat("Collected Pieces", gPlayerData.starPiecesCollected, 0, TOTAL_STAR_PIECES) } }
+        );
+        auto all = SaveAction("Collect All Overworld Pieces", [] {
+            for (const auto& piece : starPieceList)
+                SetStarPieceCollected(piece, true);
+        });
+        auto none = SaveAction(
+            "Clear Overworld Pieces",
+            [] {
+                for (const auto& piece : starPieceList)
+                    SetStarPieceCollected(piece, false);
+            },
+            true
+        );
+        page.sections.push_back(
+            { "Overworld Pieces",
+              "These are the 63 overworld pieces Merluvlee can predict. There are 160 Star Pieces in total.",
+              { all, none } }
+        );
+        Section pieces { "Locations", "", { } };
+        for (size_t i = 0; i < starPieceList.size(); ++i) {
+            Row row;
+            row.title = starPieceList[i].location;
+            row.detail = starPieceList[i].kind;
+            row.kind = Kind::Toggle;
+            row.value = get_global_flag(starPieceList[i].flag);
+            row.change = ChangeSave([i](double value) { SetStarPieceCollected(starPieceList[i], value != 0); });
+            pieces.rows.push_back(std::move(row));
+        }
+        page.sections.push_back(std::move(pieces));
+    } else if (key == "save/tattles") {
+        page.title = "Tattles";
+        page.searchable = true;
+        const bool hide = CVarGetInteger("gSettings.Native.HideUnusedTattles", 1);
+        auto all = SaveAction("Enable All", [hide] {
+            for (const auto& tattle : gActorTypeNames)
+                if (!hide || !tattle.isUnused)
+                    SetTattleFlag(tattle.actorType, true);
+        });
+        auto none = SaveAction(
+            "Clear All",
+            [hide] {
+                for (const auto& tattle : gActorTypeNames)
+                    if (!hide || !tattle.isUnused)
+                        SetTattleFlag(tattle.actorType, false);
+            },
+            true
+        );
+        page.sections.push_back(
+            { "Tattle Log",
+              "Bulk actions apply to the full list below, respecting Hide Unused.",
+              { Toggle("Hide Unused", "gSettings.Native.HideUnusedTattles", true), all, none } }
+        );
+        Section tattles { "Enemies", "", { } };
+        for (const auto& tattle : gActorTypeNames) {
+            if (hide && tattle.isUnused)
+                continue;
+            const int type = tattle.actorType;
+            Row row;
+            row.title = tattle.name;
+            row.kind = Kind::Toggle;
+            row.value = GetTattleFlag(type);
+            row.change = ChangeSave([type](double value) { SetTattleFlag(type, value != 0); });
+            tattles.rows.push_back(std::move(row));
+        }
+        page.sections.push_back(std::move(tattles));
+    }
+    return page;
+}
+} // namespace Paperboat::NativeSettings

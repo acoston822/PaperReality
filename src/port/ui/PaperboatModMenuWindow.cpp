@@ -22,6 +22,7 @@
 #include "Menu.h"
 #include "MenuTypes.h"
 #include "UIWidgets.hpp"
+#include "NativeSettings.h"
 #include "port/Engine.h"
 #include "port/ios/IosFilePicker.h"
 
@@ -475,3 +476,148 @@ static void RegisterModMenuWidgets() {
 }
 
 static RegisterMenuInitFunc menuInitFunc(RegisterModMenuWidgets);
+
+namespace Paperboat::NativeSettings {
+Page ModPage(const std::string& key) {
+    static bool changed = false;
+    if (!changed)
+        UpdateModFiles(false, true);
+    Page page { key, "Mod Menu", "", { } };
+    if (key.starts_with("mods/item/")) {
+        const std::string file = key.substr(10);
+        page.title = file;
+        const bool enabled = std::find(enabledModFiles.begin(), enabledModFiles.end(), file) != enabledModFiles.end();
+        Row toggle;
+        toggle.title = "Enabled";
+        toggle.kind = Kind::Toggle;
+        toggle.value = enabled;
+        toggle.change = [file](double value) {
+            if (value)
+                EnableMod(file);
+            else
+                DisableMod(file);
+            changed = true;
+        };
+        Section settings { "", "Changes take effect after applying the list and restarting the app.", { toggle } };
+        if (enabled) {
+            const auto position = std::find(enabledModFiles.begin(), enabledModFiles.end(), file);
+            Row up;
+            up.title = "Move Up";
+            up.kind = Kind::Action;
+            up.symbol = "arrow.up";
+            up.enabled = position + 1 != enabledModFiles.end();
+            up.activate = [file] {
+                auto it = std::find(enabledModFiles.begin(), enabledModFiles.end(), file);
+                if (it != enabledModFiles.end() && it + 1 != enabledModFiles.end()) {
+                    std::iter_swap(it, it + 1);
+                    changed = true;
+                }
+            };
+            Row down;
+            down.title = "Move Down";
+            down.kind = Kind::Action;
+            down.symbol = "arrow.down";
+            down.enabled = position != enabledModFiles.begin();
+            down.activate = [file] {
+                auto it = std::find(enabledModFiles.begin(), enabledModFiles.end(), file);
+                if (it != enabledModFiles.end() && it != enabledModFiles.begin()) {
+                    std::iter_swap(it, it - 1);
+                    changed = true;
+                }
+            };
+            settings.rows.push_back(up);
+            settings.rows.push_back(down);
+        }
+        page.sections.push_back(std::move(settings));
+        return page;
+    }
+    auto alternate = Toggle(
+        "Use Alternate Assets", CVAR_ENHANCEMENT("Mods.AlternateAssets"), false,
+        "Enable replacements supplied under a texture pack’s alternate asset paths."
+    );
+    auto mipmaps = Toggle("HD Texture Mipmaps", CVAR_ENHANCEMENT("Mods.AutoMipmaps"), true);
+    mipmaps.enabled = !CVarGetInteger(CVAR_ENHANCEMENT("Graphics.DisableMipmaps"), 0);
+    Row add;
+    add.enabled = !changed;
+    add.title = "Add Files";
+    add.kind = Kind::Action;
+    add.symbol = "plus.circle";
+    add.activate = [] {
+#if defined(__IOS__)
+        IosPickFiles(true, [](std::vector<std::string> files) {
+            Enqueue([files = std::move(files)] {
+                int imported = 0, skipped = 0;
+                const auto folder = std::filesystem::path(Ship::Context::GetPathRelativeToAppDirectory("mods"));
+                std::error_code error;
+                std::filesystem::create_directories(folder, error);
+                for (const auto& file : files) {
+                    const std::filesystem::path source(file);
+                    if (IsValidExtension(source.extension().string())) {
+                        error.clear();
+                        std::filesystem::copy_file(
+                            source, folder / source.filename(), std::filesystem::copy_options::overwrite_existing, error
+                        );
+                        if (error)
+                            ++skipped;
+                        else
+                            ++imported;
+                    } else
+                        ++skipped;
+                    error.clear();
+                    std::filesystem::remove(source, error);
+                }
+                UpdateModFiles(false, false);
+                PaperboatGui::RegisterPopup(
+                    "Add Files",
+                    std::to_string(imported) + " file(s) imported. " + std::to_string(skipped)
+                        + " skipped. Restart the app to load newly added packs."
+                );
+            });
+        });
+#endif
+    };
+    Row apply;
+    apply.title = "Apply Changes";
+    apply.kind = Kind::Action;
+    apply.enabled = changed;
+    apply.activate = [] {
+        PaperboatGui::RegisterPopup(
+            "Apply Mods", "Save this mod list? The new list takes effect after restarting the app.", "Save List",
+            "Cancel", [] {
+                SaveModLists();
+                Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
+                changed = false;
+            }
+        );
+    };
+    Row cancel;
+    cancel.title = "Discard List Changes";
+    cancel.kind = Kind::Action;
+    cancel.destructive = true;
+    cancel.enabled = changed;
+    cancel.activate = [] {
+        UpdateModFiles(false, true);
+        changed = false;
+    };
+    page.sections.push_back({ "Assets", "", { alternate, mipmaps, add, apply, cancel } });
+    Section enabled { "Enabled Mods",
+                      "Higher entries take priority. Select a pack to enable, disable or reorder it.",
+                      { } };
+    for (auto it = enabledModFiles.rbegin(); it != enabledModFiles.rend(); ++it)
+        enabled.rows.push_back(Link(*it, "mods/item/" + *it, "shippingbox"));
+    Section disabled { "Disabled Mods", "", { } };
+    for (const auto& file : disabledModFiles)
+        disabled.rows.push_back(Link(file, "mods/item/" + file, "shippingbox"));
+    if (!enabled.rows.empty())
+        page.sections.push_back(std::move(enabled));
+    if (!disabled.rows.empty())
+        page.sections.push_back(std::move(disabled));
+    if (enabledModFiles.empty() && disabledModFiles.empty()) {
+        Row empty;
+        empty.title = "No Mods Added";
+        empty.detail = "Use Add Files to import a compatible pack.";
+        page.sections.push_back({ "", "", { empty } });
+    }
+    return page;
+}
+}

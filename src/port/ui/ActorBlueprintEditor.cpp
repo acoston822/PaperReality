@@ -1,4 +1,8 @@
 #include "ActorBlueprintEditor.h"
+#include "NativeSettings.h"
+#include "port/ui/PaperboatGui.hpp"
+#include "port/ios/IosFilePicker.h"
+#include <cmath>
 #include "port/ui/UIWidgets.hpp"
 #include "port/ui/Notification.h"
 #include "port/ui/cvar_prefixes.h"
@@ -194,13 +198,22 @@ static const u8* ResolveSpriteData(
     const void* ptr,
     Fast::TextureType expected,
     size_t minSize,
-    std::vector<std::shared_ptr<Ship::IResource>>* keepAlive
+    std::vector<std::shared_ptr<Ship::IResource>>* keepAlive,
+    bool native = false
 ) {
     if (!IsArchivePath(ptr)) {
         return (const u8*) ptr;
     }
-    auto resource = Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource((const char*) ptr, true);
+    auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
+    auto resource = manager->LoadResource((const char*) ptr, !native);
     auto texture = std::dynamic_pointer_cast<Fast::Texture>(resource);
+    if (native
+        && (!texture || texture->Type != expected || (texture->Flags & TEX_FLAG_LOAD_AS_RAW) || !texture->ImageData
+            || texture->ImageDataSize < minSize))
+    {
+        resource = manager->LoadResource((const char*) ptr, true);
+        texture = std::dynamic_pointer_cast<Fast::Texture>(resource);
+    }
     if (texture == nullptr || texture->Type != expected || (texture->Flags & TEX_FLAG_LOAD_AS_RAW)
         || texture->ImageData == nullptr || texture->ImageDataSize < minSize)
     {
@@ -215,7 +228,11 @@ struct PortraitLayer {
     std::vector<u32> pixels;
 };
 
-static bool LoadPortrait(const ActorBlueprint* blueprint, const std::string& name) {
+static bool LoadPortrait(
+    const ActorBlueprint* blueprint, const std::string& name, Paperboat::NativeSettings::Image* native = nullptr
+) {
+    if (native && !Sprite_AssetsAvailable())
+        return false;
     s32 anim = GetIdleAnim(blueprint);
     s32 spriteIdx = ((anim >> 16) & 0x7FFF) - 1;
     s32 animPalette = (anim >> 8) & 0xFF;
@@ -280,10 +297,12 @@ static bool LoadPortrait(const ActorBlueprint* blueprint, const std::string& nam
         }
         s32 width = entry->width;
         s32 height = entry->height;
-        const u8* image =
-            ResolveSpriteData(entry->image, Fast::TextureType::Palette4bpp, width * height / 2, &keepAlive);
+        const u8* image = ResolveSpriteData(
+            entry->image, Fast::TextureType::Palette4bpp, width * height / 2, &keepAlive, native != nullptr
+        );
         const u8* colors = ResolveSpriteData(
-            sprite->palettesOffset[palette], Fast::TextureType::RGBA16bpp, CI4_PALETTE_SIZE * 2, &keepAlive
+            sprite->palettesOffset[palette], Fast::TextureType::RGBA16bpp, CI4_PALETTE_SIZE * 2, &keepAlive,
+            native != nullptr
         );
         if (image == nullptr || colors == nullptr) {
             continue;
@@ -297,7 +316,27 @@ static bool LoadPortrait(const ActorBlueprint* blueprint, const std::string& nam
         layer.y = -(part.pos[1] + comp->compOffset.y + height);
         layer.z = part.pos[2] + comp->compOffset.z;
         layer.pixels.resize(width * height);
+        // Pack replacements are commonly decoded RGBA images, rather than the
+        // original indexed CI4 data. Sample them into the original component's
+        // bounds so animation offsets and the assembled portrait stay aligned.
+        std::shared_ptr<Fast::Texture> replacement;
+        if (native != nullptr && IsArchivePath(entry->image)) {
+            replacement = std::dynamic_pointer_cast<Fast::Texture>(
+                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource((const char*) entry->image)
+            );
+            if (!replacement || !replacement->ImageData || !replacement->Width || !replacement->Height
+                || (!(replacement->Flags & TEX_FLAG_LOAD_AS_RAW) && replacement->Type != Fast::TextureType::RGBA32bpp)
+                || replacement->ImageDataSize < size_t(replacement->Width) * replacement->Height * 4)
+                replacement.reset();
+        }
         for (s32 i = 0; i < width * height; i++) {
+            if (replacement) {
+                const int x = (i % width) * replacement->Width / width;
+                const int y = (i / width) * replacement->Height / height;
+                const u8* px = replacement->ImageData + (y * replacement->Width + x) * 4;
+                layer.pixels[i] = u32(px[0]) | (u32(px[1]) << 8) | (u32(px[2]) << 16) | (u32(px[3]) << 24);
+                continue;
+            }
             u8 index = (i & 1) ? (image[i / 2] & 0xF) : (image[i / 2] >> 4);
             u16 color = (colors[index * 2] << 8) | colors[index * 2 + 1];
             u32 r = ((color >> 11) & 0x1F) * 0xFF / 0x1F;
@@ -324,7 +363,9 @@ static bool LoadPortrait(const ActorBlueprint* blueprint, const std::string& nam
     }
     s32 outWidth = maxX - minX;
     s32 outHeight = maxY - minY;
-    auto pixels = std::make_shared<std::vector<char>>(outWidth * outHeight * 4, 0);
+    if (outWidth <= 0 || outHeight <= 0 || outWidth > 4096 || outHeight > 4096)
+        return false;
+    auto pixels = std::make_shared<std::vector<char>>(size_t(outWidth) * outHeight * 4, 0);
     u32* out = (u32*) pixels->data();
     for (const PortraitLayer& layer : layers) {
         for (s32 y = 0; y < layer.height; y++) {
@@ -337,6 +378,12 @@ static bool LoadPortrait(const ActorBlueprint* blueprint, const std::string& nam
         }
     }
 
+    if (native) {
+        native->width = outWidth;
+        native->height = outHeight;
+        native->rgba.assign(pixels->begin(), pixels->end());
+        return true;
+    }
     Fast::Texture texture;
     texture.Type = Fast::TextureType::RGBA32bpp;
     texture.Width = outWidth;
@@ -836,3 +883,249 @@ void ActorBlueprintEditorWindow::Draw() {
 }
 
 #pragma pop_macro("End")
+
+namespace Paperboat::NativeSettings {
+Image LoadBlueprintPortrait(const ActorBlueprint* blueprint) {
+    Image image;
+    if (blueprint)
+        LoadPortrait(blueprint, "", &image);
+    return image;
+}
+namespace {
+    Row BlueprintAction(std::string title, std::function<void()> action, bool destructive = false) {
+        Row row;
+        row.id = title;
+        row.title = std::move(title);
+        row.kind = Kind::Action;
+        row.activate = std::move(action);
+        row.destructive = destructive;
+        return row;
+    }
+    void NativeImportBlueprint() {
+#if defined(__IOS__)
+        Paperboat::IosPickFile([](std::string path) {
+            if (path.empty())
+                return;
+            Enqueue([path] {
+                std::string error;
+                const bool ok = ImportPreset(path, &error);
+                std::error_code ec;
+                std::filesystem::remove(path, ec);
+                PaperboatGui::RegisterPopup(
+                    "Blueprint Preset", ok ? "Preset imported. Changes apply from the next battle." : error
+                );
+            });
+        });
+#endif
+    }
+    void NativeExportBlueprint() {
+#if defined(__IOS__)
+        const auto path = std::filesystem::temp_directory_path() / "PaperReality-Blueprints.json";
+        std::string error;
+        if (!ExportPreset(path, &error)) {
+            PaperboatGui::RegisterPopup("Blueprint Preset", error);
+            return;
+        }
+        Paperboat::IosExportFile(path.string());
+#endif
+    }
+}
+Page BlueprintEditorPage(const std::string& key) {
+    Page page { key, "Blueprint Editor", "", { } };
+    if (key == "blueprint/root") {
+        Row enabled;
+        enabled.id = "blueprints-enabled";
+        enabled.title = "Apply Blueprint Overrides";
+        enabled.kind = Kind::Toggle;
+        enabled.value = IsEnabled();
+        enabled.change = [](double value) { SetEnabled(value != 0); };
+        page.sections.push_back(
+            { "Blueprints",
+              "Edits apply from the next battle. Your presets contain numeric overrides only.",
+              { enabled } }
+        );
+        Section categories { "Characters", "", { Link("All Characters", "blueprint/category/-1", "person.3") } };
+        for (int i = 0; i < CHAPTER_COUNT; ++i)
+            categories.rows.push_back(Link(
+                GetChapterName(Chapter(i)), "blueprint/category/" + std::to_string(i),
+                i == CHAPTER_PARTNERS ? "person.2" : "book.closed"
+            ));
+        page.sections.push_back(std::move(categories));
+        auto reset = BlueprintAction(
+            "Reset All Overrides",
+            [] {
+                PaperboatGui::RegisterPopup(
+                    "Reset All Overrides?", "This removes all custom blueprint values.", "Reset", "Cancel",
+                    [] { ClearAll(); }
+                );
+            },
+            true
+        );
+        page.sections.push_back(
+            { "Presets",
+              "Presets can be saved to Files and imported on another device.",
+              { BlueprintAction("Import Preset…", NativeImportBlueprint),
+                BlueprintAction("Export Preset…", NativeExportBlueprint), reset } }
+        );
+        return page;
+    }
+    const auto catalog = GetCatalog();
+    if (key.starts_with("blueprint/category/")) {
+        int chapter = -1;
+        try {
+            chapter = std::stoi(key.substr(19));
+        } catch (...) {
+            return page;
+        }
+        page.title = chapter >= 0 && chapter < CHAPTER_COUNT ? GetChapterName(Chapter(chapter)) : "All Characters";
+        page.searchable = true;
+        Section list;
+        for (const auto& entry : catalog) {
+            if (chapter != -1 && entry.chapter != chapter)
+                continue;
+            auto row = Link(GetActorName(entry.actorType), "blueprint/actor/" + std::to_string(entry.actorType), "");
+            row.detail = GetOverride(entry.actorType).Any() ? "Modified" : GetChapterName(entry.chapter);
+            row.portrait = [blueprint = entry.blueprint] { return LoadBlueprintPortrait(blueprint); };
+            list.rows.push_back(std::move(row));
+        }
+        page.sections.push_back(std::move(list));
+        return page;
+    }
+    if (!key.starts_with("blueprint/actor/"))
+        return page;
+    const auto slash = key.find('/', 16);
+    int actor = -1;
+    try {
+        actor = std::stoi(key.substr(16, slash == std::string::npos ? slash : slash - 16));
+    } catch (...) {
+        return page;
+    }
+    const auto found =
+        std::find_if(catalog.begin(), catalog.end(), [actor](const auto& entry) { return entry.actorType == actor; });
+    if (found == catalog.end())
+        return page;
+    const auto entry = *found;
+    const auto ov = GetOverride(actor);
+    const auto base = "blueprint/actor/" + std::to_string(actor);
+    const auto tab = slash == std::string::npos ? "" : key.substr(slash + 1);
+    page.title = GetActorName(actor);
+    if (tab.empty()) {
+        Row info;
+        info.title = GetActorName(actor);
+        info.id = base;
+        info.detail = fmt::format(
+            "{} · {} blueprint variant{}", GetChapterName(entry.chapter), entry.variantCount,
+            entry.variantCount == 1 ? "" : "s"
+        );
+        info.portrait = [blueprint = entry.blueprint] { return LoadBlueprintPortrait(blueprint); };
+        page.sections.push_back({ "", "Edits apply to all variants of this character.", { info } });
+        Section sections { "Attributes",
+                           "Changes apply from the next battle.",
+                           { Link("Combat", base + "/combat", "bolt.heart"),
+                             Link("Defense", base + "/defense", "shield") } };
+        if (entry.chapter != CHAPTER_PARTNERS) {
+            sections.rows.push_back(Link("Rewards", base + "/rewards", "gift"));
+            sections.rows.push_back(Link("Susceptibility", base + "/susceptibility", "wand.and.stars"));
+        }
+        auto reset = BlueprintAction("Reset Character", [actor] { ClearActor(actor); }, true);
+        reset.enabled = ov.Any();
+        sections.rows.push_back(std::move(reset));
+        page.sections.push_back(std::move(sections));
+        return page;
+    }
+    Section fields;
+    if (tab == "defense") {
+        page.title = "Defense";
+        const auto table = GetMainDefenseTable(entry.blueprint);
+        if (!table)
+            return page;
+        fields.footer = "Defense subtracts damage from each hit. Negative values increase damage. Unlisted elements "
+                        "inherit Normal. Overrides shift script-controlled defenses by the same amount.";
+        for (int i = 0; i < DEFENSE_ELEMENT_COUNT; ++i) {
+            const auto element = DefenseElement(i);
+            const auto& info = GetDefenseElementInfo(element);
+            const int vanilla = lookup_defense((s32*) table, info.element);
+            Row row;
+            row.id = base + "/defense/" + info.key;
+            row.title = info.label;
+            if (vanilla >= DEFENSE_IMMUNE) {
+                row.detail = "Immune";
+                fields.rows.push_back(std::move(row));
+                continue;
+            }
+            row.kind = Kind::Integer;
+            row.minimum = DEFENSE_MIN;
+            row.maximum = std::min(vanilla + DEFENSE_EDIT_MAX, DEFENSE_IMMUNE - 1);
+            row.step = 1;
+            row.value = GetElementDefense(table, element, ov);
+            row.detail = "Default: " + std::to_string(vanilla);
+            row.change = [actor, element, vanilla, table](double value) {
+                if (!std::isfinite(value))
+                    return;
+                const auto current = GetOverride(actor);
+                const int inherited = (element != DEFENSE_NORMAL && !DefenseTableLists(table, element)
+                                       && current.defenseSet[DEFENSE_NORMAL])
+                    ? current.defenseDelta[DEFENSE_NORMAL]
+                    : 0;
+                const int delta =
+                    std::clamp(
+                        int(std::lround(value)), DEFENSE_MIN, std::min(vanilla + DEFENSE_EDIT_MAX, DEFENSE_IMMUNE - 1)
+                    )
+                    - vanilla;
+                if (delta == inherited)
+                    ClearDefenseDelta(actor, element);
+                else
+                    SetDefenseDelta(actor, element, delta);
+            };
+            fields.rows.push_back(std::move(row));
+            if (ov.defenseSet[i])
+                fields.rows.push_back(BlueprintAction(std::string("Reset ") + info.label, [actor, element] {
+                    ClearDefenseDelta(actor, element);
+                }));
+        }
+    } else {
+        page.title = tab == "combat" ? "Combat" : tab == "rewards" ? "Rewards" : "Susceptibility";
+        fields.footer = entry.chapter == CHAPTER_PARTNERS
+            ? "Attack changes apply to all moves and ranks. Upgrade companions in the Save Editor."
+            : "Move choice odds are controlled by battle scripts.";
+        for (int i = 0; i < FIELD_COUNT; ++i) {
+            if ((tab == "combat" && i > FIELD_ATTACK_BONUS)
+                || (tab == "rewards" && (i < FIELD_LEVEL || i > FIELD_COIN_REWARD))
+                || (tab == "susceptibility" && i < FIELD_ESCAPE_CHANCE))
+                continue;
+            const auto field = Field(i);
+            if (!FieldApplies(entry, field))
+                continue;
+            const auto& info = GetFieldInfo(field);
+            const int original = GetDefault(entry.blueprint, field);
+            Row row;
+            row.id = base + "/" + info.key;
+            row.title = info.label;
+            row.kind = Kind::Integer;
+            row.minimum = info.min;
+            row.maximum = info.max;
+            row.step = 1;
+            row.value = ov.isSet[i] ? ov.value[i] : original;
+            row.detail = fmt::format("{} Default: {}.", info.tooltip, original);
+            row.percentage =
+                field == FIELD_ATTACK_PERCENT || (field >= FIELD_ESCAPE_CHANCE && field <= FIELD_UP_AND_AWAY_CHANCE);
+            row.change = [actor, field, original, min = info.min, max = info.max](double value) {
+                if (!std::isfinite(value))
+                    return;
+                const int next = std::clamp(int(std::lround(value)), min, max);
+                if (next == original)
+                    ClearOverride(actor, field);
+                else
+                    SetOverride(actor, field, next);
+            };
+            fields.rows.push_back(std::move(row));
+            if (ov.isSet[i])
+                fields.rows.push_back(BlueprintAction(std::string("Reset ") + info.label, [actor, field] {
+                    ClearOverride(actor, field);
+                }));
+        }
+    }
+    page.sections.push_back(std::move(fields));
+    return page;
+}
+} // namespace Paperboat::NativeSettings

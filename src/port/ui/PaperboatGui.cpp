@@ -111,6 +111,9 @@ void SetupGuiElements() {
 }
 
 void Destroy() {
+#if defined(__IOS__)
+    Paperboat::NativeSettings::Stop();
+#endif
     auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
 
     gui->RemoveAllGuiWindows();

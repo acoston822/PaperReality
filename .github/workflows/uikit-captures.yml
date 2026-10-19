@@ -39,7 +39,7 @@ jobs:
           done
           export CAPTURE_RUN
           python3 - <<'PY'
-          import hashlib, json, os, plistlib, subprocess, tempfile, time, zipfile
+          import hashlib, json, os, plistlib, re, subprocess, tempfile, time, zipfile
           from pathlib import Path
           repo = os.environ['GITHUB_REPOSITORY']
           def api(path):
@@ -54,7 +54,7 @@ jobs:
               report['simulator']['runtime_result'] = json.loads(result.read_text())['status']
           if ipa and report['simulator'].get('runtime_result') == 'passed':
               with tempfile.TemporaryDirectory() as folder:
-                  for attempt in range(45):
+                  for attempt in range(6):
                       downloaded = subprocess.run(['gh', 'run', 'download', str(ipa['id']), '--repo', repo,
                           '--name', 'PaperReality-unsigned-ipa-b' + str(ipa['run_number']), '--dir', folder])
                       if downloaded.returncode == 0:
@@ -68,6 +68,22 @@ jobs:
                               'bundle_version': plist['CFBundleVersion']}
                           break
                       time.sleep(5)
+                  if 'artifact' not in report['ios']:
+                      jobs = api('runs/' + str(ipa['id']) + '/jobs?per_page=100')
+                      report['ios']['jobs'] = [{k: job.get(k) for k in ['name', 'status', 'conclusion']} for job in jobs['jobs']]
+                      logs = subprocess.run(['gh', 'api', 'repos/' + repo + '/actions/runs/' + str(ipa['id']) + '/logs'], capture_output=True)
+                      log_path = Path(folder) / 'logs.zip'
+                      log_path.write_bytes(logs.stdout)
+                      if logs.returncode == 0 and zipfile.is_zipfile(log_path):
+                          lines = []
+                          with zipfile.ZipFile(log_path) as archive:
+                              for name in archive.namelist():
+                                  text = archive.read(name).decode('utf-8', errors='replace')
+                                  matches = [line for line in text.splitlines() if re.search(r'error:|fatal error|FAILED:|CMake Error|Process completed with exit code|Error [0-9]', line)]
+                                  if matches: lines.extend([name] + matches[-50:])
+                          Path('build-uikit-capture/build-diagnostics.log').write_text('\n'.join(lines)[-40000:])
+                      else:
+                          report['ios']['logs_unavailable'] = logs.stderr.decode('utf-8', errors='replace')[-1000:]
           Path('build-uikit-capture/verification.json').write_text(json.dumps(report, indent=2))
           PY
       - name: Make the asset-free captures available for review
@@ -83,7 +99,7 @@ jobs:
           import os, subprocess
           from pathlib import Path
           entries = []
-          for name in ['general.png', 'audio.png', 'sidebar.png', 'audio-dark.png', 'general-dark.png', 'result.json', 'verification.json', 'runner.log']:
+          for name in ['general.png', 'audio.png', 'sidebar.png', 'audio-dark.png', 'general-dark.png', 'result.json', 'verification.json', 'runner.log', 'build-diagnostics.log']:
               path = Path('build-uikit-capture') / name
               if not path.is_file():
                   continue

@@ -131,6 +131,7 @@ static UIImage* PRBlankPortrait() {
     std::string _key;
     N::Page _page;
     std::vector<N::Section> _sections;
+    std::vector<std::vector<std::pair<size_t, size_t>>> _rows;
     uint64_t _generation;
     NSMutableDictionary<NSString*, UIImage*>* _images;
     NSMutableSet<NSString*>* _pendingImages;
@@ -141,7 +142,6 @@ static UIImage* PRBlankPortrait() {
 - (void)refresh;
 - (void)filter;
 - (void)apply:(const N::Row&)row value:(double)value;
-- (NSInteger)columnsInSection:(NSInteger)section;
 @end
 
 @interface PRNativeChoices : UITableViewController <UISearchResultsUpdating> {
@@ -399,6 +399,19 @@ static PRNativeRoot* PRRoot = nil;
             });
         }
     std::erase_if(_sections, [](const auto& section) { return section.rows.empty(); });
+    _rows.clear();
+    for (const auto& section : _sections) {
+        auto& ranges = _rows.emplace_back();
+        auto numeric = [](const N::Row& row) { return row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal; };
+        for (size_t index = 0; index < section.rows.size();) {
+            size_t count = _twoColumns && numeric(section.rows[index]) && index + 1 < section.rows.size()
+                    && numeric(section.rows[index + 1])
+                ? 2
+                : 1;
+            ranges.emplace_back(index, count);
+            index += count;
+        }
+    }
     [self.tableView reloadData];
 }
 - (void)updateSearchResultsForSearchController:(UISearchController*)controller {
@@ -408,18 +421,7 @@ static PRNativeRoot* PRRoot = nil;
     return _sections.size();
 }
 - (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
-    const NSInteger columns = [self columnsInSection:section];
-    return (_sections[section].rows.size() + columns - 1) / columns;
-}
-- (NSInteger)columnsInSection:(NSInteger)section {
-    const auto& rows = _sections[section].rows;
-    return _twoColumns && rows.size() > 1
-            && std::all_of(
-                rows.begin(), rows.end(),
-                [](const auto& row) { return row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal; }
-            )
-        ? 2
-        : 1;
+    return _rows[section].size();
 }
 - (NSString*)tableView:(UITableView*)tableView titleForHeaderInSection:(NSInteger)section {
     return _sections[section].title.empty() ? nil : PRText(_sections[section].title);
@@ -448,8 +450,7 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
     const auto& rows = _sections[indexPath.section].rows;
-    const NSInteger columns = [self columnsInSection:indexPath.section];
-    const size_t index = indexPath.row * columns;
+    const auto [index, columns] = _rows[indexPath.section][indexPath.row];
     const N::Row row = rows[index];
     if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal) {
         std::vector<N::Row> controls { row };
@@ -549,7 +550,7 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)tableView:(UITableView*)tableView didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    const auto row = _sections[indexPath.section].rows[indexPath.row * [self columnsInSection:indexPath.section]];
+    const auto row = _sections[indexPath.section].rows[_rows[indexPath.section][indexPath.row].first];
     if (!row.enabled)
         return;
     if (row.kind == N::Kind::Link)

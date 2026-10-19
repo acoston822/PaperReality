@@ -84,6 +84,11 @@ Page BuildPage(const std::string& key) {
                                                                  : "Volume of sound effects.";
                 volumes.rows.push_back(std::move(r));
             }
+            auto api = row("Audio API", Kind::Choice);
+            api.choices = { { 0, "SDL" } };
+            api.enabled = false;
+            api.detail = "Changing the audio API requires a relaunch.";
+            volumes.rows.push_back(std::move(api));
             page.sections.push_back(std::move(volumes));
         } else {
             auto native = row("Use Native iOS Settings", Kind::Toggle);
@@ -181,6 +186,19 @@ static UISlider* PRSmokeSlider(UIView* view, NSString* label) {
     for (UIView* child in view.subviews)
         if (UISlider* slider = PRSmokeSlider(child, label))
             return slider;
+    return nil;
+}
+static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
+    NSString* title = [NSString stringWithFormat:@"Control %d", int(kind)];
+    for (NSInteger section = 0; section < [page.tableView numberOfSections]; ++section)
+        for (NSInteger row = 0; row < [page.tableView numberOfRowsInSection:section]; ++row) {
+            NSIndexPath* index = [NSIndexPath indexPathForRow:row inSection:section];
+            UITableViewCell* cell = [page tableView:page.tableView cellForRowAtIndexPath:index];
+            if ([cell.contentConfiguration isKindOfClass:UIListContentConfiguration.class] &&
+                [((UIListContentConfiguration*) cell.contentConfiguration).text isEqualToString:title])
+                return index;
+        }
+    [NSException raise:@"UIKitMissingControl" format:@"%@ is missing", title];
     return nil;
 }
 @interface SmokeDelegate : UIResponder <UIApplicationDelegate>
@@ -319,7 +337,7 @@ static UISlider* PRSmokeSlider(UIView* view, NSString* label) {
                                              [PRRoot.view setNeedsLayout];
                                              [PRRoot.view layoutIfNeeded];
                                              [page tableView:page.tableView
-                                                 didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:7 inSection:0]];
+                                                 didSelectRowAtIndexPath:PRSmokeIndex(page, N::Kind::Link)];
                                              phase = 7;
                                              return;
                                          }
@@ -339,7 +357,7 @@ static UISlider* PRSmokeSlider(UIView* view, NSString* label) {
                                      if (phase == 8 && PRRoot.detail.viewControllers.count == 1) {
                                          PRNativePage* page = PRSmokePage(PRRoot);
                                          [page tableView:page.tableView
-                                             didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:4 inSection:0]];
+                                             didSelectRowAtIndexPath:PRSmokeIndex(page, N::Kind::Choice)];
                                          phase = 9;
                                          return;
                                      }
@@ -363,14 +381,14 @@ static UISlider* PRSmokeSlider(UIView* view, NSString* label) {
                                              return;
                                          [page.tableView layoutIfNeeded];
                                          Require(
-                                             [page.tableView numberOfRowsInSection:0] == 2,
+                                             [page.tableView numberOfRowsInSection:0] == 3,
                                              @"Wide audio layout should pair the four volume controls."
                                          );
                                          CGRect bounds = page.tableView.bounds;
                                          page.tableView.bounds = CGRectMake(0, 0, 320, 500);
                                          [page viewDidLayoutSubviews];
                                          Require(
-                                             [page.tableView numberOfRowsInSection:0] == 4,
+                                             [page.tableView numberOfRowsInSection:0] == 5,
                                              @"Narrow audio layout must retain all four volume controls."
                                          );
                                          page.tableView.bounds = bounds;

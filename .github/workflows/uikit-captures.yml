@@ -36,6 +36,25 @@ jobs:
             sleep 5
           done
           gh run download "$CAPTURE_RUN" --repo "$GITHUB_REPOSITORY" --name UIKit-runtime-smoke --dir build-uikit-capture
+          export CAPTURE_RUN
+          python3 - <<'PY'
+          import json, os, subprocess, time
+          from pathlib import Path
+          repo = os.environ['GITHUB_REPOSITORY']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', 'repos/' + repo + '/actions/' + path], text=True))
+          smoke = api('runs/' + os.environ['CAPTURE_RUN'])
+          runs = api('workflows/ios-unsigned.yml/runs?branch=experimental%2Fuikit-settings&per_page=15')
+          ipa = next((r for r in runs['workflow_runs'] if r['head_sha'] == smoke['head_sha']), None)
+          if ipa:
+              for attempt in range(90):
+                  ipa = api('runs/' + str(ipa['id']))
+                  if ipa['status'] == 'completed': break
+                  time.sleep(5)
+          keys = ['html_url', 'head_sha', 'run_number', 'status', 'conclusion']
+          report = {name: {k: run[k] for k in keys} if run else None for name, run in [('simulator', smoke), ('ios', ipa)]}
+          Path('build-uikit-capture/verification.json').write_text(json.dumps(report, indent=2))
+          PY
       - name: Make the asset-free captures available for review
         # Only the synthetic harness PNGs are copied. No game data is in this job.
         # A separate, parentless capture branch keeps images out of application code.
@@ -49,7 +68,7 @@ jobs:
           import os, subprocess
           from pathlib import Path
           entries = []
-          for name in ['general.png', 'audio.png', 'sidebar.png', 'audio-dark.png', 'general-dark.png', 'result.json']:
+          for name in ['general.png', 'audio.png', 'sidebar.png', 'audio-dark.png', 'general-dark.png', 'result.json', 'verification.json']:
               path = Path('build-uikit-capture') / name
               blob = subprocess.check_output(['git', 'hash-object', '-w', str(path)], text=True).strip()
               entries.append(f'100644 blob {blob}\t{name}\n')

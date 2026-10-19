@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 namespace Paperboat::NativeSettings {
+static std::atomic<int> volumeEdited { -1 };
 static dispatch_queue_t gameQueue = dispatch_queue_create("org.paperreality.uikit-smoke.game", DISPATCH_QUEUE_SERIAL);
 void Enqueue(std::function<void()> action) {
     dispatch_async(gameQueue, ^{
@@ -67,10 +68,12 @@ Page BuildPage(const std::string& key) {
         if (key == "audio") {
             page.title = "Audio";
             Section volumes { "", "", { } };
+            int index = 0;
             for (const char* title :
                  { "Master Volume", "Main Music Volume", "Environment Volume", "Sound Effects Volume" })
             {
                 auto r = row(title, Kind::Integer);
+                r.change = [channel = index++](double) { volumeEdited = channel; };
                 r.minimum = 0;
                 r.maximum = 100;
                 r.value = 100;
@@ -170,6 +173,14 @@ static PRNativePage* PRSmokePage(UIViewController* controller) {
         if (auto page = PRSmokePage(child))
             return page;
     }
+    return nil;
+}
+static UISlider* PRSmokeSlider(UIView* view, NSString* label) {
+    if ([view isKindOfClass:UISlider.class] && [view.accessibilityLabel isEqualToString:label])
+        return (UISlider*) view;
+    for (UIView* child in view.subviews)
+        if (UISlider* slider = PRSmokeSlider(child, label))
+            return slider;
     return nil;
 }
 @interface SmokeDelegate : UIResponder <UIApplicationDelegate>
@@ -313,12 +324,8 @@ static PRNativePage* PRSmokePage(UIViewController* controller) {
                                              return;
                                          }
                                          if (phase == 6) {
-                                             Report(
-                                                 @"passed",
-                                                 @"Opened and reopened settings, rendered every control type, "
-                                                 @"verified landscape/compact navigation and nested pages."
-                                             );
-                                             [timer invalidate];
+                                             [PRRoot openPage:"audio"];
+                                             phase = 11;
                                              return;
                                          }
                                      }
@@ -347,6 +354,45 @@ static PRNativePage* PRSmokePage(UIViewController* controller) {
                                      if (phase == 10 && PRRoot.detail.viewControllers.count == 1) {
                                          [PRRoot closeSettings];
                                          phase = 3;
+                                         return;
+                                     }
+                                     if (phase == 11) {
+                                         PRNativePage* page = PRSmokePage(PRRoot);
+                                         if (![page.title isEqualToString:@"Audio"]
+                                             || ![page.tableView numberOfSections])
+                                             return;
+                                         [page.tableView layoutIfNeeded];
+                                         Require(
+                                             [page.tableView numberOfRowsInSection:0] == 2,
+                                             @"Wide audio layout should pair the four volume controls."
+                                         );
+                                         CGRect bounds = page.tableView.bounds;
+                                         page.tableView.bounds = CGRectMake(0, 0, 320, 500);
+                                         [page viewDidLayoutSubviews];
+                                         Require(
+                                             [page.tableView numberOfRowsInSection:0] == 4,
+                                             @"Narrow audio layout must retain all four volume controls."
+                                         );
+                                         page.tableView.bounds = bounds;
+                                         [page viewDidLayoutSubviews];
+                                         UITableViewCell* cell = [page tableView:page.tableView
+                                                           cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1
+                                                                                                    inSection:0]];
+                                         UISlider* slider = PRSmokeSlider(cell, @"Sound Effects Volume");
+                                         Require(slider != nil, @"Second card pair must contain the SFX channel.");
+                                         slider.value = 83;
+                                         [slider sendActionsForControlEvents:UIControlEventTouchUpInside];
+                                         phase = 12;
+                                         return;
+                                     }
+                                     if (phase == 12 && N::volumeEdited == 3) {
+                                         Report(
+                                             @"passed",
+                                             @"Opened/reopened settings; rendered every control; verified "
+                                             @"landscape/compact and nested navigation, adaptive volume cards, and the "
+                                             @"correct channel edit through the game queue."
+                                         );
+                                         [timer invalidate];
                                          return;
                                      }
                                      if (phase == 3 && !PRRoot) {

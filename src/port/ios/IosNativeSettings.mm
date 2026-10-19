@@ -674,6 +674,37 @@ static void PRShowNextAlert() {
     [top presentViewController:alert animated:YES completion:nil];
 }
 
+// Main queue only. Each delayed attempt owns its captures until it returns.
+// Clearing a self-capturing block from inside its first synchronous invocation
+// could destroy its std::string/shared_ptr captures while they were still in use.
+static void PRPresentSettings(
+    std::shared_ptr<std::vector<N::Group>> groups, std::string initial, uint64_t generation, int attempt = 0
+) {
+    if (generation != PRPresentation.load())
+        return;
+    UIViewController* top = PRTopController();
+    if (!top || top.presentedViewController || top.isBeingPresented || top.isBeingDismissed) {
+        if (attempt < 29) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                PRPresentSettings(groups, initial, generation, attempt + 1);
+            });
+        } else {
+            N::Enqueue([] { N::OpenClassic("Settings", "General"); });
+        }
+        return;
+    }
+    PRRoot = [[PRNativeRoot alloc] init];
+    PRNativeSidebar* sidebar = [[PRNativeSidebar alloc] initWithGroups:*groups initial:initial host:PRRoot];
+    UINavigationController* primary = [[UINavigationController alloc] initWithRootViewController:sidebar];
+    primary.navigationBar.prefersLargeTitles = YES;
+    PRRoot.detail =
+        [[UINavigationController alloc] initWithRootViewController:[[PRNativePage alloc] initWithKey:initial]];
+    PRRoot.detail.navigationBar.prefersLargeTitles = YES;
+    [PRRoot setViewController:primary forColumn:UISplitViewControllerColumnPrimary];
+    [PRRoot setViewController:PRRoot.detail forColumn:UISplitViewControllerColumnSecondary];
+    [top presentViewController:PRRoot animated:YES completion:nil];
+}
+
 namespace Paperboat::NativeSettings {
 bool IsPresented() {
     return PRWanted.load();
@@ -694,38 +725,7 @@ void SetPresented(bool presented, std::vector<Group> navigation) {
             PRAlertVisible = false;
             return;
         }
-        __block int attempts = 0;
-        __block void (^show)(void) = nil;
-        show = ^{
-            if (generation != PRPresentation.load()) {
-                show = nil;
-                return;
-            }
-            UIViewController* top = PRTopController();
-            if (!top || top.presentedViewController || top.isBeingPresented || top.isBeingDismissed) {
-                if (++attempts < 30) {
-                    dispatch_after(
-                        dispatch_time(DISPATCH_TIME_NOW, int64_t(.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), show
-                    );
-                    return;
-                }
-                show = nil;
-                Enqueue([] { OpenClassic("Settings", "General"); });
-                return;
-            }
-            show = nil;
-            PRRoot = [[PRNativeRoot alloc] init];
-            PRNativeSidebar* sidebar = [[PRNativeSidebar alloc] initWithGroups:*groups initial:initial host:PRRoot];
-            UINavigationController* primary = [[UINavigationController alloc] initWithRootViewController:sidebar];
-            primary.navigationBar.prefersLargeTitles = YES;
-            PRRoot.detail =
-                [[UINavigationController alloc] initWithRootViewController:[[PRNativePage alloc] initWithKey:initial]];
-            PRRoot.detail.navigationBar.prefersLargeTitles = YES;
-            [PRRoot setViewController:primary forColumn:UISplitViewControllerColumnPrimary];
-            [PRRoot setViewController:PRRoot.detail forColumn:UISplitViewControllerColumnSecondary];
-            [top presentViewController:PRRoot animated:YES completion:nil];
-        };
-        show();
+        PRPresentSettings(groups, initial, generation);
     });
 }
 bool Alert(

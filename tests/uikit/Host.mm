@@ -2,6 +2,10 @@
 // The actual view/controller implementation is compiled unchanged below.
 #include "../../src/port/ios/IosNativeSettings.mm"
 #include <cstdio>
+#include <execinfo.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <unistd.h>
 
 namespace Paperboat::NativeSettings {
 static dispatch_queue_t gameQueue = dispatch_queue_create("org.paperreality.uikit-smoke.game", DISPATCH_QUEUE_SERIAL);
@@ -61,6 +65,19 @@ Page BuildPage(const std::string& key) {
     return page;
 }
 }
+static int signalLog = -1;
+static void Crashed(int signal) {
+    const char message[] = "UIKit smoke terminated by signal\n";
+    write(signalLog, message, sizeof(message) - 1);
+    void* frames[48];
+    const int count = backtrace(frames, 48);
+    backtrace_symbols_fd(frames, count, signalLog);
+    _Exit(128 + signal);
+}
+static void Progress(const char* message) {
+    dprintf(signalLog, "%s\n", message);
+    fsync(signalLog);
+}
 static void Report(NSString* status, NSString* message) {
     NSDictionary* result = @ { @"status" : status, @"message" : message };
     NSData* data = [NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
@@ -69,7 +86,9 @@ static void Report(NSString* status, NSString* message) {
 static void Uncaught(NSException* exception) {
     Report(
         @"failed",
-        [NSString stringWithFormat:@"%@: %@\n%@", exception.name, exception.reason,
+        [NSString stringWithFormat:@"%@: %@\n%@",
+                                   exception.name,
+                                   exception.reason,
                                    [exception.callStackSymbols componentsJoinedByString:@"\n"]]
     );
 }
@@ -78,12 +97,19 @@ static void Uncaught(NSException* exception) {
 @end
 @implementation SmokeDelegate
 - (BOOL)application:(UIApplication*)application didFinishLaunchingWithOptions:(NSDictionary*)options {
+    NSString* path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/UIKitProgress.log"];
+    signalLog = open(path.UTF8String, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    signal(SIGSEGV, Crashed);
+    signal(SIGABRT, Crashed);
+    signal(SIGBUS, Crashed);
+    Progress("App launched");
     NSSetUncaughtExceptionHandler(Uncaught);
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     self.window.rootViewController = [[UIViewController alloc] init];
     self.window.rootViewController.view.backgroundColor = UIColor.systemBackgroundColor;
     [self.window makeKeyAndVisible];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        Progress("Opening settings");
         N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });
     });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{

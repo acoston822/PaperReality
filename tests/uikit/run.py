@@ -29,7 +29,7 @@ subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
 runtimes=json.loads(run('xcrun','simctl','list','runtimes','-j'))['runtimes']
 runtime=next(r for r in reversed(runtimes) if r.get('isAvailable') and r['identifier'].startswith('com.apple.CoreSimulator.SimRuntime.iOS-'))
 types=json.loads(run('xcrun','simctl','list','devicetypes','-j'))['devicetypes']
-device_type=next(d for d in reversed(types) if d['name'].startswith('iPhone') and 'Pro' in d['name'])
+device_type=next(d for d in types if d['name']=='iPhone 15 Pro')
 device=run('xcrun','simctl','create','PaperReality UIKit smoke',device_type['identifier'],runtime['identifier'])
 try:
     run('xcrun','simctl','boot',device)
@@ -45,12 +45,16 @@ try:
     if result.exists():
         report=json.loads(result.read_text()); (out/'result.json').write_text(json.dumps(report,indent=2))
     else:
-        report={'status':'failed','message':'Simulator app exited or timed out without reporting. Inspect simulator.log and crash reports.'}
+        progress=data/'Documents/UIKitProgress.log'
+        detail=progress.read_text() if progress.exists() else 'App did not reach launch callback'
+        report={'status':'failed','message':'Simulator exited or timed out.\n'+detail}
+    (out/'result.json').write_text(json.dumps(report,indent=2))
     logs=run('xcrun','simctl','spawn',device,'log','show','--last','3m','--style','compact','--predicate','process == "UIKitSmoke"')
     (out/'simulator.log').write_text(logs)
     print(json.dumps(report,indent=2))
     if report['status']!='passed':
-        for line in report['message'].splitlines()[:18]: print('::error::'+line.replace('%','%25').replace('\r','%0D'))
+        print(logs[-10000:])
+        for line in report['message'].splitlines()[:35]: print('::error::'+line.replace('%','%25').replace('\r','%0D'))
         sys.exit(1)
 finally:
     subprocess.run(['xcrun','simctl','shutdown',device],check=False)

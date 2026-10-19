@@ -106,6 +106,17 @@ category/page switching, nested editor-style pages and choice navigation. Captur
 include both Light and Dark appearance. These checks do not establish controller
 navigation or in-game behavior on a physical device.
 
+The refined layout passed the iPhone simulator harness on source `9168fe05b`:
+opening/reopening, all control types, nested navigation, paired volume cards,
+single-column fallback, and editing the correct channel through the queue. The
+fixture retains an Audio API selector beside the numeric controls to check mixed
+sections. General and Audio captures are actual UIKit views with synthetic settings.
+
+The capture workflow reads artifacts directly because run status can remain
+cached as queued after simulator results are available. An IPA is considered
+available only after its artifact can be downloaded and its bundle build number
+checked. A queued status alone is not evidence that compilation or packaging passed.
+
 Verified for the opening fix: unsigned iOS build 40 succeeded, and the iPhone
 simulator regression passed. General, Audio and navigation captures are made
 from the actual view hierarchy in its landscape coordinates. The harness uses

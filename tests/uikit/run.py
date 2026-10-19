@@ -16,6 +16,9 @@ app.mkdir(parents=True, exist_ok=True)
 def run(*args, **kwargs):
     return subprocess.check_output(args, text=True, **kwargs).strip()
 sdk = run('xcrun', '--sdk', 'iphonesimulator', '--show-sdk-path')
+subprocess.run(['c++','-std=c++20','-I'+str(root/'src'),str(root/'tests/native-settings/portraits.cpp'),
+                '-o',str(out/'portrait-check')],check=True)
+subprocess.run([str(out/'portrait-check')],check=True)
 subprocess.run(['xcrun','--sdk','iphonesimulator','clang++','-std=c++20','-fobjc-arc',
                 '-target',platform.machine()+'-apple-ios16.3-simulator','-isysroot',sdk,
                 '-D__IOS__','-I'+str(root/'src'),str(root/'tests/uikit/Host.mm'),

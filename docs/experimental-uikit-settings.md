@@ -59,6 +59,16 @@ or its tests. Runtime portraits are not checked-in screenshots or bundled art.
 The implementation does not upload user assets. Blueprint exports contain the
 existing numeric preset format, not sprite data.
 
+Native blueprint portraits retain replacement texture pixels while assembling
+parts in the original animation coordinate system. Mixed-resolution parts share
+a common canvas scale and use source-over alpha blending; unusually large output
+is capped at 2048 pixels per side to bound temporary memory. UIKit creates a
+44-point thumbnail at the display's actual pixel density, enlarging small sprites
+without interpolation and using high-quality reduction for larger artwork. No
+texture-pack files are rewritten. Synthetic portrait checks live in
+`tests/native-settings/portraits.cpp`; the UIKit harness also verifies Retina
+dimensions and that enlarging a checkerboard introduces no blurred colors.
+
 ## Validation
 
 Build the normal Linux Ninja debug target first with

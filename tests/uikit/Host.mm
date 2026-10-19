@@ -171,6 +171,41 @@ static void Require(bool condition, NSString* message) {
     if (!condition)
         [NSException raise:@"UIKitLayoutRegression" format:@"%@", message];
 }
+static void CheckPortraitRendering() {
+    N::Image pixels { 4, 4, { } };
+    for (int y = 0; y < 4; ++y)
+        for (int x = 0; x < 4; ++x) {
+            const uint8_t color = (x + y) % 2 ? 255 : 0;
+            pixels.rgba.insert(pixels.rgba.end(), { color, color, color, 255 });
+        }
+    UIImage* thumbnail = PRImage(pixels, 3);
+    Require(
+        thumbnail != nil && thumbnail.scale == 3 && thumbnail.size.width == 44
+            && CGImageGetWidth(thumbnail.CGImage) == 132 && CGImageGetHeight(thumbnail.CGImage) == 132,
+        @"Portrait thumbnails must have real Retina pixels at their display size."
+    );
+    Require(
+        CGImageGetBitsPerPixel(thumbnail.CGImage) == 32 && CGImageGetBitsPerComponent(thumbnail.CGImage) == 8,
+        @"Portrait renderer must produce a standard RGBA thumbnail."
+    );
+    CFDataRef data = CGDataProviderCopyData(CGImageGetDataProvider(thumbnail.CGImage));
+    const auto* bytes = CFDataGetBytePtr(data);
+    const size_t stride = CGImageGetBytesPerRow(thumbnail.CGImage);
+    bool crisp = true;
+    for (size_t y = 0; y < 132; ++y)
+        for (size_t x = 0; x < 132 * 4; ++x)
+            crisp = crisp && (bytes[y * stride + x] == 0 || bytes[y * stride + x] == 255);
+    CFRelease(data);
+    Require(crisp, @"Upscaling original pixel art introduced blurred intermediate colors.");
+    N::Image hd { 256, 128, std::vector<uint8_t>(256 * 128 * 4, 255) };
+    UIImage* reduced = PRImage(hd, 2);
+    Require(
+        reduced != nil && reduced.scale == 2 && CGImageGetWidth(reduced.CGImage) == 88,
+        @"HD artwork must produce a thumbnail at the current display density."
+    );
+    Require(PRImage({ }, 3) == nil, @"Unavailable portraits must retain the blank placeholder.");
+    Progress("Portrait rendering passed: Retina density, crisp pixel art, HD reduction, missing assets");
+}
 static PRNativePage* PRSmokePage(UIViewController* controller) {
     if ([controller isKindOfClass:PRNativePage.class])
         return (PRNativePage*) controller;
@@ -213,6 +248,7 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
     signal(SIGBUS, Crashed);
     Progress("App launched");
     NSSetUncaughtExceptionHandler(Uncaught);
+    CheckPortraitRendering();
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     self.window.rootViewController = [[UIViewController alloc] init];
     self.window.rootViewController.view.backgroundColor = UIColor.systemBackgroundColor;
@@ -408,7 +444,8 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              @"passed",
                                              @"Opened/reopened settings; rendered every control; verified "
                                              @"landscape/compact and nested navigation, adaptive volume cards, and the "
-                                             @"correct channel edit through the game queue."
+                                             @"correct channel edit through the game queue; Retina portraits and crisp "
+                                             @"pixel scaling."
                                          );
                                          [timer invalidate];
                                          return;

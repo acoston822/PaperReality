@@ -6,6 +6,9 @@ on:
     paths:
       - src/port/ios/IosNativeSettings.mm
       - src/port/ui/NativeSettings.h
+      - src/port/ui/NativePortrait.h
+      - src/port/ui/ActorBlueprintEditor.cpp
+      - tests/native-settings/portraits.cpp
       - tests/uikit/**
       - .github/workflows/uikit-smoke.yml
 permissions:

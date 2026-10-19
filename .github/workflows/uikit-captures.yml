@@ -11,6 +11,9 @@ on:
     paths:
       - .github/workflows/uikit-captures.yml
       - src/port/ios/IosNativeSettings.mm
+      - src/port/ui/NativePortrait.h
+      - src/port/ui/ActorBlueprintEditor.cpp
+      - tests/native-settings/portraits.cpp
       - tests/uikit/**
 permissions:
   contents: write

@@ -99,17 +99,45 @@ static UIViewController* PRTopController() {
     return top;
 }
 
-static UIImage* PRImage(const N::Image& image) {
+static UIImage* PRImage(const N::Image& image, CGFloat displayScale) {
     if (image.width <= 0 || image.height <= 0 || image.rgba.size() < size_t(image.width) * image.height * 4)
         return nil;
     NSData* data = [NSData dataWithBytes:image.rgba.data() length:image.rgba.size()];
+    displayScale = displayScale > 0 ? displayScale : UIScreen.mainScreen.scale;
+    const CGFloat fit = std::min(44. / image.width, 44. / image.height);
+    const CGSize pixels = CGSizeMake(
+        std::max(1., std::round(image.width * fit * displayScale)),
+        std::max(1., std::round(image.height * fit * displayScale))
+    );
+    const BOOL reducing = pixels.width < image.width || pixels.height < image.height;
     CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef) data);
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
     CGImageRef cg = CGImageCreate(
         image.width, image.height, 8, 32, image.width * 4, space,
-        CGBitmapInfo(kCGImageAlphaLast | kCGBitmapByteOrder32Big), provider, nullptr, NO, kCGRenderingIntentDefault
+        CGBitmapInfo(kCGImageAlphaLast | kCGBitmapByteOrder32Big), provider, nullptr, reducing,
+        kCGRenderingIntentDefault
     );
-    UIImage* result = cg ? [UIImage imageWithCGImage:cg] : nil;
+    UIImage* result = nil;
+    if (cg) {
+        UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat preferredFormat];
+        format.scale = displayScale;
+        format.opaque = NO;
+        format.preferredRange = UIGraphicsImageRendererFormatRangeStandard;
+        UIGraphicsImageRenderer* renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(44, 44)
+                                                                                   format:format];
+        UIImage* source = [UIImage imageWithCGImage:cg];
+        result = [renderer imageWithActions:^(UIGraphicsImageRendererContext* context) {
+            CGContextSetInterpolationQuality(context.CGContext, reducing ? kCGInterpolationHigh : kCGInterpolationNone);
+            // Align to physical pixels. UIKit receives a 44pt image already at
+            // the display's density, so it doesn't enlarge a 1x thumbnail again.
+            const CGRect target = CGRectMake(
+                std::floor((44 * displayScale - pixels.width) / 2) / displayScale,
+                std::floor((44 * displayScale - pixels.height) / 2) / displayScale, pixels.width / displayScale,
+                pixels.height / displayScale
+            );
+            [source drawInRect:target];
+        }];
+    }
     if (cg)
         CGImageRelease(cg);
     CGColorSpaceRelease(space);
@@ -488,7 +516,8 @@ static PRNativeRoot* PRRoot = nil;
                     PRNativePage* controller = weak;
                     if (!controller || controller->_generation != generation)
                         return;
-                    controller->_images[key] = PRImage(*image) ?: PRBlankPortrait();
+                    controller->_images[key] =
+                        PRImage(*image, controller.traitCollection.displayScale) ?: PRBlankPortrait();
                     [controller.tableView reloadData];
                 });
             });

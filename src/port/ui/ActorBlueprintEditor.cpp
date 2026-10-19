@@ -1,5 +1,6 @@
 #include "ActorBlueprintEditor.h"
 #include "NativeSettings.h"
+#include "NativePortrait.h"
 #include "port/ui/PaperboatGui.hpp"
 #include "port/ios/IosFilePicker.h"
 #include <cmath>
@@ -198,22 +199,14 @@ static const u8* ResolveSpriteData(
     const void* ptr,
     Fast::TextureType expected,
     size_t minSize,
-    std::vector<std::shared_ptr<Ship::IResource>>* keepAlive,
-    bool native = false
+    std::vector<std::shared_ptr<Ship::IResource>>* keepAlive
 ) {
     if (!IsArchivePath(ptr)) {
         return (const u8*) ptr;
     }
     auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
-    auto resource = manager->LoadResource((const char*) ptr, !native);
+    auto resource = manager->LoadResource((const char*) ptr, true);
     auto texture = std::dynamic_pointer_cast<Fast::Texture>(resource);
-    if (native
-        && (!texture || texture->Type != expected || (texture->Flags & TEX_FLAG_LOAD_AS_RAW) || !texture->ImageData
-            || texture->ImageDataSize < minSize))
-    {
-        resource = manager->LoadResource((const char*) ptr, true);
-        texture = std::dynamic_pointer_cast<Fast::Texture>(resource);
-    }
     if (texture == nullptr || texture->Type != expected || (texture->Flags & TEX_FLAG_LOAD_AS_RAW)
         || texture->ImageData == nullptr || texture->ImageDataSize < minSize)
     {
@@ -279,6 +272,7 @@ static bool LoadPortrait(
 
     std::vector<std::shared_ptr<Ship::IResource>> keepAlive;
     std::vector<PortraitLayer> layers;
+    std::vector<Paperboat::NativeSettings::Portrait::Layer> nativeLayers;
     for (size_t c = 0; c < parts.size(); c++) {
         const PortraitPart& part = parts[c];
         if (part.raster < 0 || part.raster >= rasterCount) {
@@ -297,46 +291,39 @@ static bool LoadPortrait(
         }
         s32 width = entry->width;
         s32 height = entry->height;
-        const u8* image = ResolveSpriteData(
-            entry->image, Fast::TextureType::Palette4bpp, width * height / 2, &keepAlive, native != nullptr
-        );
+        if (width <= 0 || height <= 0)
+            continue;
+        const SpriteAnimComponent* comp = comps[c];
+        const int x = part.pos[0] + comp->compOffset.x - width / 2;
+        const int y = -(part.pos[1] + comp->compOffset.y + height);
+        const int z = part.pos[2] + comp->compOffset.z;
+        if (native && IsArchivePath(entry->image)) {
+            auto image = Paperboat::NativeSettings::LoadImage(
+                (const char*) entry->image,
+                IsArchivePath(sprite->palettesOffset[palette]) ? (const char*) sprite->palettesOffset[palette] : nullptr
+            );
+            if (!image.rgba.empty()) {
+                nativeLayers.push_back({ x, y, z, width, height, std::move(image) });
+                continue;
+            }
+        }
+        const u8* image =
+            ResolveSpriteData(entry->image, Fast::TextureType::Palette4bpp, width * height / 2, &keepAlive);
         const u8* colors = ResolveSpriteData(
-            sprite->palettesOffset[palette], Fast::TextureType::RGBA16bpp, CI4_PALETTE_SIZE * 2, &keepAlive,
-            native != nullptr
+            sprite->palettesOffset[palette], Fast::TextureType::RGBA16bpp, CI4_PALETTE_SIZE * 2, &keepAlive
         );
         if (image == nullptr || colors == nullptr) {
             continue;
         }
 
-        const SpriteAnimComponent* comp = comps[c];
         PortraitLayer layer;
         layer.width = width;
         layer.height = height;
-        layer.x = part.pos[0] + comp->compOffset.x - width / 2;
-        layer.y = -(part.pos[1] + comp->compOffset.y + height);
-        layer.z = part.pos[2] + comp->compOffset.z;
+        layer.x = x;
+        layer.y = y;
+        layer.z = z;
         layer.pixels.resize(width * height);
-        // Pack replacements are commonly decoded RGBA images, rather than the
-        // original indexed CI4 data. Sample them into the original component's
-        // bounds so animation offsets and the assembled portrait stay aligned.
-        std::shared_ptr<Fast::Texture> replacement;
-        if (native != nullptr && IsArchivePath(entry->image)) {
-            replacement = std::dynamic_pointer_cast<Fast::Texture>(
-                Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource((const char*) entry->image)
-            );
-            if (!replacement || !replacement->ImageData || !replacement->Width || !replacement->Height
-                || (!(replacement->Flags & TEX_FLAG_LOAD_AS_RAW) && replacement->Type != Fast::TextureType::RGBA32bpp)
-                || replacement->ImageDataSize < size_t(replacement->Width) * replacement->Height * 4)
-                replacement.reset();
-        }
         for (s32 i = 0; i < width * height; i++) {
-            if (replacement) {
-                const int x = (i % width) * replacement->Width / width;
-                const int y = (i / width) * replacement->Height / height;
-                const u8* px = replacement->ImageData + (y * replacement->Width + x) * 4;
-                layer.pixels[i] = u32(px[0]) | (u32(px[1]) << 8) | (u32(px[2]) << 16) | (u32(px[3]) << 24);
-                continue;
-            }
             u8 index = (i & 1) ? (image[i / 2] & 0xF) : (image[i / 2] >> 4);
             u16 color = (colors[index * 2] << 8) | colors[index * 2 + 1];
             u32 r = ((color >> 11) & 0x1F) * 0xFF / 0x1F;
@@ -345,7 +332,20 @@ static bool LoadPortrait(
             u32 a = (color & 1) ? 0xFF : 0;
             layer.pixels[i] = r | (g << 8) | (b << 16) | (a << 24);
         }
-        layers.push_back(std::move(layer));
+        if (native) {
+            Paperboat::NativeSettings::Image image;
+            image.width = width;
+            image.height = height;
+            const auto* bytes = reinterpret_cast<const uint8_t*>(layer.pixels.data());
+            image.rgba.assign(bytes, bytes + layer.pixels.size() * 4);
+            nativeLayers.push_back({ x, y, z, width, height, std::move(image) });
+        } else {
+            layers.push_back(std::move(layer));
+        }
+    }
+    if (native) {
+        *native = Paperboat::NativeSettings::Portrait::Assemble(std::move(nativeLayers));
+        return !native->rgba.empty();
     }
     if (layers.empty()) {
         return false;
@@ -378,12 +378,6 @@ static bool LoadPortrait(
         }
     }
 
-    if (native) {
-        native->width = outWidth;
-        native->height = outHeight;
-        native->rgba.assign(pixels->begin(), pixels->end());
-        return true;
-    }
     Fast::Texture texture;
     texture.Type = Fast::TextureType::RGBA32bpp;
     texture.Width = outWidth;

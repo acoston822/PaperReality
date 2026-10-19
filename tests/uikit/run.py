@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Compile and run the real UIKit controllers on an iOS simulator, without game assets."""
 import json
-import base64
 import os
 from pathlib import Path
 import platform
@@ -63,11 +62,6 @@ try:
             if not source.exists():raise RuntimeError('App view capture was not produced: '+page)
             screenshot=out/(page+'.png')
             screenshot.write_bytes(source.read_bytes())
-            if os.environ.get('UIKIT_EXPORT_SCREENSHOTS')=='1':
-                encoded=base64.b64encode(screenshot.read_bytes()).decode()
-                chunks=[encoded[i:i+18000] for i in range(0,len(encoded),18000)]
-                for i,chunk in enumerate(chunks):
-                    print(f'::notice title=Asset-free UIKit screenshot::UIKIT_PNG|{page}|{i}|{len(chunks)}|{chunk}',flush=True)
     print(json.dumps(report,indent=2))
     if report['status']!='passed':
         print(logs[-10000:])

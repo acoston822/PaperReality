@@ -17,8 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Open and reopen settings on iPhone Simulator
-        env:
-          UIKIT_EXPORT_SCREENSHOTS: '1'
         run: |
           mkdir -p build-uikit-smoke
           if python3 tests/uikit/run.py > build-uikit-smoke/runner.log 2>&1; then

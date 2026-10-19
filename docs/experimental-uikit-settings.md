@@ -93,3 +93,9 @@ python3 tests/uikit/run.py
 The screenshots from that harness use sample preferences and blank portraits.
 They contain no game files, saves or extracted artwork. Private game assets must
 never be uploaded to these GitHub runners for testing or screenshots.
+
+Verified for the opening fix: unsigned iOS build 40 succeeded, and the iPhone
+simulator regression passed. General, Audio and navigation captures are made
+from the actual view hierarchy in its landscape coordinates. The harness uses
+sample preferences, and does not import a game. Captures are uploaded as test
+artifacts; they are not encoded into check annotations.

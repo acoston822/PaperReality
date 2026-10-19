@@ -1,0 +1,29 @@
+name: UIKit runtime smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [experimental/uikit-settings]
+    paths:
+      - src/port/ios/IosNativeSettings.mm
+      - src/port/ui/NativeSettings.h
+      - tests/uikit/**
+      - .github/workflows/uikit-smoke.yml
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: macos-14
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - name: Open and reopen settings on iPhone Simulator
+        run: python3 tests/uikit/run.py
+      - name: Upload simulator result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: UIKit-runtime-smoke
+          path: |
+            build-uikit-smoke/*.json
+            build-uikit-smoke/*.log
+            build-uikit-smoke/*.png

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compile and run the real UIKit controllers on an iOS simulator, without game assets."""
 import json
+import base64
 import os
 from pathlib import Path
 import platform
@@ -24,7 +25,7 @@ with (app/'Info.plist').open('wb') as f:
     plistlib.dump({'CFBundleExecutable':'UIKitSmoke','CFBundleIdentifier':'org.paperreality.uikit-smoke',
                   'CFBundleName':'UIKitSmoke','CFBundlePackageType':'APPL','CFBundleVersion':'1',
                   'CFBundleShortVersionString':'1.0','MinimumOSVersion':'16.3','UIDeviceFamily':[1,2],
-                  'UILaunchScreen':{},'UISupportedInterfaceOrientations':['UIInterfaceOrientationLandscapeLeft','UIInterfaceOrientationLandscapeRight']},f)
+                  'UILaunchScreen':{},'CFBundleURLTypes':[{'CFBundleURLSchemes':['uikitsmoke']}],'UISupportedInterfaceOrientations':['UIInterfaceOrientationLandscapeLeft','UIInterfaceOrientationLandscapeRight']},f)
 subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
 runtimes=json.loads(run('xcrun','simctl','list','runtimes','-j'))['runtimes']
 runtime=next(r for r in reversed(runtimes) if r.get('isAvailable') and r['identifier'].startswith('com.apple.CoreSimulator.SimRuntime.iOS-'))
@@ -38,7 +39,7 @@ try:
     run('xcrun','simctl','launch',device,'org.paperreality.uikit-smoke')
     data=Path(run('xcrun','simctl','get_app_container',device,'org.paperreality.uikit-smoke','data'))
     result=data/'Documents/UIKitSmoke.json'
-    for _ in range(40):
+    for _ in range(100):
         if result.exists(): break
         time.sleep(1)
     subprocess.run(['xcrun','simctl','io',device,'screenshot',str(out/'settings.png')],check=False)
@@ -51,6 +52,18 @@ try:
     (out/'result.json').write_text(json.dumps(report,indent=2))
     logs=run('xcrun','simctl','spawn',device,'log','show','--last','3m','--style','compact','--predicate','process == "UIKitSmoke"')
     (out/'simulator.log').write_text(logs)
+    if report['status']=='passed':
+        run('xcrun','simctl','status_bar',device,'override','--time','9:41','--batteryState','charged','--batteryLevel','100')
+        for page in ['general','audio','sidebar']:
+            run('xcrun','simctl','openurl',device,'uikitsmoke://'+page)
+            time.sleep(2)
+            screenshot=out/(page+'.png')
+            subprocess.run(['xcrun','simctl','io',device,'screenshot',str(screenshot)],check=True)
+            if os.environ.get('UIKIT_EXPORT_SCREENSHOTS')=='1':
+                encoded=base64.b64encode(screenshot.read_bytes()).decode()
+                chunks=[encoded[i:i+18000] for i in range(0,len(encoded),18000)]
+                for i,chunk in enumerate(chunks):
+                    print(f'::notice title=Asset-free UIKit screenshot::UIKIT_PNG|{page}|{i}|{len(chunks)}|{chunk}',flush=True)
     print(json.dumps(report,indent=2))
     if report['status']!='passed':
         print(logs[-10000:])

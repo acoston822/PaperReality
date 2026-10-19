@@ -28,7 +28,9 @@ std::string InitialPage() {
 std::vector<Group> BuildNavigation() {
     return { { "Settings",
                "gearshape",
-               { { "menu/Settings/General", "General", "gearshape" }, { "controls", "Controls", "gamecontroller" } } },
+               { { "menu/Settings/General", "General", "gearshape" },
+                 { "audio", "Audio", "speaker.wave.2" },
+                 { "controls", "Controls", "gamecontroller" } } },
              { "Enhancements", "sparkles", { { "enhancements", "Gameplay", "gamecontroller" } } },
              { "Shaders", "slider.horizontal.3", { { "shaders", "Shader Packs", "slider.horizontal.3" } } },
              { "Dev Tools",
@@ -37,7 +39,50 @@ std::vector<Group> BuildNavigation() {
                  { "blueprint", "Blueprint Editor", "square.stack.3d.up" } } } };
 }
 Page BuildPage(const std::string& key) {
-    Page page { key, "General", "", { } };
+    Page page { key, key == "controls-test" ? "Control Types" : "General", "", { } };
+    if (key == "menu/Settings/General" || key == "audio") {
+        auto row = [](const char* title, Kind kind) {
+            Row r;
+            r.id = title;
+            r.title = title;
+            r.kind = kind;
+            r.change = [](double) { };
+            r.activate = [] { };
+            return r;
+        };
+        if (key == "audio") {
+            page.title = "Audio";
+            Section volumes { "Volume", "", { } };
+            for (const char* title :
+                 { "Master Volume", "Main Music Volume", "Environment Volume", "Sound Effects Volume" })
+            {
+                auto r = row(title, Kind::Integer);
+                r.minimum = 0;
+                r.maximum = 100;
+                r.value = 100;
+                r.step = 1;
+                volumes.rows.push_back(std::move(r));
+            }
+            page.sections.push_back(std::move(volumes));
+        } else {
+            auto native = row("Use Native iOS Settings", Kind::Toggle);
+            native.value = 1;
+            page.sections.push_back({ "", "", { native, row("Open App Files Folder", Kind::Action) } });
+            auto from = row("Import From", Kind::Choice);
+            from.choices = { { 0, "All slots" }, { 1, "Slot 1" }, { 2, "Slot 2" }, { 3, "Slot 3" }, { 4, "Slot 4" } };
+            auto to = row("Import To", Kind::Choice);
+            to.value = 1;
+            to.choices = { { 1, "Slot 1" }, { 2, "Slot 2" }, { 3, "Slot 3" }, { 4, "Slot 4" } };
+            page.sections.push_back({ "Save Conversion", "", { from, to, row("Import N64 Save", Kind::Action) } });
+            auto about = row("PaperReality", Kind::Info);
+            about.detail = "Experimental UIKit interface";
+            about.symbol = "paperplane.fill";
+            auto restart = row("Restart Game", Kind::Action);
+            restart.destructive = true;
+            page.sections.push_back({ "About", "", { about, restart } });
+        }
+        return page;
+    }
     page.searchable = true;
     Section section { "Controls", "Synthetic settings only; no ROM, save or texture pack.", { } };
     for (const auto kind : { Kind::Info, Kind::Toggle, Kind::Integer, Kind::Decimal, Kind::Choice, Kind::Color,
@@ -92,6 +137,15 @@ static void Uncaught(NSException* exception) {
                                    [exception.callStackSymbols componentsJoinedByString:@"\n"]]
     );
 }
+static PRNativePage* PRSmokePage(UIViewController* controller) {
+    if ([controller isKindOfClass:PRNativePage.class])
+        return (PRNativePage*) controller;
+    for (UIViewController* child in [controller.childViewControllers reverseObjectEnumerator]) {
+        if (auto page = PRSmokePage(child))
+            return page;
+    }
+    return nil;
+}
 @interface SmokeDelegate : UIResponder <UIApplicationDelegate>
 @property (nonatomic, strong) UIWindow* window;
 @end
@@ -112,40 +166,79 @@ static void Uncaught(NSException* exception) {
         Progress("Opening settings");
         N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });
     });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (!PRRoot || !PRRoot.presentingViewController) {
-            Report(@"failed", @"Settings were not presented");
-            return;
-        }
-        [PRRoot showColumn:UISplitViewControllerColumnSecondary];
-        PRNativePage* page = (PRNativePage*) PRRoot.detail.topViewController;
-        [page.view layoutIfNeeded];
-        if ([page.tableView numberOfSections] != 1) {
-            Report(@"failed", @"Settings model was not applied");
-            return;
-        }
-        for (NSInteger row = 0; row < [page.tableView numberOfRowsInSection:0]; ++row) {
-            [page tableView:page.tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:0]];
-        }
-        [PRRoot openPage:"details"];
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 6 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (!PRRoot.presentingViewController) {
-            Report(@"failed", @"Settings disappeared");
-            return;
-        }
-        [PRRoot closeSettings];
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });
-    });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 11 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (!PRRoot.presentingViewController) {
-            Report(@"failed", @"Settings failed to reopen");
-            return;
-        }
-        Report(@"passed", @"Opened settings, rendered every control type, navigated, closed and reopened.");
-    });
+    __block NSInteger phase = 0;
+    const double started = NSProcessInfo.processInfo.systemUptime;
+    [NSTimer scheduledTimerWithTimeInterval:.25
+                                    repeats:YES
+                                      block:^(NSTimer* timer) {
+                                          if (NSProcessInfo.processInfo.systemUptime - started > 60) {
+                                              Report(
+                                                  @"failed",
+                                                  [NSString
+                                                      stringWithFormat:
+                                                          @"Timed out in phase %ld. Root: %@; detail: %@; children: %@",
+                                                          (long) phase,
+                                                          PRRoot,
+                                                          PRRoot.detail,
+                                                          PRRoot.childViewControllers]
+                                              );
+                                              [timer invalidate];
+                                              return;
+                                          }
+                                          if (phase == 0 || phase == 5) {
+                                              if (!PRRoot.presentingViewController || PRRoot.isBeingPresented)
+                                                  return;
+                                              [PRRoot showColumn:UISplitViewControllerColumnSecondary];
+                                              Progress(phase == 0 ? "Settings presented" : "Settings reopened");
+                                              ++phase;
+                                              return;
+                                          }
+                                          if (phase == 1 || phase == 2 || phase == 6) {
+                                              PRNativePage* page = PRSmokePage(PRRoot);
+                                              if (!page || ![page.tableView numberOfSections])
+                                                  return;
+                                              if (phase == 2 && ![page.title isEqualToString:@"Control Types"])
+                                                  return;
+                                              for (NSInteger section = 0; section < [page.tableView numberOfSections];
+                                                   ++section)
+                                                  for (NSInteger row = 0; row < [page.tableView
+                                                                              numberOfRowsInSection:section];
+                                                       ++row)
+                                                      [page tableView:page.tableView
+                                                          cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row
+                                                                                                   inSection:section]];
+                                              Progress("Page loaded");
+                                              if (phase == 1) {
+                                                  [PRRoot openPage:"controls-test"];
+                                                  phase = 2;
+                                                  return;
+                                              }
+                                              if (phase == 2) {
+                                                  [PRRoot closeSettings];
+                                                  phase = 3;
+                                                  return;
+                                              }
+                                              Report(
+                                                  @"passed",
+                                                  @"Opened settings, rendered every control type, navigated, closed "
+                                                  @"and reopened."
+                                              );
+                                              [timer invalidate];
+                                              return;
+                                          }
+                                          if (phase == 3 && !PRRoot) {
+                                              Progress("Settings closed");
+                                              N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });
+                                              phase = 5;
+                                          }
+                                      }];
+    return YES;
+}
+- (BOOL)application:(UIApplication*)application openURL:(NSURL*)url options:(NSDictionary*)options {
+    if ([url.host isEqualToString:@"sidebar"])
+        [PRRoot showColumn:UISplitViewControllerColumnPrimary];
+    else
+        [PRRoot openPage:[url.host isEqualToString:@"audio"] ? "audio" : "menu/Settings/General"];
     return YES;
 }
 @end

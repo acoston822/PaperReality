@@ -1,0 +1,46 @@
+name: Retrieve asset-free UIKit captures
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful asset-free UIKit smoke run
+        required: true
+        default: '39271420042'
+  push:
+    branches: [experimental/uikit-settings]
+    paths:
+      - tests/uikit/export_capture.py
+      - .github/workflows/uikit-captures.yml
+permissions:
+  contents: read
+  actions: read
+jobs:
+  captures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download asset-free test captures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CAPTURE_RUN: ${{ inputs.run_id || '39271420042' }}
+        run: |
+          [[ "$CAPTURE_RUN" =~ ^[0-9]+$ ]]
+          for attempt in $(seq 1 100); do
+            capture_status=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CAPTURE_RUN}" --jq '.status')
+            if [[ "$capture_status" == completed ]]; then break; fi
+            sleep 5
+          done
+          gh run download "$CAPTURE_RUN" --repo "$GITHUB_REPOSITORY" --name UIKit-runtime-smoke --dir build-uikit-capture
+      - name: General capture
+        run: python3 tests/uikit/export_capture.py general 0 10
+      - name: General capture continuation
+        run: python3 tests/uikit/export_capture.py general 10 30
+      - name: Audio capture
+        run: python3 tests/uikit/export_capture.py audio 0 10
+      - name: Audio capture continuation
+        run: python3 tests/uikit/export_capture.py audio 10 30
+      - name: Sidebar capture
+        run: python3 tests/uikit/export_capture.py sidebar 0 10
+      - name: Sidebar capture continuation
+        run: python3 tests/uikit/export_capture.py sidebar 10 30

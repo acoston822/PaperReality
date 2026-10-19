@@ -10,6 +10,8 @@ on:
     branches: [experimental/uikit-settings]
     paths:
       - .github/workflows/uikit-captures.yml
+      - src/port/ios/IosNativeSettings.mm
+      - tests/uikit/**
 permissions:
   contents: write
   actions: read
@@ -47,7 +49,7 @@ jobs:
           import os, subprocess
           from pathlib import Path
           entries = []
-          for name in ['general.png', 'audio.png', 'sidebar.png', 'audio-dark.png', 'general-dark.png']:
+          for name in ['general.png', 'audio.png', 'sidebar.png', 'audio-dark.png', 'general-dark.png', 'result.json']:
               path = Path('build-uikit-capture') / name
               blob = subprocess.check_output(['git', 'hash-object', '-w', str(path)], text=True).strip()
               entries.append(f'100644 blob {blob}\t{name}\n')

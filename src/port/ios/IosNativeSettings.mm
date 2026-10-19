@@ -135,11 +135,13 @@ static UIImage* PRBlankPortrait() {
     NSMutableDictionary<NSString*, UIImage*>* _images;
     NSMutableSet<NSString*>* _pendingImages;
     N::Row _colorRow;
+    BOOL _twoColumns;
 }
 - (instancetype)initWithKey:(std::string)key;
 - (void)refresh;
 - (void)filter;
 - (void)apply:(const N::Row&)row value:(double)value;
+- (NSInteger)columnsInSection:(NSInteger)section;
 @end
 
 @interface PRNativeChoices : UITableViewController <UISearchResultsUpdating> {
@@ -157,6 +159,7 @@ static UIImage* PRBlankPortrait() {
     __weak PRNativeRoot* _host;
 }
 - (instancetype)initWithGroups:(std::vector<N::Group>)groups initial:(std::string)initial host:(PRNativeRoot*)host;
+- (void)selectPage:(const std::string&)key;
 @end
 
 @interface PRNativeRoot : UIViewController {
@@ -178,7 +181,7 @@ static UIImage* PRBlankPortrait() {
 @end
 static PRNativeRoot* PRRoot = nil;
 
-@interface PRNativeSliderCell : UITableViewCell {
+@interface PRNativeSliderControl : UIView {
     N::Row _row;
     __weak PRNativePage* _owner;
     UILabel* _value;
@@ -187,15 +190,16 @@ static PRNativeRoot* PRRoot = nil;
 - (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner;
 @end
 
-@implementation PRNativeSliderCell
+@implementation PRNativeSliderControl
 - (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner {
-    self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    self = [super initWithFrame:CGRectZero];
     if (!self)
         return nil;
     _row = row;
     _owner = owner;
-    PRStyleCard(self);
-    self.selectionStyle = UITableViewCellSelectionStyleNone;
+    self.backgroundColor = PRSurface();
+    self.layer.cornerRadius = 16;
+    self.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(14, 16, 14, 16);
     UILabel* title = [[UILabel alloc] init];
     title.text = PRText(row.title);
     title.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody);
@@ -207,6 +211,7 @@ static PRNativeRoot* PRRoot = nil;
     _value.textColor = UIColor.systemBlueColor;
     _value.adjustsFontForContentSizeCategory = YES;
     [_value setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [_value setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     UIStackView* heading = [[UIStackView alloc] initWithArrangedSubviews:@[ title, _value ]];
     heading.spacing = 12;
     heading.alignment = UIStackViewAlignmentCenter;
@@ -222,7 +227,7 @@ static PRNativeRoot* PRRoot = nil;
         forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
     UIStackView* controls = [[UIStackView alloc] init];
     controls.axis = UILayoutConstraintAxisHorizontal;
-    controls.spacing = 12;
+    controls.spacing = 6;
     controls.alignment = UIStackViewAlignmentCenter;
     for (NSNumber* direction in @[ @(-1), @(1) ]) {
         if (direction.intValue == 1)
@@ -237,9 +242,9 @@ static PRNativeRoot* PRRoot = nil;
             [NSString stringWithFormat:@"%@ %@", direction.intValue < 0 ? @"Decrease" : @"Increase", PRText(row.title)];
         [button.widthAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
         [button.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
-        __weak PRNativeSliderCell* weak = self;
+        __weak PRNativeSliderControl* weak = self;
         [button addAction:[UIAction actionWithHandler:^(UIAction* action) {
-                    PRNativeSliderCell* cell = weak;
+                    PRNativeSliderControl* cell = weak;
                     if (!cell)
                         return;
                     cell->_slider.value += direction.intValue * cell->_row.step;
@@ -262,15 +267,15 @@ static PRNativeRoot* PRRoot = nil;
         [stack addArrangedSubview:help];
     }
     stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.contentView addSubview:stack];
-    UILayoutGuide* margins = self.contentView.layoutMarginsGuide;
+    [self addSubview:stack];
+    UILayoutGuide* margins = self.layoutMarginsGuide;
     [NSLayoutConstraint activateConstraints:@[
         [stack.leadingAnchor constraintEqualToAnchor:margins.leadingAnchor],
         [stack.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor],
-        [stack.topAnchor constraintEqualToAnchor:margins.topAnchor constant:4],
-        [stack.bottomAnchor constraintEqualToAnchor:margins.bottomAnchor constant:-4]
+        [stack.topAnchor constraintEqualToAnchor:margins.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:margins.bottomAnchor]
     ]];
-    self.contentView.alpha = row.enabled ? 1 : .5;
+    self.alpha = row.enabled ? 1 : .5;
     [self changing:_slider];
     return self;
 }
@@ -293,9 +298,36 @@ static PRNativeRoot* PRRoot = nil;
 }
 @end
 
+@interface PRNativeSliderCell : UITableViewCell
+- (instancetype)initWithRows:(const std::vector<N::Row>&)rows owner:(PRNativePage*)owner;
+@end
+@implementation PRNativeSliderCell
+- (instancetype)initWithRows:(const std::vector<N::Row>&)rows owner:(PRNativePage*)owner {
+    self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    if (!self)
+        return nil;
+    self.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
+    self.selectionStyle = UITableViewCellSelectionStyleNone;
+    UIStackView* stack = [[UIStackView alloc] init];
+    stack.distribution = UIStackViewDistributionFillEqually;
+    stack.spacing = 10;
+    for (const auto& row : rows)
+        [stack addArrangedSubview:[[PRNativeSliderControl alloc] initWithRow:row owner:owner]];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.contentView addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+        [stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+        [stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:5],
+        [stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-5]
+    ]];
+    return self;
+}
+@end
+
 @implementation PRNativePage
 - (instancetype)initWithKey:(std::string)key {
-    self = [super initWithStyle:UITableViewStylePlain];
+    self = [super initWithStyle:UITableViewStyleGrouped];
     if (self) {
         _key = std::move(key);
         _images = [NSMutableDictionary dictionary];
@@ -318,6 +350,15 @@ static PRNativeRoot* PRRoot = nil;
     [super viewWillAppear:animated];
     if (self.isViewLoaded)
         [self refresh];
+}
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    BOOL two = self.tableView.bounds.size.width >= 440
+        && !UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
+    if (_twoColumns != two) {
+        _twoColumns = two;
+        [self filter];
+    }
 }
 - (void)refresh {
     const uint64_t generation = ++_generation;
@@ -367,13 +408,27 @@ static PRNativeRoot* PRRoot = nil;
     return _sections.size();
 }
 - (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
-    return _sections[section].rows.size();
+    const NSInteger columns = [self columnsInSection:section];
+    return (_sections[section].rows.size() + columns - 1) / columns;
+}
+- (NSInteger)columnsInSection:(NSInteger)section {
+    const auto& rows = _sections[section].rows;
+    return _twoColumns && rows.size() > 1
+            && std::all_of(
+                rows.begin(), rows.end(),
+                [](const auto& row) { return row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal; }
+            )
+        ? 2
+        : 1;
 }
 - (NSString*)tableView:(UITableView*)tableView titleForHeaderInSection:(NSInteger)section {
-    return PRText(_sections[section].title);
+    return _sections[section].title.empty() ? nil : PRText(_sections[section].title);
 }
 - (NSString*)tableView:(UITableView*)tableView titleForFooterInSection:(NSInteger)section {
-    return PRText(_sections[section].footer);
+    return _sections[section].footer.empty() ? nil : PRText(_sections[section].footer);
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
+    return _sections[section].footer.empty() ? .01 : UITableViewAutomaticDimension;
 }
 - (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
     return _sections[section].title.empty() ? 6 : UITableViewAutomaticDimension;
@@ -392,13 +447,21 @@ static PRNativeRoot* PRRoot = nil;
     return header;
 }
 - (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
-    const N::Row row = _sections[indexPath.section].rows[indexPath.row];
-    if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal)
-        return [[PRNativeSliderCell alloc] initWithRow:row owner:self];
+    const auto& rows = _sections[indexPath.section].rows;
+    const NSInteger columns = [self columnsInSection:indexPath.section];
+    const size_t index = indexPath.row * columns;
+    const N::Row row = rows[index];
+    if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal) {
+        std::vector<N::Row> controls { row };
+        if (columns == 2 && index + 1 < rows.size())
+            controls.push_back(rows[index + 1]);
+        return [[PRNativeSliderCell alloc] initWithRows:controls owner:self];
+    }
     UITableViewCell* cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     PRStyleCard(cell);
     UIListContentConfiguration* content = cell.defaultContentConfiguration;
     content.textProperties.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody);
+    content.textProperties.numberOfLines = 0;
     content.secondaryTextProperties.font = PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote);
     content.secondaryTextProperties.color = UIColor.secondaryLabelColor;
     content.textToSecondaryTextVerticalPadding = 5;
@@ -486,7 +549,7 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)tableView:(UITableView*)tableView didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    const auto row = _sections[indexPath.section].rows[indexPath.row];
+    const auto row = _sections[indexPath.section].rows[indexPath.row * [self columnsInSection:indexPath.section]];
     if (!row.enabled)
         return;
     if (row.kind == N::Kind::Link)
@@ -626,6 +689,17 @@ static PRNativeRoot* PRRoot = nil;
     }
     return self;
 }
+- (void)selectPage:(const std::string&)key {
+    _selected = PRText(key);
+    for (size_t index = 0; index < _groups.size(); ++index)
+        for (const auto& page : _groups[index].pages)
+            if (page.key == key) {
+                _expanded = index;
+                [_host setCategory:PRText(_groups[index].title)];
+            }
+    if (self.isViewLoaded)
+        [self.tableView reloadData];
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
     PRStyleTable(self.tableView);
@@ -652,7 +726,7 @@ static PRNativeRoot* PRRoot = nil;
     background.cornerRadius = 12;
     background.backgroundInsets = NSDirectionalEdgeInsetsMake(2, 8, 2, 8);
     UIListContentConfiguration* content = cell.defaultContentConfiguration;
-    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(11, 18, 11, 18);
+    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(12, 18, 12, 18);
     content.imageToTextPadding = 12;
     content.imageProperties.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:18];
     content.imageProperties.reservedLayoutSize = CGSizeMake(22, 22);
@@ -670,7 +744,7 @@ static PRNativeRoot* PRRoot = nil;
         content.textProperties.font = PRFont(15, UIFontWeightMedium, UIFontTextStyleSubheadline);
         content.text = PRText(page.title);
         content.image = [UIImage systemImageNamed:PRText(page.symbol)];
-        content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(10, 24, 10, 18);
+        content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(13, 24, 13, 18);
         if ([_selected isEqualToString:PRText(page.key)]) {
             background.backgroundColor = UIColor.systemBlueColor;
             content.textProperties.color = UIColor.whiteColor;
@@ -830,6 +904,7 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)openPage:(std::string)key {
     N::Enqueue([key] { N::RememberPage(key); });
+    [(PRNativeSidebar*) self.primary.viewControllers.firstObject selectPage:key];
     PRNativePage* page = [[PRNativePage alloc] initWithKey:std::move(key)];
     [self.detail setViewControllers:@[ page ] animated:NO];
     [self showColumn:UISplitViewControllerColumnSecondary];

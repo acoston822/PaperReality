@@ -19,6 +19,8 @@ in the classic General page restores UIKit.
 - Rounded material cards, a shared PaperReality header, blue selected sidebar rows,
   and consistent spacing across settings and editor submenus. Materials and colors
   follow the system Light/Dark appearance; no game artwork is bundled for the backdrop.
+- Consecutive numeric settings share a two-column card layout when there is enough
+  space. Narrow widths and accessibility text retain a single column.
 - Native lists, switches, sliders with precise increment/decrement buttons,
   choice submenus, search, color pickers and confirmation alerts. System colors,
   Dynamic Type, safe areas and light/dark appearance follow iOS.

@@ -322,6 +322,8 @@ static PRNativePage* PRSmokePage(UIViewController* controller) {
                                              return;
                                          }
                                      }
+                                     if (phase >= 7 && PRRoot.detail.transitionCoordinator)
+                                         return;
                                      if (phase == 7 && PRRoot.detail.viewControllers.count == 2) {
                                          [PRRoot.detail popViewControllerAnimated:NO];
                                          phase = 8;

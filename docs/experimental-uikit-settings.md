@@ -76,3 +76,20 @@ building the full unsigned IPA. Linux checks cannot validate UIKit presentation.
 Device checks remain necessary for visual polish, opening/closing settings during
 play, touch layout editing, Files pickers, controller input and AirPlay. Test
 light/dark appearance, large text and compact layouts as part of that review.
+
+## Settings-opening regression
+
+The presentation retry originally cleared a recursive block during its first
+synchronous call, releasing C++ captures before the screen finished using them.
+Presentation now uses a function with owned arguments, including delayed retries.
+The asset-free iPhone simulator harness opens settings, waits for page models,
+renders the control types, navigates, closes, and reopens. Run on a Mac with an
+iOS simulator runtime installed:
+
+```sh
+python3 tests/uikit/run.py
+```
+
+The screenshots from that harness use sample preferences and blank portraits.
+They contain no game files, saves or extracted artwork. Private game assets must
+never be uploaded to these GitHub runners for testing or screenshots.

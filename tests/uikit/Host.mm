@@ -30,12 +30,26 @@ std::vector<Group> BuildNavigation() {
                "gearshape",
                { { "menu/Settings/General", "General", "gearshape" },
                  { "audio", "Audio", "speaker.wave.2" },
-                 { "controls", "Controls", "gamecontroller" } } },
-             { "Enhancements", "sparkles", { { "enhancements", "Gameplay", "gamecontroller" } } },
+                 { "controls", "Controls", "gamecontroller" },
+                 { "graphics", "Graphics", "display" },
+                 { "viewer", "Input Viewer", "waveform.path" },
+                 { "notifications", "Notifications", "bell" },
+                 { "mods", "Mod Menu", "puzzlepiece.extension" } } },
+             { "Enhancements",
+               "sparkles",
+               { { "cheats", "Cheats", "star" },
+                 { "gameplay", "Gameplay", "gamecontroller" },
+                 { "visuals", "Visuals", "display" },
+                 { "status", "Status Bar", "chart.bar" } } },
              { "Shaders", "slider.horizontal.3", { { "shaders", "Shader Packs", "slider.horizontal.3" } } },
              { "Dev Tools",
                "wrench.and.screwdriver",
-               { { "save", "Save Editor", "externaldrive" },
+               { { "dev", "General", "gearshape" },
+                 { "stats", "Stats", "chart.bar" },
+                 { "console", "Console", "terminal" },
+                 { "events", "Event Debugger", "ladybug" },
+                 { "values", "Value Viewer", "eye" },
+                 { "save", "Save Editor", "externaldrive" },
                  { "blueprint", "Blueprint Editor", "square.stack.3d.up" } } } };
 }
 Page BuildPage(const std::string& key) {
@@ -52,7 +66,7 @@ Page BuildPage(const std::string& key) {
         };
         if (key == "audio") {
             page.title = "Audio";
-            Section volumes { "Volume", "", { } };
+            Section volumes { "", "", { } };
             for (const char* title :
                  { "Master Volume", "Main Music Volume", "Environment Volume", "Sound Effects Volume" })
             {
@@ -61,13 +75,21 @@ Page BuildPage(const std::string& key) {
                 r.maximum = 100;
                 r.value = 100;
                 r.step = 1;
+                r.detail = std::string(title) == "Master Volume" ? "Scales the final audio output."
+                    : std::string(title) == "Main Music Volume"  ? "Volume of background music."
+                    : std::string(title) == "Environment Volume" ? "Volume of ambient environment tracks."
+                                                                 : "Volume of sound effects.";
                 volumes.rows.push_back(std::move(r));
             }
             page.sections.push_back(std::move(volumes));
         } else {
             auto native = row("Use Native iOS Settings", Kind::Toggle);
             native.value = 1;
-            page.sections.push_back({ "", "", { native, row("Open App Files Folder", Kind::Action) } });
+            native.detail = "Use the experimental UIKit settings interface.";
+            page.sections.push_back({ "", "", { native } });
+            auto files = row("Open App Files Folder", Kind::Action);
+            files.detail = "Opens the folder that contains the save and mods folders, etc.";
+            page.sections.push_back({ "General Settings", "", { files } });
             auto from = row("Import From", Kind::Choice);
             from.choices = { { 0, "All slots" }, { 1, "Slot 1" }, { 2, "Slot 2" }, { 3, "Slot 3" }, { 4, "Slot 4" } };
             auto to = row("Import To", Kind::Choice);

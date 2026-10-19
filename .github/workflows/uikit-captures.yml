@@ -46,7 +46,7 @@ jobs:
           smoke = api('runs/' + os.environ['CAPTURE_RUN'])
           runs = api('workflows/ios-unsigned.yml/runs?branch=experimental%2Fuikit-settings&per_page=15')
           ipa = next((r for r in runs['workflow_runs'] if r['head_sha'] == smoke['head_sha']), None)
-          if ipa:
+          if ipa and smoke['conclusion'] == 'success':
               for attempt in range(90):
                   ipa = api('runs/' + str(ipa['id']))
                   if ipa['status'] == 'completed': break
@@ -68,8 +68,10 @@ jobs:
           import os, subprocess
           from pathlib import Path
           entries = []
-          for name in ['general.png', 'audio.png', 'sidebar.png', 'audio-dark.png', 'general-dark.png', 'result.json', 'verification.json']:
+          for name in ['general.png', 'audio.png', 'sidebar.png', 'audio-dark.png', 'general-dark.png', 'result.json', 'verification.json', 'runner.log']:
               path = Path('build-uikit-capture') / name
+              if not path.is_file():
+                  continue
               blob = subprocess.check_output(['git', 'hash-object', '-w', str(path)], text=True).strip()
               entries.append(f'100644 blob {blob}\t{name}\n')
           tree = subprocess.check_output(['git', 'mktree'], input=''.join(entries), text=True).strip()

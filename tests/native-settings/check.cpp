@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <thread>
 #undef End
+extern std::shared_ptr<Fast::Fast3dWindow> gsFast3dWindow;
 extern "C" {
 #include "dx/versioning.h"
 extern SaveData gCurrentSaveFile;
@@ -49,6 +50,12 @@ int main() {
         Require(queued == 1, "Queue must defer nested actions to next frame");
         N::Frame(menu);
         Require(queued == 2, "Nested action lost");
+        auto visibility = Find(N::InputViewerPage("viewer/root"), "Show Input Viewer");
+        auto viewer = context->GetWindow()->GetGui()->GetGuiWindow("Input Viewer");
+        visibility.change(1);
+        Require(viewer->IsVisible(), "Input viewer window was not shown");
+        visibility.change(0);
+        Require(!viewer->IsVisible(), "Input viewer window was not hidden");
         const auto navigation = N::BuildNavigation();
         Require(navigation.size() == 4, "Expected four navigation groups");
         const auto empty = N::SaveEditorPage("save/root");
@@ -130,6 +137,9 @@ int main() {
             << "PASS: " << visited.size() << " native pages, " << rows
             << " rows; queued callbacks, race lock, navigation, save guards, resolution persistence, blank portraits\n";
         N::Stop();
+        PaperboatGui::Destroy();
+        gsFast3dWindow.reset();
+        Ship::Context::DestroyInstance();
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';

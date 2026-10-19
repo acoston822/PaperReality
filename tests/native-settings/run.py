@@ -3,6 +3,7 @@
 Run under xvfb-run after building Paperboat with compile_commands.json enabled.
 """
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -42,4 +43,4 @@ with tempfile.TemporaryDirectory(prefix='paperreality-native-check-') as temp:
     link = [flag for flag in link if not flag.startswith('-Wl,--dependency-file=')]
     subprocess.run(link + ['@' + str(rsp), '-o', str(exe)], cwd=build, check=True)
     (temp / 'paperboat.o2r').symlink_to(build / 'paperboat.o2r')
-    subprocess.run([str(exe)], cwd=temp, check=True)
+    subprocess.run([str(exe)], cwd=temp, env=dict(os.environ, SDL_AUDIODRIVER="dummy", LIBGL_ALWAYS_SOFTWARE="1"), check=True, timeout=60)

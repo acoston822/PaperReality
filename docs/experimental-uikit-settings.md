@@ -67,6 +67,10 @@ frame queue, navigation restoration, disabled controls, save guards, resolution
 persistence, submenu traversal and empty portrait behavior without game assets.
 It never runs a game or writes into a user's save directory.
 
+Validated locally: the Linux build and integration harness pass (804 pages,
+5,583 rows), including actual Input Viewer visibility and clean shutdown.
+The Apple SDK Objective-C++ check also passed on the macOS Actions runner.
+
 The iOS Actions workflow checks Objective-C++ sources with the Apple SDK before
 building the full unsigned IPA. Linux checks cannot validate UIKit presentation.
 Device checks remain necessary for visual polish, opening/closing settings during

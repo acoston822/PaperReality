@@ -25,11 +25,22 @@ namespace {
 Page InputViewerPage(const std::string& key) {
     Page page { key, "Input Viewer", "", { } };
     if (key == "viewer/root") {
+        auto visibility = Toggle("Show Input Viewer", "gOpenWindows.InputViewer", false);
+        auto viewer = Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Input Viewer");
+        visibility.value = viewer && viewer->IsVisible();
+        visibility.change = [](double value) {
+            auto viewer = Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Input Viewer");
+            if (viewer) {
+                if (value)
+                    viewer->Show();
+                else
+                    viewer->Hide();
+            }
+        };
         page.sections.push_back(
             { "",
               "The input viewer is an overlay. Its size is separate from the settings interface.",
-              { Toggle("Show Input Viewer", "gOpenWindows.InputViewer", false),
-                Link("Appearance", "viewer/appearance", "paintpalette"),
+              { visibility, Link("Appearance", "viewer/appearance", "paintpalette"),
                 Link("Button Layers", "viewer/buttons", "gamecontroller"),
                 Link("Analog Stick", "viewer/analog", "circle"), Link("Right Stick", "viewer/right", "circle"),
                 Link("Analog Angles", "viewer/angles", "angle") } }

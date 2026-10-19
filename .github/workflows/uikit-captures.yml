@@ -9,10 +9,9 @@ on:
   push:
     branches: [experimental/uikit-settings]
     paths:
-      - tests/uikit/export_capture.py
       - .github/workflows/uikit-captures.yml
 permissions:
-  contents: read
+  contents: write
   actions: read
 jobs:
   captures:
@@ -32,15 +31,26 @@ jobs:
             sleep 5
           done
           gh run download "$CAPTURE_RUN" --repo "$GITHUB_REPOSITORY" --name UIKit-runtime-smoke --dir build-uikit-capture
-      - name: General capture
-        run: python3 tests/uikit/export_capture.py general 0 10
-      - name: General capture continuation
-        run: python3 tests/uikit/export_capture.py general 10 30
-      - name: Audio capture
-        run: python3 tests/uikit/export_capture.py audio 0 10
-      - name: Audio capture continuation
-        run: python3 tests/uikit/export_capture.py audio 10 30
-      - name: Sidebar capture
-        run: python3 tests/uikit/export_capture.py sidebar 0 10
-      - name: Sidebar capture continuation
-        run: python3 tests/uikit/export_capture.py sidebar 10 30
+      - name: Make the asset-free captures available for review
+        # Only the synthetic harness PNGs are copied. No game data is in this job.
+        # A separate, parentless capture branch keeps images out of application code.
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          entries = []
+          for name in ['general.png', 'audio.png', 'sidebar.png']:
+              path = Path('build-uikit-capture') / name
+              blob = subprocess.check_output(['git', 'hash-object', '-w', str(path)], text=True).strip()
+              entries.append(f'100644 blob {blob}\t{name}\n')
+          tree = subprocess.check_output(['git', 'mktree'], input=''.join(entries), text=True).strip()
+          commit = subprocess.check_output(['git', 'commit-tree', tree, '-m', 'Asset-free UIKit simulator captures using sample preferences'], text=True).strip()
+          branch = 'ui-captures/uikit-' + os.environ['GITHUB_RUN_ID']
+          subprocess.run(['git', 'push', 'origin', commit + ':refs/heads/' + branch], check=True)
+          print('::notice::Asset-free UI captures: ' + branch)
+          PY

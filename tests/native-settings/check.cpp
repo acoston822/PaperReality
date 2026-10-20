@@ -183,6 +183,17 @@ int main() {
         const auto bp =
             N::BlueprintEditorPage("blueprint/actor/" + std::to_string(catalog.front().actorType) + "/combat");
         Require(!bp.sections.empty(), "Missing actor combat fields");
+        const auto characters = N::BlueprintEditorPage("blueprint/category/-1");
+        for (const auto* name : { "Fake Bowser", "Toy Tank", "Light Bulb" }) {
+            const auto model = Find(characters, name);
+            Require(
+                !model.portrait && !model.symbol.empty() && model.detail.ends_with(" · Model"),
+                "Model actors must have labeled icons, never an unrelated NPC sprite or blank portrait"
+            );
+            const auto detail = N::BuildPage(model.target);
+            const auto info = Find(detail, name);
+            Require(info.symbol == model.symbol && !info.portrait, "Model icon differs between list and detail");
+        }
         CheckTextureSelection();
         std::cout << "PASS: " << visited.size() << " native pages, " << rows
                   << " rows; queued callbacks, race lock, navigation, save guards, resolution persistence, blank "

@@ -43,6 +43,13 @@ in the classic General page restores UIKit.
   replacements fall back to the original sprite; turning alternate assets off
   restores the originals. Blueprint parts are assembled in their original
   bounds, so a pack's higher-resolution components keep the sprite alignment.
+- Fake Bowser, Toy Tank and Light Bulb use labeled system icons because their
+  bodies are map models, not NPC sprites. Fake Bowser's hidden Koopa Bros idle
+  placeholder is excluded. Rendering actual model thumbnails is not implemented.
+- Pages and navigation bars use opaque, appearance-aware backgrounds, keeping
+  controls below their page title and hiding outgoing pages during navigation.
+  Sidebar category and submenu labels share a smaller size fitted to the longest
+  entry, keeping Enhancements on one line.
 
 Controller bindings, Event Debugger and Value Viewer still open their existing
 interfaces through explicit buttons. A **Back to UIKit Settings** control returns

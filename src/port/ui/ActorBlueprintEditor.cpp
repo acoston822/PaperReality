@@ -879,9 +879,33 @@ void ActorBlueprintEditorWindow::Draw() {
 #pragma pop_macro("End")
 
 namespace Paperboat::NativeSettings {
+namespace {
+    const char* ModelPortraitSymbol(int actorType) {
+        switch (actorType) {
+            case ACTOR_TYPE_FAKE_BOWSER:
+                return "gearshape.2.fill";
+            case ACTOR_TYPE_TOY_TANK:
+                return "shippingbox.fill";
+            case ACTOR_TYPE_LIGHT_BULB:
+                return "lightbulb.fill";
+            default:
+                return nullptr;
+        }
+    }
+    void BlueprintPortrait(Row& row, const ActorBlueprint* blueprint) {
+        if (const char* symbol = ModelPortraitSymbol(blueprint->type)) {
+            // These actors draw map models, not NPC sprites. Fake Bowser's idle
+            // table is a hidden Koopa Bros placeholder, not its visible body.
+            row.symbol = symbol;
+            row.detail += " · Model";
+        } else {
+            row.portrait = [blueprint] { return LoadBlueprintPortrait(blueprint); };
+        }
+    }
+}
 Image LoadBlueprintPortrait(const ActorBlueprint* blueprint) {
     Image image;
-    if (blueprint)
+    if (blueprint && !ModelPortraitSymbol(blueprint->type))
         LoadPortrait(blueprint, "", &image);
     return image;
 }
@@ -979,7 +1003,7 @@ Page BlueprintEditorPage(const std::string& key) {
                 continue;
             auto row = Link(GetActorName(entry.actorType), "blueprint/actor/" + std::to_string(entry.actorType), "");
             row.detail = GetOverride(entry.actorType).Any() ? "Modified" : GetChapterName(entry.chapter);
-            row.portrait = [blueprint = entry.blueprint] { return LoadBlueprintPortrait(blueprint); };
+            BlueprintPortrait(row, entry.blueprint);
             list.rows.push_back(std::move(row));
         }
         page.sections.push_back(std::move(list));
@@ -1011,7 +1035,7 @@ Page BlueprintEditorPage(const std::string& key) {
             "{} · {} blueprint variant{}", GetChapterName(entry.chapter), entry.variantCount,
             entry.variantCount == 1 ? "" : "s"
         );
-        info.portrait = [blueprint = entry.blueprint] { return LoadBlueprintPortrait(blueprint); };
+        BlueprintPortrait(info, entry.blueprint);
         page.sections.push_back({ "", "Edits apply to all variants of this character.", { info } });
         Section sections { "Attributes",
                            "Changes apply from the next battle.",

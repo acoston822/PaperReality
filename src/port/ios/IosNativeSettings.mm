@@ -24,6 +24,21 @@ static UIColor* PRCanvas() {
             : [UIColor colorWithRed:.93 green:.95 blue:.98 alpha:.86];
     }];
 }
+// Pages must cover the outgoing page during navigation. Transparent tables and
+// bars let the previous controller's controls show through push/pop transitions.
+static UIColor* PRPageCanvas() {
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? [UIColor colorWithRed:.045 green:.065 blue:.095 alpha:1]
+            : [UIColor colorWithRed:.94 green:.96 blue:.98 alpha:1];
+    }];
+}
+static void PRIsolatePage(UIViewController* page) {
+    page.edgesForExtendedLayout = UIRectEdgeNone;
+    page.extendedLayoutIncludesOpaqueBars = NO;
+    page.view.backgroundColor = PRPageCanvas();
+    page.view.clipsToBounds = YES;
+}
 static UIFont* PRFont(CGFloat size, UIFontWeight weight, UIFontTextStyle style) {
     return [[UIFontMetrics metricsForTextStyle:style] scaledFontForFont:[UIFont systemFontOfSize:size weight:weight]];
 }
@@ -48,7 +63,8 @@ static void PRStyleCard(UITableViewCell* cell) {
 }
 static void PRStyleNavigation(UINavigationController* navigation) {
     UINavigationBarAppearance* appearance = [[UINavigationBarAppearance alloc] init];
-    [appearance configureWithTransparentBackground];
+    [appearance configureWithOpaqueBackground];
+    appearance.backgroundColor = PRPageCanvas();
     appearance.titleTextAttributes = @ {
         NSFontAttributeName : PRFont(22, UIFontWeightBold, UIFontTextStyleTitle2),
         NSForegroundColorAttributeName : UIColor.labelColor
@@ -56,8 +72,11 @@ static void PRStyleNavigation(UINavigationController* navigation) {
     navigation.navigationBar.standardAppearance = appearance;
     navigation.navigationBar.scrollEdgeAppearance = appearance;
     navigation.navigationBar.compactAppearance = appearance;
+    navigation.navigationBar.compactScrollEdgeAppearance = appearance;
+    navigation.navigationBar.translucent = NO;
     navigation.navigationBar.prefersLargeTitles = NO;
-    navigation.view.backgroundColor = UIColor.clearColor;
+    navigation.view.backgroundColor = PRPageCanvas();
+    navigation.view.clipsToBounds = YES;
 }
 static NSString* PRText(const std::string& text) {
     return [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding] ?: @"";
@@ -185,6 +204,7 @@ static UIImage* PRBlankPortrait() {
     NSInteger _expanded;
     NSString* _selected;
     __weak PRNativeRoot* _host;
+    CGFloat _labelWidth;
 }
 - (instancetype)initWithGroups:(std::vector<N::Group>)groups initial:(std::string)initial host:(PRNativeRoot*)host;
 - (void)selectPage:(const std::string&)key;
@@ -366,6 +386,7 @@ static PRNativeRoot* PRRoot = nil;
 - (void)viewDidLoad {
     [super viewDidLoad];
     PRStyleTable(self.tableView);
+    PRIsolatePage(self);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 62;
     self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
@@ -665,6 +686,7 @@ static PRNativeRoot* PRRoot = nil;
 - (void)viewDidLoad {
     [super viewDidLoad];
     PRStyleTable(self.tableView);
+    PRIsolatePage(self);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 52;
     if (_row.choices.size() > 12) {
@@ -704,6 +726,26 @@ static PRNativeRoot* PRRoot = nil;
 @end
 
 @implementation PRNativeSidebar
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (std::abs(_labelWidth - self.tableView.bounds.size.width) > .5) {
+        _labelWidth = self.tableView.bounds.size.width;
+        [self.tableView reloadData];
+    }
+}
+- (CGFloat)labelPointSize {
+    // Reserve the icon, margins and disclosure area for every entry, then fit
+    // the longest title once. Categories and destinations keep one shared size.
+    const CGFloat available = MAX(60, self.tableView.bounds.size.width - 120);
+    UIFont* base = PRFont(14, UIFontWeightSemibold, UIFontTextStyleSubheadline);
+    CGFloat longest = 1;
+    for (const auto& group : _groups) {
+        longest = MAX(longest, [PRText(group.title) sizeWithAttributes:@{ NSFontAttributeName : base }].width);
+        for (const auto& page : group.pages)
+            longest = MAX(longest, [PRText(page.title) sizeWithAttributes:@{ NSFontAttributeName : base }].width);
+    }
+    return base.pointSize * MIN(1, available / longest);
+}
 - (instancetype)initWithGroups:(std::vector<N::Group>)groups initial:(std::string)initial host:(PRNativeRoot*)host {
     self = [super initWithStyle:UITableViewStylePlain];
     if (self) {
@@ -761,17 +803,19 @@ static PRNativeRoot* PRRoot = nil;
     content.imageProperties.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:18];
     content.imageProperties.reservedLayoutSize = CGSizeMake(22, 22);
     content.imageProperties.tintColor = UIColor.secondaryLabelColor;
+    content.textProperties.numberOfLines = 1;
+    const CGFloat pointSize = [self labelPointSize];
     if (!indexPath.row) {
         content.text = PRText(group.title);
         content.image = [UIImage systemImageNamed:PRText(group.symbol)];
-        content.textProperties.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleHeadline);
+        content.textProperties.font = [UIFont systemFontOfSize:pointSize weight:UIFontWeightSemibold];
         cell.accessoryView = [[UIImageView alloc]
             initWithImage:[UIImage
                               systemImageNamed:_expanded == indexPath.section ? @"chevron.down" : @"chevron.right"]];
         cell.accessoryView.tintColor = UIColor.tertiaryLabelColor;
     } else {
         const auto& page = group.pages[indexPath.row - 1];
-        content.textProperties.font = PRFont(15, UIFontWeightMedium, UIFontTextStyleSubheadline);
+        content.textProperties.font = [UIFont systemFontOfSize:pointSize weight:UIFontWeightMedium];
         content.text = PRText(page.title);
         content.image = [UIImage systemImageNamed:PRText(page.symbol)];
         content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(13, 24, 13, 18);
@@ -869,6 +913,7 @@ static PRNativeRoot* PRRoot = nil;
     _primaryPanel.clipsToBounds = YES;
     [self.view addSubview:_primaryPanel];
     _detailPanel = [[UIView alloc] init];
+    _detailPanel.clipsToBounds = YES;
     [self.view addSubview:_detailPanel];
     _menuButton = [UIButton buttonWithType:UIButtonTypeSystem];
     [_menuButton setImage:[UIImage systemImageNamed:@"sidebar.left"] forState:UIControlStateNormal];

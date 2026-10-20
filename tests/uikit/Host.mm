@@ -171,6 +171,77 @@ static void Require(bool condition, NSString* message) {
     if (!condition)
         [NSException raise:@"UIKitLayoutRegression" format:@"%@", message];
 }
+static void CheckPageSeparation(UINavigationController* navigation) {
+    UIViewController* page = navigation.topViewController;
+    [navigation.view layoutIfNeeded];
+    const CGRect content = [page.view convertRect:page.view.bounds toView:navigation.view];
+    const CGRect bar = [navigation.navigationBar convertRect:navigation.navigationBar.bounds toView:navigation.view];
+    Require(CGRectGetMinY(content) >= CGRectGetMaxY(bar) - .5, @"Settings content overlaps its title/back banner.");
+    Require(
+        navigation.view.clipsToBounds && navigation.view.superview.clipsToBounds,
+        @"A navigating page can escape the detail panel."
+    );
+    // The outgoing page carries a magenta test marker. Capture the real view
+    // hierarchy to detect it showing through a destination or its navigation bar.
+    UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat defaultFormat];
+    format.scale = 1;
+    format.opaque = YES;
+    UIGraphicsImageRenderer* renderer = [[UIGraphicsImageRenderer alloc] initWithSize:navigation.view.bounds.size
+                                                                               format:format];
+    UIImage* capture = [renderer imageWithActions:^(UIGraphicsImageRendererContext*) {
+        [navigation.view drawViewHierarchyInRect:navigation.view.bounds afterScreenUpdates:YES];
+    }];
+    const size_t width = CGImageGetWidth(capture.CGImage), height = CGImageGetHeight(capture.CGImage);
+    std::vector<uint8_t> rgba(width * height * 4);
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(
+        rgba.data(), width, height, 8, width * 4, space, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big
+    );
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), capture.CGImage);
+    CGContextRelease(context);
+    CGColorSpaceRelease(space);
+    for (size_t i = 0; i < rgba.size(); i += 4)
+        Require(
+            !(rgba[i] > 240 && rgba[i + 1] < 15 && rgba[i + 2] > 240),
+            @"Outgoing settings are bleeding through the destination screen."
+        );
+}
+static UILabel* FindLabel(UIView* view, NSString* text) {
+    if ([view isKindOfClass:UILabel.class] && [((UILabel*) view).text isEqualToString:text])
+        return (UILabel*) view;
+    for (UIView* child in view.subviews)
+        if (UILabel* label = FindLabel(child, text))
+            return label;
+    return nil;
+}
+static void CheckSidebarLabels() {
+    PRNativeSidebar* sidebar = (PRNativeSidebar*) PRRoot.primary.topViewController;
+    CGFloat sharedSize = 0;
+    for (NSInteger section = 0; section < [sidebar.tableView numberOfSections]; ++section)
+        for (NSInteger row = 0; row < [sidebar.tableView numberOfRowsInSection:section]; ++row) {
+            UITableViewCell* cell = [sidebar tableView:sidebar.tableView
+                                 cellForRowAtIndexPath:[NSIndexPath indexPathForRow:row inSection:section]];
+            cell.frame = CGRectMake(0, 0, sidebar.tableView.bounds.size.width, 60);
+            [cell layoutIfNeeded];
+            UIListContentConfiguration* content = (UIListContentConfiguration*) cell.contentConfiguration;
+            if (!sharedSize)
+                sharedSize = content.textProperties.font.pointSize;
+            Require(
+                std::abs(content.textProperties.font.pointSize - sharedSize) < .01,
+                @"Sidebar categories and submenu labels have different font sizes."
+            );
+            Require(content.textProperties.numberOfLines == 1, @"Sidebar labels can wrap onto a second line.");
+            if ([content.text isEqualToString:@"Enhancements"]) {
+                UILabel* label = FindLabel(cell, @"Enhancements");
+                Require(
+                    label &&
+                        [label.text sizeWithAttributes:@ { NSFontAttributeName : label.font }].width
+                            <= label.bounds.size.width + .5,
+                    @"Enhancements does not fit on one line."
+                );
+            }
+        }
+}
 static void CheckPortraitRendering() {
     N::Image pixels { 4, 4, { } };
     for (int y = 0; y < 4; ++y)
@@ -299,6 +370,7 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
         N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });
     });
     __block NSInteger phase = 0;
+    __block UIView* bleedProbe = nil;
     const double started = NSProcessInfo.processInfo.systemUptime;
     [NSTimer
         scheduledTimerWithTimeInterval:.25
@@ -343,6 +415,8 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                          Progress("Page loaded");
                                          if (phase == 1) {
                                              [PRRoot.view layoutIfNeeded];
+                                             CheckPageSeparation(PRRoot.detail);
+                                             CheckSidebarLabels();
                                              Require(
                                                  !PRRoot.primary.view.superview.hidden
                                                      && !PRRoot.detail.view.superview.hidden,
@@ -372,6 +446,12 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              PRRoot.view.bounds = bounds;
                                              [PRRoot.view setNeedsLayout];
                                              [PRRoot.view layoutIfNeeded];
+                                             CheckSidebarLabels();
+                                             bleedProbe = [[UIView alloc] initWithFrame:page.view.bounds];
+                                             bleedProbe.backgroundColor = UIColor.magentaColor;
+                                             bleedProbe.autoresizingMask =
+                                                 UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                                             [page.view addSubview:bleedProbe];
                                              [page tableView:page.tableView
                                                  didSelectRowAtIndexPath:PRSmokeIndex(page, N::Kind::Link)];
                                              phase = 7;
@@ -386,6 +466,11 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                      if (phase >= 7 && PRRoot.detail.transitionCoordinator)
                                          return;
                                      if (phase == 7 && PRRoot.detail.viewControllers.count == 2) {
+                                         PRNativePage* nested = (PRNativePage*) PRRoot.detail.topViewController;
+                                         if (![nested.tableView numberOfSections])
+                                             return;
+                                         [nested.tableView setContentOffset:CGPointMake(0, 140) animated:NO];
+                                         CheckPageSeparation(PRRoot.detail);
                                          [PRRoot.detail popViewControllerAnimated:NO];
                                          phase = 8;
                                          return;
@@ -400,12 +485,15 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                      if (phase == 9 &&
                                          [PRRoot.detail.topViewController isKindOfClass:PRNativeChoices.class]) {
                                          PRNativeChoices* choices = (PRNativeChoices*) PRRoot.detail.topViewController;
+                                         CheckPageSeparation(PRRoot.detail);
                                          [choices tableView:choices.tableView
                                              didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
                                          phase = 10;
                                          return;
                                      }
                                      if (phase == 10 && PRRoot.detail.viewControllers.count == 1) {
+                                         [bleedProbe removeFromSuperview];
+                                         bleedProbe = nil;
                                          [PRRoot closeSettings];
                                          phase = 3;
                                          return;
@@ -445,7 +533,8 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              @"Opened/reopened settings; rendered every control; verified "
                                              @"landscape/compact and nested navigation, adaptive volume cards, and the "
                                              @"correct channel edit through the game queue; Retina portraits and crisp "
-                                             @"pixel scaling."
+                                             @"pixel scaling; opaque nested pages, scrolled title separation and "
+                                             @"uniform one-line sidebar labels."
                                          );
                                          [timer invalidate];
                                          return;

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <iosfwd>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,10 @@ Row Select(std::string title, std::string cvar, int defaultValue, std::vector<Ch
 Row Link(std::string title, std::string target, std::string symbol = "chevron.right");
 void SaveSettings(const std::string& cvar = "");
 Image LoadImage(const char* raster, const char* palette = "");
+// Presence checks do not decode or cache HD texture pixels.
+void InspectImagePresence(const char* raster, const char* palette, std::ostream& report);
+void AppendBlueprintTextureCoverage(std::ostream& report);
+void AppendSaveEditorTextureCoverage(std::ostream& report);
 // On-demand metadata only; never includes image bytes or device folder paths.
 std::string SpriteTextureReport();
 Image LoadBlueprintPortrait(const ActorBlueprint* blueprint);

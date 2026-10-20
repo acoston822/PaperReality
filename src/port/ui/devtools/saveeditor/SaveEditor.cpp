@@ -5,6 +5,8 @@
 #include <cctype>
 #include <cmath>
 #include <string>
+#include <set>
+#include <ostream>
 #include <spdlog/fmt/fmt.h>
 #include <imgui.h>
 #include <ship/Context.h>
@@ -1521,6 +1523,8 @@ void SaveEditorWindow::InitElement() {
 
 namespace Paperboat::NativeSettings {
 namespace {
+    const char* const kPartyPalettes[] = { ui_goombario_pal, ui_kooper_pal, ui_bombette_pal, ui_parakarry_pal,
+                                           ui_bow_pal,       ui_watt_pal,   ui_sushie_pal,   ui_lakilester_pal };
     bool SaveLoaded() {
         return gCurrentSaveFile.magicString[0] != 0;
     }
@@ -1590,6 +1594,21 @@ namespace {
             );
         };
     }
+}
+void AppendSaveEditorTextureCoverage(std::ostream& report) {
+    std::set<std::pair<std::string, std::string>> references;
+    for (size_t i = 0; i < std::size(gItemIconRasterOffsets); ++i) {
+        const char* raster = reinterpret_cast<const char*>(gItemIconRasterOffsets[i]);
+        const char* palette = reinterpret_cast<const char*>(gItemIconPaletteOffsets[i]);
+        if (raster && *raster)
+            references.emplace(raster, palette ? palette : "");
+    }
+    for (size_t i = 0; i < partyMemberList.size(); ++i)
+        references.emplace(partyMemberList[i].second, kPartyPalettes[i]);
+    report << "\nRegistered Save Editor images (presence only; includes absent base files):\n"
+           << "Unique raster/palette references: " << references.size() << '\n';
+    for (const auto& [raster, palette] : references)
+        InspectImagePresence(raster.c_str(), palette.c_str(), report);
 }
 Page SaveEditorPage(const std::string& key) {
     Page page { key, "Save Editor", "", { } };
@@ -1675,8 +1694,6 @@ Page SaveEditorPage(const std::string& key) {
         );
     } else if (key == "save/party") {
         page.title = "Party";
-        static const char* palettes[] = { ui_goombario_pal, ui_kooper_pal, ui_bombette_pal, ui_parakarry_pal,
-                                          ui_bow_pal,       ui_watt_pal,   ui_sushie_pal,   ui_lakilester_pal };
         for (size_t i = 0; i < partyMemberList.size(); ++i) {
             const auto& member = partyMemberList[i];
             auto& data = gPlayerData.partners[gPausePartnersPartnerIDs[i]];
@@ -1685,7 +1702,7 @@ Page SaveEditorPage(const std::string& key) {
             unlock.id = "partner/" + std::to_string(i);
             unlock.kind = Kind::Toggle;
             unlock.value = data.enabled;
-            unlock.portrait = [i] { return LoadImage(partyMemberList[i].second, palettes[i]); };
+            unlock.portrait = [i] { return LoadImage(partyMemberList[i].second, kPartyPalettes[i]); };
             unlock.change = ChangeSave([i](double value) {
                 gPlayerData.partners[gPausePartnersPartnerIDs[i]].enabled = value != 0;
             });

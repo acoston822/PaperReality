@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <mutex>
 #include <sstream>
+#include <set>
 
 namespace Paperboat::NativeSettings {
 namespace {
@@ -362,11 +363,47 @@ Image LoadImage(const char* raster, const char* palette) {
     return LoadImageImpl(raster, palette, nullptr);
 }
 
+void InspectImagePresence(const char* raster, const char* palette, std::ostream& report) {
+    const auto normalize = [](const char* name) {
+        std::string path = name ? name : "";
+        if (path.starts_with("__OTR__"))
+            path.erase(0, 7);
+        return path;
+    };
+    const std::string path = normalize(raster), colors = normalize(palette);
+    auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
+    auto archive = manager ? manager->GetArchiveManager() : nullptr;
+    if (!archive || path.empty())
+        return;
+    const auto exists = [&](const std::string& name) {
+        return archive->HasFile(name) || archive->HasFile(name + ".meta");
+    };
+    report << "  " << path << ": ";
+    std::string replacement;
+    if (!colors.empty()) {
+        const std::string variant = "alt/" + path + "@" + colors.substr(colors.find_last_of('/') + 1);
+        if (exists(variant))
+            replacement = variant;
+    }
+    if (replacement.empty() && exists("alt/" + path))
+        replacement = "alt/" + path;
+    if (!replacement.empty()) {
+        report << "HD candidate present: " << replacement;
+        if (!manager->IsAltAssetsEnabled())
+            report << " (alternate assets disabled)";
+    } else {
+        report << "no matching HD raster entry";
+        if (!colors.empty() && exists("alt/" + colors))
+            report << "; alternate palette present";
+    }
+    report << '\n';
+}
+
 std::string SpriteTextureReport() {
     std::ostringstream report;
     report << "PaperReality sprite texture coverage\n"
               "Metadata only: no images, game contents, saves or device folder paths.\n"
-              "Checks the reported badge/item icons, working comparison icons and companions.\n\n";
+              "Detailed sample checks, all installed icon/UI raster paths, and every Blueprint portrait.\n\n";
     auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
     if (!manager || !manager->GetArchiveManager())
         return report.str() + "Resource manager unavailable.\n";
@@ -394,6 +431,7 @@ std::string SpriteTextureReport() {
                             "icons/badge/SuperJump",
                             "icons/badge/AutoSmash",
                             "icons/badge/Berserker",
+                            "icons/badge/Kaiden",
                             "icons/badge/RightOn",
                             "icons/badge/HealthyHealthy",
                             "icons/badge/EarthquakeJump",
@@ -418,7 +456,20 @@ std::string SpriteTextureReport() {
         // palette-variant/alias rules. Never change the enabled pack selection.
         LoadImageImpl(path, (std::string(path) + ".pal").c_str(), &report);
     }
-    report << "\nFake Bowser, Toy Tank and Light Bulb use models, not NPC sprite portraits.\n";
+    AppendSaveEditorTextureCoverage(report);
+    report << "\nComplete installed icon/UI coverage (presence only; candidates are not decoded):\n";
+    std::set<std::string> icons;
+    const auto files = manager->GetArchiveManager()->ListFiles({ "icons/*", "ui/*" }, { });
+    for (std::string path : *files) {
+        if (path.ends_with(".meta"))
+            path.resize(path.size() - 5);
+        if (!path.ends_with(".pal"))
+            icons.insert(std::move(path));
+    }
+    report << "Icon/UI rasters: " << icons.size() << '\n';
+    for (const auto& path : icons)
+        InspectImagePresence(path.c_str(), (path + ".pal").c_str(), report);
+    AppendBlueprintTextureCoverage(report);
     return report.str();
 }
 } // namespace Paperboat::NativeSettings

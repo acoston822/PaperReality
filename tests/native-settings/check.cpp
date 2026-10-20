@@ -12,6 +12,7 @@
 #include <iostream>
 #include <queue>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #undef End
@@ -78,6 +79,10 @@ static void CheckTextureSelection() {
     manager->SetAltAssetsEnabled(true);
     expectHD("cached", 4, 2, { 0, 0, 255, 255 });
     const auto report = N::SpriteTextureReport();
+    Require(
+        !manager->GetCachedResource("alt/ui/input/report-test", true),
+        "Full presence audit loaded HD texture pixels into the resource cache"
+    );
     Require(manager->IsAltAssetsEnabled(), "Exporting coverage changed the pack selection");
     Require(
         report.find("Selected replacement: alt/icons/badge/PowerJump") != std::string::npos,
@@ -97,7 +102,36 @@ static void CheckTextureSelection() {
         "Coverage report lost the alias, pack name or replacement dimensions"
     );
     Require(
-        report.find("/tmp/") == std::string::npos && report.size() < 15000,
+        report.find("Selected original: icons/badge/Kaiden") != std::string::npos
+            && report.find("ui/input/report-test: HD candidate present: alt/ui/input/report-test") != std::string::npos,
+        "Complete coverage missed Kaiden or a UI image outside the detailed sample"
+    );
+    Require(
+        report.find("Registered Save Editor images (presence only; includes absent base files)") != std::string::npos
+            && report.find("icons/badge/DeepFocus: no matching HD raster entry") != std::string::npos,
+        "Registered editor images missing from the archive were not checked"
+    );
+    const auto catalog = ActorBlueprints::GetCatalog();
+    Require(
+        report.find("Blueprint characters: " + std::to_string(catalog.size())) != std::string::npos,
+        "Blueprint coverage did not include the full catalog"
+    );
+    Require(
+        report.find("Albino Dino\n  Sprite assets unavailable; no components inspected.") != std::string::npos,
+        "Report did not explain unavailable Albino Dino components without game assets"
+    );
+    std::ostringstream probe;
+    N::InspectImagePresence("__OTR__test-native/variant", "__OTR__test-native/colors", probe);
+    N::InspectImagePresence("__OTR__test-native/alias-only", nullptr, probe);
+    N::InspectImagePresence("__OTR__test-native/partial", "__OTR__test-native/colors", probe);
+    Require(
+        probe.str().find("HD candidate present: alt/test-native/variant@colors") != std::string::npos
+            && probe.str().find("HD candidate present: alt/test-native/alias-only") != std::string::npos
+            && probe.str().find("test-native/partial: no matching HD raster entry") != std::string::npos,
+        "Presence checks did not respect palette variants, aliases or missing replacements"
+    );
+    Require(
+        report.find("/tmp/") == std::string::npos && report.size() < 1024 * 1024,
         "Coverage report includes device directories or unexpected payload data"
     );
     manager->SetAltAssetsEnabled(false);

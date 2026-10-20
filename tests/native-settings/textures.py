@@ -48,9 +48,12 @@ def write_archive(path):
         texture(prefix + 'ci8-colors', 256, 1, b'\0\0' * 255 + b'\xff\xff', kind=2)
         texture(prefix + 'ci8', 1, 1, b'\xff', kind=4)
         # Real lookup names, generated colors only, for the on-device report.
-        for name in ('AutoJump', 'PowerJump', 'SuperJump', 'Berserker'):
+        for name in ('AutoJump', 'PowerJump', 'SuperJump', 'Berserker', 'Kaiden'):
             texture('icons/badge/' + name, 2, 1, b'\x01', kind=3)
             texture('icons/badge/' + name + '.pal', 16, 1, palette, kind=2)
         rgba('alt/icons/badge/PowerJump', 4, 2, (0, 0, 255, 255))
         alias('alt/icons/badge/SuperJump', prefix + 'aliases/target')
         texture('alt/icons/badge/Berserker', 4, 2, b'\xff', flags=1)
+        # Not part of the detailed sample: the complete UI listing must find it.
+        rgba('ui/input/report-test', 2, 2, (255, 255, 255, 255))
+        rgba('alt/ui/input/report-test', 4, 4, (255, 255, 255, 255))

@@ -72,9 +72,15 @@ existing numeric preset format, not sprite data.
 
 For missing HD editor icons, open **Settings → Mod Menu → Export Sprite Texture
 Report** on the device where the pack is installed. The small text file records
-the reported badge/item icons and companion icons, candidate resource names,
-archive filenames, dimensions, unreadable replacements, and the texture actually
-selected by the thumbnail loader. It respects Alternate Assets and does not
+the reported badge/item icons (including Kaiden) and companion icons, candidate
+resource names, archive filenames, dimensions, unreadable replacements, and the
+texture actually selected by the thumbnail loader. A complete presence audit also
+covers every image registered in the Save Editor (even if the base file is
+absent), every installed `icons/` and `ui/` raster, and every character in the
+Blueprint Editor, using the same first-frame components as its portrait. That
+section reports matching replacement entries without decoding/caching all HD
+pixels; presence alone does not establish that an entry is usable. Counts identify
+the report's coverage. It respects Alternate Assets and does not
 change the pack selection. It includes no image bytes, saves, ROM contents or
 device folder paths. The system Files picker saves a copy wherever the user
 chooses; nothing is sent automatically. Packs stay on the device.

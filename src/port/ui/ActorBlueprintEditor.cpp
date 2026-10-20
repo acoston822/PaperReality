@@ -17,6 +17,7 @@
 #include <climits>
 #include <cstring>
 #include <initializer_list>
+#include <ostream>
 #include <string>
 #include <unordered_map>
 #include <spdlog/fmt/fmt.h>
@@ -222,25 +223,39 @@ struct PortraitLayer {
 };
 
 static bool LoadPortrait(
-    const ActorBlueprint* blueprint, const std::string& name, Paperboat::NativeSettings::Image* native = nullptr
+    const ActorBlueprint* blueprint,
+    const std::string& name,
+    Paperboat::NativeSettings::Image* native = nullptr,
+    std::ostream* report = nullptr
 ) {
-    if (native && !Sprite_AssetsAvailable())
+    if ((native || report) && !Sprite_AssetsAvailable()) {
+        if (report)
+            *report << "  Sprite assets unavailable; no components inspected.\n";
         return false;
+    }
     s32 anim = GetIdleAnim(blueprint);
     s32 spriteIdx = ((anim >> 16) & 0x7FFF) - 1;
     s32 animPalette = (anim >> 8) & 0xFF;
     s32 animIdx = anim & 0xFF;
     if (anim == 0 || spriteIdx < 0) {
+        if (report)
+            *report << "  No usable idle sprite animation.\n";
         return false;
     }
+    if (report)
+        *report << "  NPC sprite=" << spriteIdx << "; animation=" << animIdx << "; palette=" << animPalette << '\n';
 
     size_t size = Sprite_GetNPCSize(spriteIdx);
     if (size == 0) {
+        if (report)
+            *report << "  Sprite metadata unavailable.\n";
         return false;
     }
     std::vector<u8> buffer(size);
     auto* sprite = (SpriteAnimData*) Sprite_LoadNPC(spriteIdx, buffer.data(), buffer.size());
     if (sprite == nullptr) {
+        if (report)
+            *report << "  Sprite metadata could not be loaded.\n";
         return false;
     }
 
@@ -249,6 +264,8 @@ static bool LoadPortrait(
         animCount++;
     }
     if (animIdx >= animCount) {
+        if (report)
+            *report << "  Animation index outside sprite metadata.\n";
         return false;
     }
     s32 rasterCount = CountPtrList(sprite->rastersOffset);
@@ -262,6 +279,8 @@ static bool LoadPortrait(
     for (s32 c = 0; comps[c] != (SpriteAnimComponent*) PTR_LIST_END; c++) {
         parts.push_back(ReadFirstFrame(comps[c]));
     }
+    if (report)
+        *report << "  First-frame components: " << parts.size() << '\n';
     for (PortraitPart& part : parts) {
         if (part.parent >= 0 && part.parent < (s32) parts.size()) {
             for (s32 i = 0; i < 3; i++) {
@@ -275,6 +294,8 @@ static bool LoadPortrait(
     std::vector<Paperboat::NativeSettings::Portrait::Layer> nativeLayers;
     for (size_t c = 0; c < parts.size(); c++) {
         const PortraitPart& part = parts[c];
+        if (report)
+            *report << "  Component " << c << ": raster=" << part.raster << '\n';
         if (part.raster < 0 || part.raster >= rasterCount) {
             continue;
         }
@@ -287,12 +308,26 @@ static bool LoadPortrait(
             }
         }
         if (palette < 0 || palette >= paletteCount) {
+            if (report)
+                *report << "  Skipped: invalid palette " << palette << '\n';
             continue;
         }
         s32 width = entry->width;
         s32 height = entry->height;
         if (width <= 0 || height <= 0)
             continue;
+        if (report && !native) {
+            if (IsArchivePath(entry->image))
+                Paperboat::NativeSettings::InspectImagePresence(
+                    (const char*) entry->image,
+                    IsArchivePath(sprite->palettesOffset[palette]) ? (const char*) sprite->palettesOffset[palette]
+                                                                   : nullptr,
+                    *report
+                );
+            else
+                *report << "  Embedded original raster; no named replacement lookup.\n";
+            continue;
+        }
         const SpriteAnimComponent* comp = comps[c];
         const int x = part.pos[0] + comp->compOffset.x - width / 2;
         const int y = -(part.pos[1] + comp->compOffset.y + height);
@@ -343,6 +378,8 @@ static bool LoadPortrait(
             layers.push_back(std::move(layer));
         }
     }
+    if (report && !native)
+        return true;
     if (native) {
         *native = Paperboat::NativeSettings::Portrait::Assemble(std::move(nativeLayers));
         return !native->rgba.empty();
@@ -908,6 +945,18 @@ Image LoadBlueprintPortrait(const ActorBlueprint* blueprint) {
     if (blueprint && !ModelPortraitSymbol(blueprint->type))
         LoadPortrait(blueprint, "", &image);
     return image;
+}
+void AppendBlueprintTextureCoverage(std::ostream& report) {
+    const auto catalog = GetCatalog();
+    report << "\nBlueprint portrait coverage (component presence only; no HD pixels decoded):\n"
+           << "Blueprint characters: " << catalog.size() << '\n';
+    for (const auto& entry : catalog) {
+        report << '\n' << GetActorName(entry.actorType) << '\n';
+        if (ModelPortraitSymbol(entry.actorType))
+            report << "  Model actor; no NPC sprite portrait.\n";
+        else
+            LoadPortrait(entry.blueprint, "", nullptr, &report);
+    }
 }
 namespace {
     Row BlueprintAction(std::string title, std::function<void()> action, bool destructive = false) {

@@ -3,6 +3,10 @@
 #include "port/ui/PaperboatGui.hpp"
 #include "port/ui/NativeSettings.h"
 #include "port/enhancements/gameplay/ActorBlueprints.h"
+#include <fast/resource/ResourceType.h>
+#include <fast/resource/factory/TextureFactory.h>
+#include <ship/resource/ResourceManager.h>
+#include <ship/resource/archive/ArchiveManager.h>
 #include "common_structs.h"
 #include <cmath>
 #include <iostream>
@@ -28,6 +32,52 @@ static N::Row Find(const N::Page& page, const std::string& title) {
             if (row.title == title)
                 return row;
     throw std::runtime_error("Missing row: " + title);
+}
+static void CheckTextureSelection() {
+    auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
+    manager->GetResourceLoader()->RegisterResourceFactory(
+        std::make_shared<Fast::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY, "Texture",
+        static_cast<uint32_t>(Fast::ResourceType::Texture), 1
+    );
+    Require(manager->GetArchiveManager()->AddArchive("synthetic-textures.zip") != nullptr, "Fixture not mounted");
+    const auto expectBase = [&](const char* name) {
+        const std::string path = "__OTR__test-native/" + std::string(name);
+        const auto image = N::LoadImage(path.c_str(), "__OTR__test-native/colors");
+        Require(
+            image.width == 2 && image.height == 1
+                && image.rgba == std::vector<uint8_t> { 255, 0, 0, 255, 0, 255, 0, 255 },
+            "Original indexed sprite or palette fallback incorrect"
+        );
+    };
+    const auto expectHD = [&](const char* name, int width, int height, std::vector<uint8_t> color) {
+        const std::string path = "__OTR__test-native/" + std::string(name);
+        const auto image = N::LoadImage(path.c_str(), "__OTR__test-native/colors");
+        Require(image.width == width && image.height == height, "HD sprite dimensions lost");
+        Require(image.rgba.size() == size_t(width * height * 4), "HD pixel count incorrect");
+        for (size_t i = 0; i < image.rgba.size(); ++i)
+            Require(image.rgba[i] == color[i % 4], "HD sprite pixels changed");
+    };
+    manager->SetAltAssetsEnabled(false);
+    expectBase("cached"); // Warm the base cache before enabling HD.
+    manager->SetAltAssetsEnabled(true);
+    expectHD("cached", 4, 2, { 0, 0, 255, 255 });
+    expectHD("variant", 8, 4, { 255, 192, 0, 255 });
+    expectHD("alias-only", 12, 6, { 255, 0, 255, 255 });
+    expectHD("variant-alias", 12, 6, { 255, 0, 255, 255 });
+    expectHD("raw-ci", 4, 2, { 0, 255, 255, 128 });
+    for (const auto* name :
+         { "partial", "unsupported", "short", "claimed", "zero", "oversized", "missing-target", "bad-meta" })
+        expectBase(name);
+    manager->SetAltAssetsEnabled(false);
+    expectBase("cached"); // A cached replacement must not survive the toggle.
+    expectBase("variant");
+    Require(N::LoadImage("__OTR__test-native/alias-only").rgba.empty(), "Disabled HD alias still displayed");
+    expectHD("base-alias", 12, 6, { 255, 0, 255, 255 });
+    const auto ci8 = N::LoadImage("__OTR__test-native/ci8", "__OTR__test-native/ci8-colors");
+    Require(ci8.rgba == std::vector<uint8_t> { 255, 255, 255, 255 }, "CI8 palette decoding incorrect");
+    manager->SetAltAssetsEnabled(true);
+    expectHD("cached", 4, 2, { 0, 0, 255, 255 });
+    manager->SetAltAssetsEnabled(false);
 }
 int main() {
     try {
@@ -133,9 +183,10 @@ int main() {
         const auto bp =
             N::BlueprintEditorPage("blueprint/actor/" + std::to_string(catalog.front().actorType) + "/combat");
         Require(!bp.sections.empty(), "Missing actor combat fields");
-        std::cout
-            << "PASS: " << visited.size() << " native pages, " << rows
-            << " rows; queued callbacks, race lock, navigation, save guards, resolution persistence, blank portraits\n";
+        CheckTextureSelection();
+        std::cout << "PASS: " << visited.size() << " native pages, " << rows
+                  << " rows; queued callbacks, race lock, navigation, save guards, resolution persistence, blank "
+                     "portraits, HD texture selection\n";
         N::Stop();
         PaperboatGui::Destroy();
         gsFast3dWindow.reset();

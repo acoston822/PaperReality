@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <exception>
 #include <mutex>
 
 namespace Paperboat::NativeSettings {
@@ -206,61 +207,115 @@ Row Link(std::string title, std::string target, std::string symbol) {
     return row;
 }
 
-Image LoadImage(const char* raster, const char* palette) {
-    Image image;
-    if (!raster || !*raster)
-        return image;
-    auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
-    if (!manager)
-        return image;
-    std::string path(raster);
-    if (path.starts_with("__OTR__"))
-        path.erase(0, 7);
-    auto archive = manager->GetArchiveManager();
-    if (!archive || (!archive->HasFile(path) && !(manager->IsAltAssetsEnabled() && archive->HasFile("alt/" + path))))
-        return image;
-    auto texture = std::dynamic_pointer_cast<Fast::Texture>(manager->LoadResource(raster));
-    if (!texture || !texture->ImageData)
-        texture = std::dynamic_pointer_cast<Fast::Texture>(manager->LoadResource(raster, true));
-    if (!texture || !texture->ImageData || !texture->Width || !texture->Height)
-        return image;
-    const size_t count = size_t(texture->Width) * texture->Height;
-    if (count > 4096 * 4096)
-        return image;
-    image.width = texture->Width;
-    image.height = texture->Height;
-    image.rgba.resize(count * 4);
-    if ((texture->Flags & TEX_FLAG_LOAD_AS_RAW) || texture->Type == Fast::TextureType::RGBA32bpp) {
-        if (texture->ImageDataSize < count * 4)
+namespace {
+    // Decode only validated buffers. A replacement that cannot be displayed must not
+    // prevent the original sprite from being used instead.
+    bool ValidTextureData(const std::shared_ptr<Fast::Texture>& texture) {
+        if (!texture || !texture->ImageData)
+            return false;
+        if (texture->mImageBuffer) {
+            const uintptr_t start = reinterpret_cast<uintptr_t>(texture->mImageBuffer->data());
+            const uintptr_t data = reinterpret_cast<uintptr_t>(texture->ImageData);
+            if (data < start || data - start > texture->mImageBuffer->size()
+                || texture->ImageDataSize > texture->mImageBuffer->size() - (data - start))
+                return false;
+        }
+        return true;
+    }
+
+    Image DecodeImage(const std::shared_ptr<Fast::Texture>& texture, const std::shared_ptr<Fast::Texture>& colors) {
+        Image image;
+        if (!ValidTextureData(texture) || !texture->Width || !texture->Height)
+            return image;
+        const size_t count = size_t(texture->Width) * texture->Height;
+        if (count > 4096 * 4096)
+            return image;
+        image.width = texture->Width;
+        image.height = texture->Height;
+        image.rgba.resize(count * 4);
+        if ((texture->Flags & TEX_FLAG_LOAD_AS_RAW) || texture->Type == Fast::TextureType::RGBA32bpp) {
+            if (texture->ImageDataSize < count * 4)
+                return { };
+            std::copy_n(texture->ImageData, count * 4, image.rgba.data());
+            return image;
+        }
+        const bool indexed =
+            texture->Type == Fast::TextureType::Palette4bpp || texture->Type == Fast::TextureType::Palette8bpp;
+        if (texture->Type != Fast::TextureType::RGBA16bpp && !indexed)
             return { };
-        std::copy_n(texture->ImageData, count * 4, image.rgba.data());
+        if (texture->Type == Fast::TextureType::RGBA16bpp && texture->ImageDataSize < count * 2)
+            return { };
+        const bool ci4 = texture->Type == Fast::TextureType::Palette4bpp;
+        if (indexed && texture->ImageDataSize < (ci4 ? (count + 1) / 2 : count))
+            return { };
+        if (indexed
+            && (!ValidTextureData(colors) || colors->Type != Fast::TextureType::RGBA16bpp
+                || colors->ImageDataSize < (ci4 ? 32u : 512u)))
+            return { };
+        for (size_t i = 0; i < count; ++i) {
+            const uint8_t index = ci4 ? ((i & 1) ? texture->ImageData[i / 2] & 15 : texture->ImageData[i / 2] >> 4)
+                                      : (indexed ? texture->ImageData[i] : 0);
+            const uint8_t* p = indexed ? colors->ImageData + index * 2 : texture->ImageData + i * 2;
+            const uint16_t value = (p[0] << 8) | p[1];
+            image.rgba[i * 4] = ((value >> 11) & 31) * 255 / 31;
+            image.rgba[i * 4 + 1] = ((value >> 6) & 31) * 255 / 31;
+            image.rgba[i * 4 + 2] = ((value >> 1) & 31) * 255 / 31;
+            image.rgba[i * 4 + 3] = (value & 1) ? 255 : 0;
+        }
         return image;
     }
-    std::shared_ptr<Fast::Texture> colors;
-    if (texture->Type == Fast::TextureType::Palette4bpp && palette && *palette) {
-        colors = std::dynamic_pointer_cast<Fast::Texture>(manager->LoadResource(palette));
-        if (!colors || colors->Type != Fast::TextureType::RGBA16bpp || colors->ImageDataSize < 32)
-            colors = std::dynamic_pointer_cast<Fast::Texture>(manager->LoadResource(palette, true));
+} // namespace
+
+Image LoadImage(const char* raster, const char* palette) {
+    if (!raster || !*raster)
+        return { };
+    auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
+    if (!manager || !manager->GetArchiveManager())
+        return { };
+    const auto normalize = [](const char* name) {
+        std::string path = name ? name : "";
+        if (path.starts_with("__OTR__"))
+            path.erase(0, 7);
+        return path;
+    };
+    const std::string path = normalize(raster), palettePath = normalize(palette);
+    const auto load = [&](const std::string& name) -> std::shared_ptr<Fast::Texture> {
+        auto archive = manager->GetArchiveManager();
+        if (name.empty() || (!archive->HasFile(name) && !archive->HasFile(name + ".meta")))
+            return nullptr;
+        try {
+            // Keep base and HD cache keys separate, including after a pack toggle.
+            return std::dynamic_pointer_cast<Fast::Texture>(manager->LoadResource(name, true));
+        } catch (const std::exception&) {
+            // Malformed pack metadata must still allow a base-game portrait.
+            return nullptr;
+        }
+    };
+    const auto decode = [&](const std::string& name) {
+        auto texture = load(name);
+        std::shared_ptr<Fast::Texture> colors;
+        if (texture && !(texture->Flags & TEX_FLAG_LOAD_AS_RAW)
+            && (texture->Type == Fast::TextureType::Palette4bpp || texture->Type == Fast::TextureType::Palette8bpp))
+        {
+            const size_t required = texture->Type == Fast::TextureType::Palette4bpp ? 32 : 512;
+            if (manager->IsAltAssetsEnabled() && !palettePath.empty())
+                colors = load("alt/" + palettePath);
+            if (!ValidTextureData(colors) || colors->Type != Fast::TextureType::RGBA16bpp
+                || colors->ImageDataSize < required)
+                colors = load(palettePath);
+        }
+        return DecodeImage(texture, colors);
+    };
+    if (manager->IsAltAssetsEnabled() && !path.starts_with("alt/")) {
+        // Match the renderer's per-palette replacement naming convention.
+        if (!palettePath.empty()) {
+            const std::string variant = "alt/" + path + "@" + palettePath.substr(palettePath.find_last_of('/') + 1);
+            if (auto image = decode(variant); !image.rgba.empty())
+                return image;
+        }
+        if (auto image = decode("alt/" + path); !image.rgba.empty())
+            return image;
     }
-    if (texture->Type != Fast::TextureType::RGBA16bpp && !colors)
-        return { };
-    if (texture->Type == Fast::TextureType::RGBA16bpp && texture->ImageDataSize < count * 2)
-        return { };
-    if (texture->Type == Fast::TextureType::Palette4bpp && texture->ImageDataSize < (count + 1) / 2)
-        return { };
-    if (colors && (!colors->ImageData || colors->ImageDataSize < 32))
-        return { };
-    for (size_t i = 0; i < count; ++i) {
-        const uint8_t index = texture->Type == Fast::TextureType::Palette4bpp
-            ? ((i & 1) ? texture->ImageData[i / 2] & 15 : texture->ImageData[i / 2] >> 4)
-            : 0;
-        const uint8_t* p = colors ? colors->ImageData + index * 2 : texture->ImageData + i * 2;
-        const uint16_t value = (p[0] << 8) | p[1];
-        image.rgba[i * 4] = ((value >> 11) & 31) * 255 / 31;
-        image.rgba[i * 4 + 1] = ((value >> 6) & 31) * 255 / 31;
-        image.rgba[i * 4 + 2] = ((value >> 1) & 31) * 255 / 31;
-        image.rgba[i * 4 + 3] = (value & 1) ? 255 : 0;
-    }
-    return image;
+    return decode(path);
 }
 } // namespace Paperboat::NativeSettings

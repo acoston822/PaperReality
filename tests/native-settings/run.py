@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from textures import write_archive
 
 root = Path(__file__).resolve().parents[2]
 build = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else root / 'build/ninja-debug'
@@ -43,4 +44,5 @@ with tempfile.TemporaryDirectory(prefix='paperreality-native-check-') as temp:
     link = [flag for flag in link if not flag.startswith('-Wl,--dependency-file=')]
     subprocess.run(link + ['@' + str(rsp), '-o', str(exe)], cwd=build, check=True)
     (temp / 'paperboat.o2r').symlink_to(build / 'paperboat.o2r')
+    write_archive(temp / 'synthetic-textures.zip')
     subprocess.run([str(exe)], cwd=temp, env=dict(os.environ, SDL_AUDIODRIVER="dummy", LIBGL_ALWAYS_SOFTWARE="1"), check=True, timeout=60)

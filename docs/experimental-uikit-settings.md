@@ -36,8 +36,12 @@ in the classic General page restores UIKit.
   Susceptibility editors. Numeric preset JSON uses Files import/export.
 - Portraits beside characters, companions, badges and items are decoded at runtime
   from installed resources. Missing assets produce blank outlined placeholders.
-  Alternate assets follow the user's enabled pack selection; compatible RGBA
-  replacements are supported. Blueprint parts are assembled in their original
+  Alternate assets follow the user's enabled pack selection, including when the
+  original texture was already cached. Badges, items, companions and blueprint
+  parts share the same loader, which checks palette-specific HD artwork before
+  generic replacements and supports pack resource aliases. Missing or unusable
+  replacements fall back to the original sprite; turning alternate assets off
+  restores the originals. Blueprint parts are assembled in their original
   bounds, so a pack's higher-resolution components keep the sprite alignment.
 
 Controller bindings, Event Debugger and Value Viewer still open their existing
@@ -82,6 +86,9 @@ The integration harness links the actual native models and menu callbacks agains
 that build, using port resources and a temporary synthetic save. It checks the
 frame queue, navigation restoration, disabled controls, save guards, resolution
 persistence, submenu traversal and empty portrait behavior without game assets.
+Generated pixel fixtures also check HD selection after warming the original cache,
+on/off toggles, palette variants, aliases, partial packs, invalid replacements,
+original palette fallback and preservation of replacement dimensions and pixels.
 It never runs a game or writes into a user's save directory.
 
 Validated locally: the Linux build and integration harness pass (804 pages,

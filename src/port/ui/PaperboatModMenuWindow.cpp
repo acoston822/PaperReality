@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -600,6 +601,28 @@ Page ModPage(const std::string& key) {
         changed = false;
     };
     page.sections.push_back({ "Assets", "", { alternate, mipmaps, add, apply, cancel } });
+#if defined(__IOS__)
+    Row coverage;
+    coverage.title = "Export Sprite Texture Report";
+    coverage.kind = Kind::Action;
+    coverage.symbol = "doc.text.magnifyingglass";
+    coverage.detail =
+        "Check installed HD icons. Exports a small text report with names and load results; no images or game data.";
+    coverage.activate = [] {
+        const auto path = std::filesystem::temp_directory_path() / "PaperReality-Sprite-Textures.txt";
+        std::ofstream output(path, std::ios::trunc);
+        output << SpriteTextureReport();
+        output.close();
+        if (!output) {
+            PaperboatGui::RegisterPopup("Sprite Texture Report", "Could not create the report. Please try again.");
+            return;
+        }
+        IosExportFile(path.string());
+    };
+    page.sections.push_back(
+        { "Troubleshooting", "The pack stays on this device. Choose where to save the report in Files.", { coverage } }
+    );
+#endif
     Section enabled { "Enabled Mods",
                       "Higher entries take priority. Select a pack to enable, disable or reorder it.",
                       { } };

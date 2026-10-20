@@ -77,7 +77,36 @@ static void CheckTextureSelection() {
     Require(ci8.rgba == std::vector<uint8_t> { 255, 255, 255, 255 }, "CI8 palette decoding incorrect");
     manager->SetAltAssetsEnabled(true);
     expectHD("cached", 4, 2, { 0, 0, 255, 255 });
+    const auto report = N::SpriteTextureReport();
+    Require(manager->IsAltAssetsEnabled(), "Exporting coverage changed the pack selection");
+    Require(
+        report.find("Selected replacement: alt/icons/badge/PowerJump") != std::string::npos,
+        "Coverage report did not identify the selected HD sprite"
+    );
+    Require(
+        report.find("Selected original: icons/badge/AutoJump") != std::string::npos,
+        "Coverage report did not identify the original fallback"
+    );
+    Require(
+        report.find("Rejected: alt/icons/badge/Berserker") != std::string::npos,
+        "Coverage report did not explain an unusable replacement"
+    );
+    Require(
+        report.find("alt/icons/badge/SuperJump -> test-native/aliases/target") != std::string::npos
+            && report.find("[synthetic-textures.zip]; 12x6") != std::string::npos,
+        "Coverage report lost the alias, pack name or replacement dimensions"
+    );
+    Require(
+        report.find("/tmp/") == std::string::npos && report.size() < 15000,
+        "Coverage report includes device directories or unexpected payload data"
+    );
     manager->SetAltAssetsEnabled(false);
+    const auto disabled = N::SpriteTextureReport();
+    Require(
+        !manager->IsAltAssetsEnabled() && disabled.find("Alternate assets: disabled") != std::string::npos
+            && disabled.find("Selected replacement:") == std::string::npos,
+        "Coverage report did not respect disabled alternate assets"
+    );
 }
 int main() {
     try {

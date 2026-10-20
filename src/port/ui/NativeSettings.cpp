@@ -5,12 +5,15 @@
 #include "fast/resource/type/Texture.h"
 #include <ship/resource/ResourceManager.h>
 #include <ship/resource/archive/ArchiveManager.h>
+#include <ship/resource/archive/Archive.h>
 #include <ship/window/gui/ConsoleWindow.h>
 #include <algorithm>
 #include <cmath>
 #include <deque>
 #include <exception>
+#include <filesystem>
 #include <mutex>
+#include <sstream>
 
 namespace Paperboat::NativeSettings {
 namespace {
@@ -266,7 +269,7 @@ namespace {
     }
 } // namespace
 
-Image LoadImage(const char* raster, const char* palette) {
+static Image LoadImageImpl(const char* raster, const char* palette, std::ostream* report) {
     if (!raster || !*raster)
         return { };
     auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
@@ -281,13 +284,37 @@ Image LoadImage(const char* raster, const char* palette) {
     const std::string path = normalize(raster), palettePath = normalize(palette);
     const auto load = [&](const std::string& name) -> std::shared_ptr<Fast::Texture> {
         auto archive = manager->GetArchiveManager();
-        if (name.empty() || (!archive->HasFile(name) && !archive->HasFile(name + ".meta")))
+        if (name.empty() || (!archive->HasFile(name) && !archive->HasFile(name + ".meta"))) {
+            if (report && !name.empty())
+                *report << "  Missing: " << name << '\n';
             return nullptr;
+        }
         try {
             // Keep base and HD cache keys separate, including after a pack toggle.
-            return std::dynamic_pointer_cast<Fast::Texture>(manager->LoadResource(name, true));
+            auto texture = std::dynamic_pointer_cast<Fast::Texture>(manager->LoadResource(name, true));
+            if (report) {
+                *report << "  Found: " << name;
+                if (texture) {
+                    const auto resolved = texture->GetInitData()->Path;
+                    if (resolved != name)
+                        *report << " -> " << resolved;
+                    auto source = archive->GetArchiveFromFile(resolved);
+                    if (!source)
+                        source = archive->GetArchiveFromFile(name + ".meta");
+                    if (source)
+                        *report << " [" << std::filesystem::path(source->GetPath()).filename().string() << ']';
+                    *report << "; " << texture->Width << 'x' << texture->Height << "; type=" << int(texture->Type)
+                            << "; flags=" << texture->Flags << "; bytes=" << texture->ImageDataSize;
+                } else {
+                    *report << "; not a readable texture";
+                }
+                *report << '\n';
+            }
+            return texture;
         } catch (const std::exception&) {
             // Malformed pack metadata must still allow a base-game portrait.
+            if (report)
+                *report << "  Unreadable metadata/resource: " << name << '\n';
             return nullptr;
         }
     };
@@ -304,18 +331,94 @@ Image LoadImage(const char* raster, const char* palette) {
                 || colors->ImageDataSize < required)
                 colors = load(palettePath);
         }
-        return DecodeImage(texture, colors);
+        auto image = DecodeImage(texture, colors);
+        if (report && texture && image.rgba.empty())
+            *report << "  Rejected: " << name << " (invalid buffer, dimensions, palette or unsupported format)\n";
+        return image;
     };
     if (manager->IsAltAssetsEnabled() && !path.starts_with("alt/")) {
         // Match the renderer's per-palette replacement naming convention.
         if (!palettePath.empty()) {
             const std::string variant = "alt/" + path + "@" + palettePath.substr(palettePath.find_last_of('/') + 1);
-            if (auto image = decode(variant); !image.rgba.empty())
+            if (auto image = decode(variant); !image.rgba.empty()) {
+                if (report)
+                    *report << "  Selected replacement: " << variant << '\n';
                 return image;
+            }
         }
-        if (auto image = decode("alt/" + path); !image.rgba.empty())
+        if (auto image = decode("alt/" + path); !image.rgba.empty()) {
+            if (report)
+                *report << "  Selected replacement: alt/" << path << '\n';
             return image;
+        }
     }
-    return decode(path);
+    auto image = decode(path);
+    if (report)
+        *report << (image.rgba.empty() ? "  No readable sprite: " : "  Selected original: ") << path << '\n';
+    return image;
+}
+
+Image LoadImage(const char* raster, const char* palette) {
+    return LoadImageImpl(raster, palette, nullptr);
+}
+
+std::string SpriteTextureReport() {
+    std::ostringstream report;
+    report << "PaperReality sprite texture coverage\n"
+              "Metadata only: no images, game contents, saves or device folder paths.\n"
+              "Checks the reported badge/item icons, working comparison icons and companions.\n\n";
+    auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
+    if (!manager || !manager->GetArchiveManager())
+        return report.str() + "Resource manager unavailable.\n";
+    const bool enabled = manager->IsAltAssetsEnabled();
+    report << "Alternate assets: " << (enabled ? "enabled" : "disabled") << '\n';
+    if (!enabled)
+        report << "Replacements are not selected while disabled. Enable Alternate Assets and export again.\n";
+    report << "Mounted archives containing alternate assets:\n";
+    size_t packs = 0;
+    const auto mounted = manager->GetArchiveManager()->GetArchives();
+    for (const auto& archive : *mounted) {
+        size_t entries = 0;
+        for (const auto& [hash, name] : *archive->ListFiles())
+            if (name.starts_with("alt/"))
+                ++entries;
+        if (entries) {
+            ++packs;
+            report << "  " << std::filesystem::path(archive->GetPath()).filename().string() << ": " << entries
+                   << " alternate entries, priority " << archive->GetPriority() << '\n';
+        }
+    }
+    if (!packs)
+        report << "  None\n";
+    const char* paths[] = { "icons/badge/AutoJump",
+                            "icons/badge/SuperJump",
+                            "icons/badge/AutoSmash",
+                            "icons/badge/Berserker",
+                            "icons/badge/RightOn",
+                            "icons/badge/HealthyHealthy",
+                            "icons/badge/EarthquakeJump",
+                            "icons/battle/InsecticideHerb",
+                            "icons/battle/PleaseComeBack",
+                            "icons/badge/PowerJump",
+                            "icons/badge/ZapTap",
+                            "icons/badge/MegaJump",
+                            "icons/badge/DamageDodge",
+                            "icons/badge/DeepFocus",
+                            "ui/goombario",
+                            "ui/kooper",
+                            "ui/bombette",
+                            "ui/parakarry",
+                            "ui/bow",
+                            "ui/watt",
+                            "ui/sushie",
+                            "ui/lakilester" };
+    for (const char* path : paths) {
+        report << '\n' << path << '\n';
+        // Use the actual thumbnail resolver, including the original cache and
+        // palette-variant/alias rules. Never change the enabled pack selection.
+        LoadImageImpl(path, (std::string(path) + ".pal").c_str(), &report);
+    }
+    report << "\nFake Bowser, Toy Tank and Light Bulb use models, not NPC sprite portraits.\n";
+    return report.str();
 }
 } // namespace Paperboat::NativeSettings

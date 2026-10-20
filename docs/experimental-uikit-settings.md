@@ -70,6 +70,15 @@ or its tests. Runtime portraits are not checked-in screenshots or bundled art.
 The implementation does not upload user assets. Blueprint exports contain the
 existing numeric preset format, not sprite data.
 
+For missing HD editor icons, open **Settings → Mod Menu → Export Sprite Texture
+Report** on the device where the pack is installed. The small text file records
+the reported badge/item icons and companion icons, candidate resource names,
+archive filenames, dimensions, unreadable replacements, and the texture actually
+selected by the thumbnail loader. It respects Alternate Assets and does not
+change the pack selection. It includes no image bytes, saves, ROM contents or
+device folder paths. The system Files picker saves a copy wherever the user
+chooses; nothing is sent automatically. Packs stay on the device.
+
 Native blueprint portraits retain replacement texture pixels while assembling
 parts in the original animation coordinate system. Mixed-resolution parts share
 a common canvas scale and use source-over alpha blending; unusually large output

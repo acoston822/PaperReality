@@ -76,7 +76,7 @@ page canvas. Panel edges align to physical pixels, including fractional safe-are
 insets, to keep elastic scrolling from exposing the game's backdrop through a seam.
 The local UIKit harness compares top/bottom edge pixels over black and white
 backdrops while pulling both lists past their limits, in Light and Dark appearance.
-That overscroll regression requires a local Mac simulator and has not been run
+That overscroll regression requires a Mac simulator and cannot run directly
 in the Linux workspace.
 
 The Console is fully native: a selectable, scrollable monospaced transcript,
@@ -191,9 +191,15 @@ single-column fallback, and editing the correct channel through the queue. The
 fixture retains an Audio API selector beside the numeric controls to check mixed
 sections. General and Audio captures are actual UIKit views with synthetic settings.
 
-The simulator harness is now a manual, local Mac check. GitHub Actions no longer
-runs the simulator, uploads its screenshots, or publishes capture branches. The
-unsigned IPA build workflow remains available. An IPA is considered available
+The simulator harness can run locally on a Mac. The restored UIKit runtime
+workflow checks only the native UI, its headers and synthetic fixtures; it does
+not check out game sources, resources, submodules or private uploads. It runs
+`tests/uikit/run.py --no-captures`, which skips writing screenshots and gallery
+images. No simulator apps, screenshots, reports or logs are uploaded as artifacts,
+published to PRs/Pages, or committed to capture branches. Its text-only workflow
+run and logs remain visible in Actions until the run is deleted. Deleting a run
+requires separate cleanup access; the workflow does not claim to delete itself.
+The unsigned IPA build workflow remains available. An IPA is considered available
 only after its artifact can be downloaded and its bundle build number checked.
 A queued status alone is not evidence that compilation or packaging passed.
 

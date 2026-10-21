@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compile and run the real UIKit controllers on an iOS simulator, without game assets."""
 import json
+import argparse
 import os
 from pathlib import Path
 import platform
@@ -8,6 +9,10 @@ import plistlib
 import subprocess
 import sys
 import time
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--no-captures', action='store_true', help='Run checks without writing screenshots or gallery images.')
+args = parser.parse_args()
 
 root = Path(__file__).resolve().parents[2]
 out = root / 'build-uikit-smoke'
@@ -44,7 +49,8 @@ try:
     for _ in range(100):
         if result.exists(): break
         time.sleep(1)
-    subprocess.run(['xcrun','simctl','io',device,'screenshot',str(out/'settings.png')],check=False)
+    if not args.no_captures:
+        subprocess.run(['xcrun','simctl','io',device,'screenshot',str(out/'settings.png')],check=False)
     if result.exists():
         report=json.loads(result.read_text()); (out/'result.json').write_text(json.dumps(report,indent=2))
     else:
@@ -54,7 +60,7 @@ try:
     (out/'result.json').write_text(json.dumps(report,indent=2))
     logs=run('xcrun','simctl','spawn',device,'log','show','--last','3m','--style','compact','--predicate','process == "UIKitSmoke"')
     (out/'simulator.log').write_text(logs)
-    if report['status']=='passed':
+    if report['status']=='passed' and not args.no_captures:
         run('xcrun','simctl','status_bar',device,'override','--time','9:41','--batteryState','charged','--batteryLevel','100')
         for page in ['general','audio','sidebar','audio-dark','general-dark']:
             (data/'Documents/UIKitCommand').write_text(page)

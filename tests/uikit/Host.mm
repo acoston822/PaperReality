@@ -251,6 +251,11 @@ static std::vector<uint8_t> PanelEdgePixels(UIView* panel) {
     }];
     const size_t width = CGImageGetWidth(image.CGImage), height = CGImageGetHeight(image.CGImage);
     Require(width > 0 && height > 2, @"Scroll edge capture has no visible panel.");
+    Require(
+        width == std::llround(region.size.width * scale) && height == std::llround(region.size.height * scale),
+        [NSString stringWithFormat:@"Edge capture added pixels: actual %zux%zu, region %@, scale %g.", width, height,
+                                   NSStringFromCGRect(region), scale]
+    );
     std::vector<uint8_t> rgba(width * height * 4);
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
     CGContextRef context = CGBitmapContextCreate(
@@ -296,11 +301,33 @@ static void CheckScrollPanelCoverage() {
                 backdrop.backgroundColor = UIColor.whiteColor;
                 const auto white = PanelEdgePixels(panel);
                 Require(black.size() == white.size(), @"Panel size changed while checking scroll coverage.");
-                for (size_t i = 0; i < black.size(); ++i)
+                size_t first = black.size(), changed = 0;
+                int largest = 0;
+                for (size_t i = 0; i < black.size(); ++i) {
+                    const int difference = std::abs(int(black[i]) - int(white[i]));
+                    if (difference > 1) {
+                        first = MIN(first, i);
+                        ++changed;
+                        largest = MAX(largest, difference);
+                    }
+                }
+                if (changed) {
+                    const size_t pixel = (first / 4) * 4;
                     Require(
-                        std::abs(int(black[i]) - int(white[i])) <= 1,
-                        @"The backdrop is visible through a top/bottom panel edge during overscroll."
+                        false,
+                        [NSString stringWithFormat:
+                                      @"Backdrop visible: %@, style %ld, offset %g, frame %@, root %@, hidden %d; "
+                                      @"%zu changed channels, max delta %d, sample %zu/%zu, black [%u,%u,%u,%u], "
+                                      @"white [%u,%u,%u,%u].",
+                                      navigation == PRRoot.primary ? @"sidebar" : @"detail", (long) style.integerValue,
+                                      offset.doubleValue,
+                                      NSStringFromCGRect([panel convertRect:panel.bounds toView:PRRoot.view]),
+                                      NSStringFromCGRect(PRRoot.view.bounds), panel.hidden, changed, largest, first / 4,
+                                      black.size() / 4, black[pixel], black[pixel + 1], black[pixel + 2],
+                                      black[pixel + 3], white[pixel], white[pixel + 1], white[pixel + 2],
+                                      white[pixel + 3]]
                     );
+                }
             }
             [backdrop removeFromSuperview];
             [table setContentOffset:previousOffset animated:NO];
@@ -528,12 +555,12 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              [PRRoot.view layoutIfNeeded];
                                              CheckPageSeparation(PRRoot.detail);
                                              CheckSidebarLabels();
-                                             CheckScrollPanelCoverage();
                                              Require(
                                                  !PRRoot.primary.view.superview.hidden
                                                      && !PRRoot.detail.view.superview.hidden,
                                                  @"Landscape must show both the categories and the page."
                                              );
+                                             CheckScrollPanelCoverage();
                                              [PRRoot openPage:"controls-test"];
                                              phase = 2;
                                              return;

@@ -234,10 +234,12 @@ static std::vector<uint8_t> PanelEdgePixels(UIView* panel) {
     UIView* root = PRRoot.view;
     const CGFloat scale = root.window.screen.scale;
     const CGRect frame = [panel convertRect:panel.bounds toView:root];
-    // Include the first/last physical pixels touched by the panel, but exclude
-    // its rounded corners. Fractional clipping must not expose the backdrop.
-    const CGFloat left = std::ceil((CGRectGetMinX(frame) + 24) * scale) / scale;
-    const CGFloat right = std::floor((CGRectGetMaxX(frame) - 24) * scale) / scale;
+    // Include the first/last physical pixels along the straight panel edges.
+    // Continuous corners extend farther than the nominal circular radius: do
+    // not mistake their intentionally partial coverage for a horizontal seam.
+    const CGFloat cornerInset = MAX(48, panel.layer.cornerRadius * 2);
+    const CGFloat left = std::ceil((CGRectGetMinX(frame) + cornerInset) * scale) / scale;
+    const CGFloat right = std::floor((CGRectGetMaxX(frame) - cornerInset) * scale) / scale;
     const CGFloat top = std::floor(CGRectGetMinY(frame) * scale + 1e-6) / scale;
     const CGFloat bottom = std::ceil(CGRectGetMaxY(frame) * scale - 1e-6) / scale;
     const CGRect region = CGRectMake(left, top, right - left, bottom - top);
@@ -296,6 +298,20 @@ static void CheckScrollPanelCoverage() {
             for (NSNumber* offset in @[ @(minimum - 56.25), @(maximum + 56.25) ]) {
                 [table setContentOffset:CGPointMake(0, offset.doubleValue) animated:NO];
                 [table layoutIfNeeded];
+                // A deliberately translucent panel must fail the same visual
+                // comparison. This guards against empty/incorrect captures
+                // concealing a real backdrop leak in the normal opaque case.
+                const CGFloat previousAlpha = panel.alpha;
+                panel.alpha = .9;
+                backdrop.backgroundColor = UIColor.blackColor;
+                const auto translucentBlack = PanelEdgePixels(panel);
+                backdrop.backgroundColor = UIColor.whiteColor;
+                const auto translucentWhite = PanelEdgePixels(panel);
+                panel.alpha = previousAlpha;
+                bool detected = false;
+                for (size_t i = 0; i < translucentBlack.size(); ++i)
+                    detected = detected || std::abs(int(translucentBlack[i]) - int(translucentWhite.at(i))) > 1;
+                Require(detected, @"The edge test failed to detect a deliberately translucent panel.");
                 backdrop.backgroundColor = UIColor.blackColor;
                 const auto black = PanelEdgePixels(panel);
                 backdrop.backgroundColor = UIColor.whiteColor;

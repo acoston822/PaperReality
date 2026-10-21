@@ -53,9 +53,26 @@ in the classic General page restores UIKit.
 
 Controller bindings, Event Debugger and Value Viewer still open their existing
 interfaces through explicit buttons. A **Back to UIKit Settings** control returns
-to native settings. The full console also remains available this way; its native
-page accepts commands. This experiment does not claim a native rewrite of those
+to native settings. This experiment does not claim a native rewrite of those
 advanced tools.
+
+The Console is fully native: a selectable, scrollable monospaced transcript,
+command field, Run and Clear controls, and a recent-command menu. A note explains
+that `help` lists all available commands. It has no severity tabs, search bar,
+suggestion buttons, or separate ImGui console button. Commands use the existing
+registry on the game queue; invalid arguments become visible errors. Output is
+bounded to 500 entries/256 KiB, and the last 100 commands remain available during
+the app session. Clear removes output and retains command history.
+
+All iOS calls through the shared file-picker bridge use the system Files picker,
+including N64 save imports and classic blueprint presets. Imported copies return
+to the game queue before use and are removed after reading. Export callbacks
+write a temporary file that Files copies to the chosen destination; cancellation
+also removes that staging file. Import and export presentations are serialized
+on the main queue, retain their callbacks through presentation retries, and
+report a failure instead of silently abandoning an export. Open App Files Folder
+uses the Files app's document-folder URL and gives manual navigation instructions
+if Files cannot open it. Desktop file dialogs are unchanged.
 
 ## Threading and asset handling
 

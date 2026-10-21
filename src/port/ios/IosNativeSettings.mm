@@ -218,6 +218,7 @@ static UIImage* PRBlankPortrait() {
     UIButton* _menuButton;
     BOOL _showPrimary;
     BOOL _wide;
+    BOOL _consoleTyping;
 }
 @property (nonatomic, strong) UINavigationController* primary;
 @property (nonatomic, strong) UINavigationController* detail;
@@ -226,6 +227,7 @@ static UIImage* PRBlankPortrait() {
 - (void)openPage:(std::string)key;
 - (void)setCategory:(NSString*)title;
 - (void)closeSettings;
+- (void)setConsoleTyping:(BOOL)typing;
 @end
 static PRNativeRoot* PRRoot = nil;
 
@@ -370,6 +372,265 @@ static PRNativeRoot* PRRoot = nil;
         [stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-5]
     ]];
     return self;
+}
+@end
+
+@interface PRNativeConsole : UIViewController <UITextFieldDelegate> {
+    UITextView* _output;
+    UITextField* _command;
+    UILabel* _empty;
+    UIButton* _run;
+    UIBarButtonItem* _history;
+    NSTimer* _timer;
+    N::ConsoleSnapshot _snapshot;
+    uint64_t _revision;
+    BOOL _refreshing, _scrollNext;
+}
+- (void)refresh;
+- (void)renderOutput;
+@end
+
+@implementation PRNativeConsole
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRIsolatePage(self);
+    self.title = @"Console";
+    _revision = ~uint64_t(0);
+    _history = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"clock.arrow.circlepath"] menu:nil];
+    _history.accessibilityLabel = @"Command history";
+    UIBarButtonItem* clear = [[UIBarButtonItem alloc] initWithTitle:@"Clear"
+                                                              style:UIBarButtonItemStylePlain
+                                                             target:self
+                                                             action:@selector(clearOutput)];
+    self.navigationItem.rightBarButtonItems = @[ clear, _history ];
+
+    _output = [[UITextView alloc] init];
+    _output.accessibilityLabel = @"Console output";
+    _output.accessibilityIdentifier = @"console-output";
+    _output.editable = NO;
+    _output.selectable = YES;
+    _output.backgroundColor = PRSurface();
+    _output.layer.cornerRadius = 16;
+    _output.textContainerInset = UIEdgeInsetsMake(12, 12, 12, 12);
+    _output.alwaysBounceVertical = YES;
+    _output.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    _output.adjustsFontForContentSizeCategory = YES;
+
+    _empty = [[UILabel alloc] init];
+    _empty.text = @"Console output appears here.";
+    _empty.textColor = UIColor.secondaryLabelColor;
+    _empty.font = PRFont(14, UIFontWeightRegular, UIFontTextStyleBody);
+    _empty.textAlignment = NSTextAlignmentCenter;
+    _empty.numberOfLines = 0;
+    _empty.userInteractionEnabled = NO;
+
+    UILabel* hint = [[UILabel alloc] init];
+    hint.text = @"Enter help to list all available commands.";
+    hint.textColor = UIColor.secondaryLabelColor;
+    hint.font = PRFont(12, UIFontWeightRegular, UIFontTextStyleFootnote);
+    hint.adjustsFontForContentSizeCategory = YES;
+    hint.numberOfLines = 0;
+
+    _command = [[UITextField alloc] init];
+    _command.placeholder = @"Enter command…";
+    _command.accessibilityIdentifier = @"console-command";
+    _command.borderStyle = UITextBorderStyleRoundedRect;
+    _command.backgroundColor = PRSurface();
+    _command.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
+        scaledFontForFont:[UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular]];
+    _command.adjustsFontForContentSizeCategory = YES;
+    _command.autocorrectionType = UITextAutocorrectionTypeNo;
+    _command.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _command.spellCheckingType = UITextSpellCheckingTypeNo;
+    _command.smartQuotesType = UITextSmartQuotesTypeNo;
+    _command.smartDashesType = UITextSmartDashesTypeNo;
+    _command.returnKeyType = UIReturnKeyGo;
+    _command.clearButtonMode = UITextFieldViewModeWhileEditing;
+    _command.delegate = self;
+    [_command addTarget:self action:@selector(editingChanged) forControlEvents:UIControlEventEditingChanged];
+    UIToolbar* keyboardTools = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
+    keyboardTools.items = @[
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone
+                                                      target:self
+                                                      action:@selector(dismissKeyboard)]
+    ];
+    _command.inputAccessoryView = keyboardTools;
+
+    _run = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration* configuration = [UIButtonConfiguration filledButtonConfiguration];
+    configuration.title = @"Run";
+    configuration.cornerStyle = UIButtonConfigurationCornerStyleMedium;
+    _run.configuration = configuration;
+    _run.accessibilityIdentifier = @"console-run";
+    [_run addTarget:self action:@selector(submitCommand) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView* composer = [[UIStackView alloc] initWithArrangedSubviews:@[ _command, _run ]];
+    composer.spacing = 8;
+    [_command setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [_run setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+
+    for (UIView* view in @[ _output, hint, composer ]) {
+        view.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.view addSubview:view];
+    }
+    _empty.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_empty];
+    UILayoutGuide* safe = self.view.safeAreaLayoutGuide;
+    NSLayoutConstraint* outputTop = [_output.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8];
+    outputTop.priority = UILayoutPriorityDefaultHigh;
+    [NSLayoutConstraint activateConstraints:@[
+        outputTop, [_output.heightAnchor constraintGreaterThanOrEqualToConstant:0],
+        [_output.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:12],
+        [_output.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-12],
+        [_output.bottomAnchor constraintEqualToAnchor:hint.topAnchor constant:-8],
+        [hint.leadingAnchor constraintEqualToAnchor:_output.leadingAnchor constant:4],
+        [hint.trailingAnchor constraintEqualToAnchor:_output.trailingAnchor constant:-4],
+        [hint.bottomAnchor constraintEqualToAnchor:composer.topAnchor constant:-8],
+        [composer.leadingAnchor constraintEqualToAnchor:_output.leadingAnchor],
+        [composer.trailingAnchor constraintEqualToAnchor:_output.trailingAnchor],
+        [composer.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor constant:-8],
+        [composer.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+        [_run.widthAnchor constraintGreaterThanOrEqualToConstant:64],
+        [_empty.centerYAnchor constraintEqualToAnchor:_output.centerYAnchor],
+        [_empty.leadingAnchor constraintEqualToAnchor:_output.leadingAnchor constant:16],
+        [_empty.trailingAnchor constraintEqualToAnchor:_output.trailingAnchor constant:-16]
+    ]];
+    [self editingChanged];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refresh];
+    __weak PRNativeConsole* weak = self;
+    _timer = [NSTimer scheduledTimerWithTimeInterval:.5
+                                             repeats:YES
+                                               block:^(NSTimer*) {
+                                                   [weak refresh];
+                                               }];
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_timer invalidate];
+    _timer = nil;
+    [self.view endEditing:YES];
+}
+- (void)editingChanged {
+    _run.enabled =
+        [_command.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length > 0;
+}
+- (BOOL)textFieldShouldReturn:(UITextField*)field {
+    [self submitCommand];
+    return NO;
+}
+- (void)textFieldDidBeginEditing:(UITextField*)field {
+    // Landscape phones need the header space while the software keyboard is up.
+    [PRRoot setConsoleTyping:YES];
+    [self.navigationController setNavigationBarHidden:YES animated:NO];
+}
+- (void)textFieldDidEndEditing:(UITextField*)field {
+    [PRRoot setConsoleTyping:NO];
+    [self.navigationController setNavigationBarHidden:NO animated:NO];
+}
+- (void)dismissKeyboard {
+    [_command resignFirstResponder];
+}
+- (void)submitCommand {
+    NSString* text = [_command.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!text.length)
+        return;
+    const auto command = PRString(text);
+    _command.text = @"";
+    [self editingChanged];
+    _scrollNext = YES;
+    __weak PRNativeConsole* weak = self;
+    N::Enqueue([weak, command] {
+        N::SubmitConsole(command);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weak refresh];
+        });
+    });
+}
+- (void)clearOutput {
+    __weak PRNativeConsole* weak = self;
+    N::Enqueue([weak] {
+        N::ClearConsole();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weak refresh];
+        });
+    });
+}
+- (void)refresh {
+    if (_refreshing)
+        return;
+    _refreshing = YES;
+    __weak PRNativeConsole* weak = self;
+    N::Enqueue([weak] {
+        auto snapshot = std::make_shared<N::ConsoleSnapshot>(N::ReadConsole());
+        dispatch_async(dispatch_get_main_queue(), ^{
+            PRNativeConsole* controller = weak;
+            if (!controller)
+                return;
+            controller->_refreshing = NO;
+            if (controller->_revision == snapshot->revision)
+                return;
+            controller->_snapshot = std::move(*snapshot);
+            controller->_revision = controller->_snapshot.revision;
+            [controller renderOutput];
+            NSMutableArray<UIMenuElement*>* entries = [NSMutableArray array];
+            size_t count = 0;
+            for (auto it = controller->_snapshot.history.rbegin();
+                 it != controller->_snapshot.history.rend() && count < 20; ++it, ++count)
+            {
+                NSString* command = PRText(*it);
+                [entries addObject:[UIAction actionWithTitle:command
+                                                       image:nil
+                                                  identifier:nil
+                                                     handler:^(UIAction*) {
+                                                         PRNativeConsole* owner = weak;
+                                                         if (!owner)
+                                                             return;
+                                                         owner->_command.text = command;
+                                                         [owner editingChanged];
+                                                         [owner->_command becomeFirstResponder];
+                                                     }]];
+            }
+            controller->_history.menu = [UIMenu menuWithTitle:@"Recent commands" children:entries];
+            controller->_history.enabled = entries.count > 0;
+        });
+    });
+}
+- (void)renderOutput {
+    const BOOL follow =
+        _scrollNext || _output.contentOffset.y + _output.bounds.size.height >= _output.contentSize.height - 40;
+    const CGPoint offset = _output.contentOffset;
+    NSMutableAttributedString* text = [[NSMutableAttributedString alloc] initWithString:@""];
+    UIFont* font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
+        scaledFontForFont:[UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular]];
+    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
+    paragraph.paragraphSpacing = 6;
+    for (const auto& line : _snapshot.lines) {
+        UIColor* color = line.error ? UIColor.systemRedColor
+            : line.command          ? UIColor.systemBlueColor
+                                    : UIColor.labelColor;
+        [text appendAttributedString:[[NSAttributedString alloc]
+                                         initWithString:[PRText(line.text) stringByAppendingString:@"\n"]
+                                             attributes:@{
+                                                 NSFontAttributeName : font,
+                                                 NSForegroundColorAttributeName : color,
+                                                 NSParagraphStyleAttributeName : paragraph
+                                             }]];
+    }
+    _output.attributedText = text;
+    _empty.hidden = !_snapshot.lines.empty();
+    if (follow && text.length)
+        [_output scrollRangeToVisible:NSMakeRange(text.length - 1, 1)];
+    else
+        _output.contentOffset = offset;
+    _scrollNext = NO;
+}
+- (void)traitCollectionDidChange:(UITraitCollection*)previous {
+    [super traitCollectionDidChange:previous];
+    if (self.isViewLoaded)
+        [self renderOutput];
 }
 @end
 
@@ -949,8 +1210,10 @@ static PRNativeRoot* PRRoot = nil;
     // Large accessibility text falls back to one pane so controls retain room to wrap.
     _wide = width >= 700
         && !UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
-    CGFloat headerHeight =
-        UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory) ? 76 : 56;
+    CGFloat headerHeight = _consoleTyping                                                                 ? 0
+        : UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory) ? 76
+                                                                                                          : 56;
+    _header.hidden = _consoleTyping;
     _header.frame = CGRectMake(safe.left + 12, safe.top, width, headerHeight);
     CGFloat y = safe.top + headerHeight + 6;
     CGFloat bodyHeight = MAX(0, height - headerHeight - 14);
@@ -972,6 +1235,11 @@ static PRNativeRoot* PRRoot = nil;
 - (void)browse {
     [self showColumn:UISplitViewControllerColumnPrimary];
 }
+- (void)setConsoleTyping:(BOOL)typing {
+    _consoleTyping = typing;
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
+}
 - (void)showColumn:(UISplitViewControllerColumn)column {
     _showPrimary = column == UISplitViewControllerColumnPrimary;
     [self.view setNeedsLayout];
@@ -980,7 +1248,9 @@ static PRNativeRoot* PRRoot = nil;
 - (void)openPage:(std::string)key {
     N::Enqueue([key] { N::RememberPage(key); });
     [(PRNativeSidebar*) self.primary.viewControllers.firstObject selectPage:key];
-    PRNativePage* page = [[PRNativePage alloc] initWithKey:std::move(key)];
+    UIViewController* page = (key == "menu/Dev Tools/Console" || key == "console")
+        ? [[PRNativeConsole alloc] init]
+        : [[PRNativePage alloc] initWithKey:std::move(key)];
     [self.detail setViewControllers:@[ page ] animated:NO];
     [self showColumn:UISplitViewControllerColumnSecondary];
 }
@@ -1002,7 +1272,9 @@ static void PRShowNextAlert() {
     if (PRAlertVisible || PRAlerts.empty() || !PRWanted.load())
         return;
     UIViewController* top = PRTopController();
-    if (!top || top.presentedViewController || top.isBeingPresented || top.isBeingDismissed) {
+    if (!top || top.presentedViewController || top.isBeingPresented || top.isBeingDismissed || top.transitionCoordinator
+        || [top isKindOfClass:UIDocumentPickerViewController.class] || [top isKindOfClass:UIAlertController.class])
+    {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             PRShowNextAlert();
         });

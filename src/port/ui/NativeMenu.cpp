@@ -260,24 +260,7 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
             return { key, "Stats", "", { { "Display", "", { fps, size } } } };
         }
         if (page == "Console") {
-            N::Row command;
-            command.title = "Console Command";
-            command.kind = N::Kind::Text;
-            command.symbol = "terminal";
-            command.detail = "Enter a developer command. Commands can change game state.";
-            command.submit = [](std::string text) {
-                auto console = std::dynamic_pointer_cast<Ship::ConsoleWindow>(
-                    Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Console")
-                );
-                if (console && !text.empty())
-                    console->Dispatch(text);
-            };
-            N::Row legacy;
-            legacy.title = "Open Full Console";
-            legacy.kind = N::Kind::Action;
-            legacy.detail = "View command history and output in the existing console.";
-            legacy.activate = [] { N::OpenClassic("Dev Tools", "Console"); };
-            return { key, "Console", "", { { "", "", { command, legacy } } } };
+            return { key, "Console", "Enter help to list all available commands.", { } };
         }
     }
 

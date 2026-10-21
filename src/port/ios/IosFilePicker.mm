@@ -1,32 +1,37 @@
 #include "IosFilePicker.h"
 
 #if defined(__IOS__)
-
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-
+#include <deque>
+#include <memory>
 #include <utility>
 #include <vector>
 
-@interface PaperboatPickerDelegate : NSObject <UIDocumentPickerDelegate>
+@interface PaperboatPickerDelegate : NSObject <UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate>
 @property(nonatomic, copy) void (^onDone)(NSArray<NSString*>*);
 @end
 
 @implementation PaperboatPickerDelegate
-- (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls {
-    // asCopy: the file is already a private copy in the app's sandbox, so no security scope is needed.
+- (void)finish:(NSArray<NSURL*>*)urls {
     NSMutableArray<NSString*>* paths = [NSMutableArray array];
-    for (NSURL* url in urls) {
-        [paths addObject:url.path];
-    }
-    if (self.onDone) {
-        self.onDone(paths);
-    }
+    for (NSURL* url in urls)
+        if (url.path)
+            [paths addObject:url.path];
+    // Own the callback until it returns, even if it releases the global delegate.
+    void (^done)(NSArray<NSString*>*) = [self.onDone copy];
+    self.onDone = nil;
+    if (done)
+        done(paths);
+}
+- (void)documentPicker:(UIDocumentPickerViewController*)controller didPickDocumentsAtURLs:(NSArray<NSURL*>*)urls {
+    [self finish:urls];
 }
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController*)controller {
-    if (self.onDone) {
-        self.onDone(@[]);
-    }
+    [self finish:@[]];
+}
+- (void)presentationControllerDidDismiss:(UIPresentationController*)controller {
+    [self finish:@[]];
 }
 @end
 
@@ -72,74 +77,142 @@ static UIViewController* TopViewController() {
     return top;
 }
 
-namespace Paperboat {
-void IosExportFile(std::string path) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController* top = TopViewController();
-        if (!top || top.isBeingPresented || top.isBeingDismissed)
-            return;
-        NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.c_str()]];
-        UIDocumentPickerViewController* picker = [[UIDocumentPickerViewController alloc] initForExportingURLs:@[ url ]
-                                                                                                       asCopy:YES];
-        [top presentViewController:picker animated:YES completion:nil];
+namespace {
+struct PickerRequest {
+    bool multiple = false;
+    std::string exportPath;
+    std::function<void(std::vector<std::string>)> completion;
+};
+// Only the main queue touches presentation state and the retained delegate.
+std::deque<std::shared_ptr<PickerRequest>> pending;
+std::shared_ptr<PickerRequest> active;
+PaperboatPickerDelegate* pickerDelegate = nil;
+
+void StartNextPicker();
+void FinishPicker(const std::shared_ptr<PickerRequest>& request, std::vector<std::string> paths) {
+    if (active != request)
+        return;
+    auto completion = request->completion;
+    active.reset();
+    pickerDelegate = nil;
+    if (completion)
+        completion(std::move(paths));
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        StartNextPicker();
     });
 }
-
-void IosPickFiles(bool allowMultiple, std::function<void(std::vector<std::string>)> onPicked) {
-    // Held until the picker answers; the delegate is only weakly referenced by the controller.
-    static PaperboatPickerDelegate* sDelegate = nil;
-
-    static bool sPresenting = false;
-    if (sPresenting) {
-        return; // a picker is already open (or about to open): ignore extra taps instead of stacking another
+void PickerMessage(NSString* message) {
+    UIViewController* top = TopViewController();
+    if (!top || top.isBeingPresented || top.isBeingDismissed || [top isKindOfClass:UIAlertController.class]) {
+        NSLog(@"PaperReality Files: %@", message);
+        return;
     }
-    sPresenting = true;
-
-    // Try again for a couple of seconds if the window isn't ready, instead of treating that as a cancel.
-    __block int attempts = 0;
-    __block void (^present)(void) = nil;
-    present = ^{
-        UIViewController* top = TopViewController();
-        if (top == nil || top.isBeingPresented || top.isBeingDismissed) {
-            if (++attempts < 20) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (0.1 * NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), present);
-                return;
-            }
-            present = nil;
-            sPresenting = false;
-            onPicked({});
+    UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"Files"
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [top presentViewController:alert animated:YES completion:nil];
+}
+void PresentPicker(std::shared_ptr<PickerRequest> request, int attempts = 0) {
+    if (active != request)
+        return;
+    UIViewController* top = TopViewController();
+    if (!top || !top.view.window || top.isBeingPresented || top.isBeingDismissed || top.transitionCoordinator ||
+        [top isKindOfClass:UIAlertController.class] || [top isKindOfClass:UIDocumentPickerViewController.class])
+    {
+        if (attempts < 30) {
+            // A plain function owns the request across retries. Never clear a
+            // recursive block while its C++ callback captures are in use.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                PresentPicker(request, attempts + 1);
+            });
+        } else {
+            FinishPicker(request, { });
+            PickerMessage(@"Could not open Files. Close any open dialog and try again.");
+        }
+        return;
+    }
+    UIDocumentPickerViewController* picker;
+    if (request->exportPath.empty()) {
+        // ROM and pack extensions may have no registered UTType.
+        picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ UTTypeData ] asCopy:YES];
+        picker.allowsMultipleSelection = request->multiple;
+    } else {
+        NSString* path = [NSString stringWithUTF8String:request->exportPath.c_str()];
+        if (!path || ![NSFileManager.defaultManager fileExistsAtPath:path]) {
+            FinishPicker(request, { });
+            PickerMessage(@"The export file could not be found. Please generate it again.");
             return;
         }
-        present = nil;
-        // Any file: N64 ROM extensions have no registered type, so filtering by type would hide them.
-        UIDocumentPickerViewController* picker =
-            [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[ UTTypeData ] asCopy:YES];
-        picker.allowsMultipleSelection = allowMultiple;
-        sDelegate = [[PaperboatPickerDelegate alloc] init];
-        sDelegate.onDone = ^(NSArray<NSString*>* paths) {
-            sDelegate = nil;
-            sPresenting = false;
-            std::vector<std::string> result;
-            for (NSString* path in paths) {
-                if (path.UTF8String != nullptr) {
-                    result.emplace_back(path.UTF8String);
-                }
-            }
-            onPicked(std::move(result));
-        };
-        picker.delegate = sDelegate;
-        [top presentViewController:picker animated:YES completion:nil];
+        picker = [[UIDocumentPickerViewController alloc] initForExportingURLs:@[ [NSURL fileURLWithPath:path] ]
+                                                                       asCopy:YES];
+    }
+    pickerDelegate = [[PaperboatPickerDelegate alloc] init];
+    pickerDelegate.onDone = ^(NSArray<NSString*>* paths) {
+        std::vector<std::string> result;
+        for (NSString* path in paths)
+            if (path.UTF8String)
+                result.emplace_back(path.UTF8String);
+        FinishPicker(request, std::move(result));
     };
-    dispatch_async(dispatch_get_main_queue(), present);
+    picker.delegate = pickerDelegate;
+    [top presentViewController:picker animated:YES completion:nil];
+    picker.presentationController.delegate = pickerDelegate;
 }
-
-void IosPickFile(std::function<void(std::string)> onPicked) {
-    IosPickFiles(false, [onPicked](std::vector<std::string> paths) {
-        onPicked(paths.empty() ? std::string() : paths.front());
+void StartNextPicker() {
+    if (active || pending.empty())
+        return;
+    active = pending.front();
+    pending.pop_front();
+    PresentPicker(active);
+}
+void QueuePicker(std::shared_ptr<PickerRequest> request) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        pending.push_back(request);
+        StartNextPicker();
     });
 }
+}
 
+namespace Paperboat {
+void IosExportFile(std::string path, std::function<void(bool)> onDone) {
+    auto request = std::make_shared<PickerRequest>();
+    request->exportPath = std::move(path);
+    request->completion = [onDone = std::move(onDone)](std::vector<std::string> paths) {
+        if (onDone)
+            onDone(!paths.empty());
+    };
+    QueuePicker(std::move(request));
+}
+void IosPickFiles(bool allowMultiple, std::function<void(std::vector<std::string>)> onPicked) {
+    auto request = std::make_shared<PickerRequest>();
+    request->multiple = allowMultiple;
+    request->completion = std::move(onPicked);
+    QueuePicker(std::move(request));
+}
+void IosPickFile(std::function<void(std::string)> onPicked) {
+    IosPickFiles(false, [onPicked = std::move(onPicked)](std::vector<std::string> paths) {
+        if (onPicked)
+            onPicked(paths.empty() ? std::string() : paths.front());
+    });
+}
+void IosOpenAppFiles(std::string path) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString* directory = [NSString stringWithUTF8String:path.c_str()];
+        NSURLComponents* components = [NSURLComponents componentsWithURL:[NSURL fileURLWithPath:directory
+                                                                                    isDirectory:YES]
+                                                 resolvingAgainstBaseURL:NO];
+        components.scheme = @"shareddocuments";
+        [UIApplication.sharedApplication openURL:components.URL
+            options:@{ }
+            completionHandler:^(BOOL opened) {
+                if (!opened)
+                    PickerMessage(
+                        @"Open the Files app, then Browse → On My iPhone (or iPad) → PaperReality to find saves and "
+                        @"mods."
+                    );
+            }];
+    });
+}
 } // namespace Paperboat
-
 #endif

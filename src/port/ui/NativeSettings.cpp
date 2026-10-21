@@ -24,6 +24,67 @@ namespace {
     bool classic = false;
     constexpr int kInputBlock = 0x50425549;
     bool blocked = false;
+    ConsoleSnapshot nativeConsole;
+
+    void AppendConsole(std::string text, bool command = false, bool error = false) {
+        if (text.size() > 32768)
+            text = text.substr(0, 32768) + "\n[Output truncated]";
+        nativeConsole.lines.push_back({ std::move(text), command, error });
+        size_t bytes = 0;
+        for (const auto& line : nativeConsole.lines)
+            bytes += line.text.size();
+        while (nativeConsole.lines.size() > 500 || bytes > 256 * 1024) {
+            bytes -= nativeConsole.lines.front().text.size();
+            nativeConsole.lines.erase(nativeConsole.lines.begin());
+        }
+        ++nativeConsole.revision;
+    }
+}
+
+ConsoleSnapshot ReadConsole() {
+    return nativeConsole;
+}
+void ClearConsole() {
+    nativeConsole.lines.clear();
+    ++nativeConsole.revision;
+}
+void SubmitConsole(std::string command) {
+    const auto first = command.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos)
+        return;
+    command = command.substr(first, command.find_last_not_of(" \t\r\n") - first + 1);
+    if (command.size() > 1024 || command.find_first_of("\r\n") != std::string::npos) {
+        AppendConsole("Enter one command at a time (up to 1,024 characters).", false, true);
+        return;
+    }
+    if (nativeConsole.history.empty() || nativeConsole.history.back() != command) {
+        nativeConsole.history.push_back(command);
+        if (nativeConsole.history.size() > 100)
+            nativeConsole.history.erase(nativeConsole.history.begin());
+    }
+    const auto name = command.substr(0, command.find(' '));
+    if (name == "clear") {
+        ClearConsole();
+        return;
+    }
+    AppendConsole("> " + command, true);
+    auto console = Ship::Context::GetRawInstance()->GetConsole();
+    if (!console || !console->HasCommand(name)) {
+        AppendConsole("Unknown command. Enter help to list available commands.", false, true);
+        return;
+    }
+    std::string output;
+    try {
+        const int result = console->Run(command, &output);
+        if (!output.empty())
+            AppendConsole(std::move(output), false, result != 0);
+        else
+            AppendConsole(result == 0 ? "Command completed." : "Command failed.", false, result != 0);
+        if (result != 0)
+            AppendConsole("Usage: " + name + " " + console->BuildUsage(name), false, true);
+    } catch (const std::exception&) {
+        AppendConsole("Invalid arguments. Usage: " + name + " " + console->BuildUsage(name), false, true);
+    }
 }
 
 void Enqueue(std::function<void()> action) {

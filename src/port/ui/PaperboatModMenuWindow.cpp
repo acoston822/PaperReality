@@ -546,6 +546,8 @@ Page ModPage(const std::string& key) {
     add.activate = [] {
 #if defined(__IOS__)
         IosPickFiles(true, [](std::vector<std::string> files) {
+            if (files.empty())
+                return;
             Enqueue([files = std::move(files)] {
                 int imported = 0, skipped = 0;
                 const auto folder = std::filesystem::path(Ship::Context::GetPathRelativeToAppDirectory("mods"));

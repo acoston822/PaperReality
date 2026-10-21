@@ -59,6 +59,19 @@ struct Group {
     std::string title, symbol;
     std::vector<Destination> pages;
 };
+struct ConsoleLine {
+    std::string text;
+    bool command = false, error = false;
+};
+struct ConsoleSnapshot {
+    uint64_t revision = 0;
+    std::vector<ConsoleLine> lines;
+    std::vector<std::string> history;
+};
+// Read and execute on the game-frame queue; UIKit receives immutable snapshots.
+ConsoleSnapshot ReadConsole();
+void SubmitConsole(std::string command);
+void ClearConsole();
 
 void Enqueue(std::function<void()> action);
 void Frame(PaperboatGui::PaperboatMenu& menu);

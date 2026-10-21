@@ -26,11 +26,18 @@ with tempfile.TemporaryDirectory(prefix='paperreality-native-check-') as temp:
     args[args.index('-o') + 1] = str(obj)
     args[args.index('-c') + 1] = str(root / 'tests/native-settings/check.cpp')
     subprocess.run(args, cwd=command['directory'], check=True)
+    # Exercise the iOS file-routing branch with a stub system picker on Linux.
+    picker_command = next(entry for entry in commands if entry['file'].endswith('/src/port/FilePicker.cpp'))
+    picker_obj = temp / 'ios-picker.o'
+    picker_args = shlex.split(picker_command['command'])
+    picker_args[picker_args.index('-o') + 1] = str(picker_obj)
+    subprocess.run(picker_args + ['-D__IOS__'], cwd=picker_command['directory'], check=True)
     ninja = (build / 'build.ninja').read_text().splitlines()
     index = next(i for i, line in enumerate(ninja) if line.startswith('build Paperboat: '))
     objects = shlex.split(ninja[index].split(': ', 1)[1])[1:]
     objects = objects[:objects.index('|')]
     objects = [str(obj) if entry.endswith('/src/port/Game.cpp.o') else entry for entry in objects]
+    objects = [str(picker_obj) if entry.endswith('/src/port/FilePicker.cpp.o') else entry for entry in objects]
     objects.append(str(game))
     variables = {}
     for line in ninja[index + 1:]:

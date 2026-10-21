@@ -2,6 +2,7 @@
 #include "port/Engine.h"
 #include "port/ui/PaperboatGui.hpp"
 #include "port/ui/NativeSettings.h"
+#include "port/FilePicker.h"
 #include "port/enhancements/gameplay/ActorBlueprints.h"
 #include <fast/resource/ResourceType.h>
 #include <fast/resource/factory/TextureFactory.h>
@@ -10,6 +11,7 @@
 #include "common_structs.h"
 #include <cmath>
 #include <iostream>
+#include <fstream>
 #include <queue>
 #include <set>
 #include <sstream>
@@ -23,6 +25,20 @@ extern SaveData gCurrentSaveFile;
 extern PlayerData gPlayerData;
 }
 namespace N = Paperboat::NativeSettings;
+// The test runner compiles only FilePicker.cpp with __IOS__, using these system
+// picker stubs. No Apple framework, game file, or external file service is used.
+namespace Paperboat {
+static std::function<void(std::string)> pickedFile;
+static std::function<void(bool)> exportedFile;
+static std::string exportedPath;
+void IosPickFile(std::function<void(std::string)> callback) {
+    pickedFile = std::move(callback);
+}
+void IosExportFile(std::string path, std::function<void(bool)> callback) {
+    exportedPath = std::move(path);
+    exportedFile = std::move(callback);
+}
+}
 static void Require(bool value, const char* message) {
     if (!value)
         throw std::runtime_error(message);
@@ -33,6 +49,104 @@ static N::Row Find(const N::Page& page, const std::string& title) {
             if (row.title == title)
                 return row;
     throw std::runtime_error("Missing row: " + title);
+}
+static void CheckConsole() {
+    N::ClearConsole();
+    const auto revision = N::ReadConsole().revision;
+    N::SubmitConsole("   ");
+    Require(N::ReadConsole().revision == revision, "Blank console command changed output");
+    N::SubmitConsole("help");
+    Require(
+        N::ReadConsole().lines.back().text.find("get: Gets a console variable") != std::string::npos,
+        "Native help lost registered commands"
+    );
+    N::SubmitConsole("set test.NativeConsole 23");
+    N::SubmitConsole("get test.NativeConsole");
+    Require(
+        N::ReadConsole().lines.back().text.find("23") != std::string::npos,
+        "Console did not execute actual settings commands"
+    );
+    N::SubmitConsole("not-a-command");
+    Require(N::ReadConsole().lines.back().error, "Unknown console command not identified as an error");
+    N::SubmitConsole("get");
+    Require(
+        N::ReadConsole().lines.back().text.find("Usage:") != std::string::npos,
+        "Missing console arguments lost usage help"
+    );
+    N::SubmitConsole("set test.NativeConsole 9999999999999999999999999999999");
+    Require(N::ReadConsole().lines.back().error, "Invalid numeric command escaped error handling");
+    N::SubmitConsole("set test.NativeConsole 1\nreset");
+    Require(CVarGetInteger("test.NativeConsole", 0) == 23, "Console executed a multiline paste");
+    for (int i = 0; i < 125; ++i)
+        N::SubmitConsole("unknown-" + std::to_string(i));
+    Require(N::ReadConsole().history.size() == 100, "Console history is unbounded");
+    auto console = Ship::Context::GetRawInstance()->GetConsole();
+    console->AddCommand(
+        "test-console-large",
+        { [](auto, auto, std::string* output) {
+             *output = std::string(40000, 'X');
+             return 0;
+         },
+          "Synthetic output bound check" }
+    );
+    const auto logLevel = spdlog::get_level();
+    spdlog::set_level(spdlog::level::off);
+    for (int i = 0; i < 12; ++i)
+        N::SubmitConsole("test-console-large");
+    spdlog::set_level(logLevel);
+    const auto bounded = N::ReadConsole();
+    size_t bytes = 0;
+    for (const auto& line : bounded.lines)
+        bytes += line.text.size();
+    Require(bytes <= 256 * 1024 && bounded.lines.size() <= 500, "Console output is unbounded");
+    N::SubmitConsole("clear");
+    Require(
+        N::ReadConsole().lines.empty() && !N::ReadConsole().history.empty(), "Clear lost history or retained output"
+    );
+}
+static void CheckIosPickerBridge(PaperboatGui::PaperboatMenu& menu) {
+    namespace fs = std::filesystem;
+    Ship::FileBrowserRequest request;
+    request.Title = "Import synthetic file";
+    int callbacks = 0;
+    const auto source = fs::temp_directory_path() / "paperreality-synthetic-picker.txt";
+    std::ofstream(source) << "synthetic import";
+    Paperboat::PickFile(request, [&](auto path) {
+        Require(path.has_value() && fs::is_regular_file(*path), "Import path was removed before the reader ran");
+        std::ifstream input(*path);
+        std::string contents;
+        std::getline(input, contents);
+        Require(contents == "synthetic import", "Picked file contents changed");
+        ++callbacks;
+    });
+    Require(
+        bool(Paperboat::pickedFile) && !Ship::FileBrowserWindow::IsOpen(), "iOS import opened the hidden ImGui browser"
+    );
+    Paperboat::pickedFile(source.string());
+    Require(callbacks == 0, "iOS picker callback ran outside the game queue");
+    N::Frame(menu);
+    Require(callbacks == 1 && !fs::exists(source), "Imported private copy was not cleaned up");
+    Paperboat::PickFile(request, [&](auto path) {
+        Require(!path, "Picker cancellation fabricated a path");
+        ++callbacks;
+    });
+    Paperboat::pickedFile("");
+    N::Frame(menu);
+    Require(callbacks == 2, "Picker cancellation was not delivered exactly once");
+    request.Save = true;
+    request.DefaultName = "preset.json";
+    Paperboat::PickFile(request, [&](auto path) {
+        Require(path.has_value(), "Export did not provide a staging path");
+        std::ofstream(*path) << "{}";
+    });
+    const fs::path exported(Paperboat::exportedPath);
+    Require(
+        exported.filename() == "preset.json" && fs::is_regular_file(exported), "Export did not stage the generated file"
+    );
+    Require(bool(Paperboat::exportedFile), "Export did not open the native Files picker");
+    Paperboat::exportedFile(false);
+    N::Frame(menu);
+    Require(!fs::exists(exported.parent_path()), "Cancelled export left its private staging file behind");
 }
 static void CheckTextureSelection() {
     auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
@@ -150,6 +264,8 @@ int main() {
         PaperboatGui::SetupGuiElements();
         auto& menu = *PaperboatGui::mPaperboatMenu;
         N::Frame(menu);
+        CheckConsole();
+        CheckIosPickerBridge(menu);
         int queued = 0;
         std::thread producer([&] {
             N::Enqueue([&] {

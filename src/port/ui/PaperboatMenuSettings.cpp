@@ -7,6 +7,9 @@
 #include "port/Engine.h"
 #include "port/TextureCache.h"
 #include "port/save/SaveConverter.h"
+#if defined(__IOS__)
+#include "port/ios/IosFilePicker.h"
+#endif
 #include <spdlog/fmt/fmt.h>
 
 namespace PaperboatGui {
@@ -156,7 +159,11 @@ void PaperboatMenu::AddMenuSettings() {
         .RaceDisable(false)
         .Callback([](WidgetInfo& info) {
             std::string filesPath = Ship::Context::GetAppDirectoryPath();
+#if defined(__IOS__)
+            Paperboat::IosOpenAppFiles(filesPath);
+#else
             SDL_OpenURL(std::string("file:///" + std::filesystem::absolute(filesPath).string()).c_str());
+#endif
         })
         .Options(ButtonOptions().Tooltip("Opens the folder that contains the save and mods folders, etc."));
     AddWidget(path, "EXPERIMENTAL", WIDGET_SEPARATOR_TEXT).Options(TextOptions().Color(Colors::Orange));

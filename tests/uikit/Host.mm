@@ -10,6 +10,20 @@
 namespace Paperboat::NativeSettings {
 static std::atomic<int> volumeEdited { -1 };
 static dispatch_queue_t gameQueue = dispatch_queue_create("org.paperreality.uikit-smoke.game", DISPATCH_QUEUE_SERIAL);
+static ConsoleSnapshot consoleFixture;
+ConsoleSnapshot ReadConsole() {
+    return consoleFixture;
+}
+void SubmitConsole(std::string command) {
+    consoleFixture.history.push_back(command);
+    consoleFixture.lines.push_back({ "> " + command, true, false });
+    consoleFixture.lines.push_back({ "Commands: help, clear, reset, get, set", false, false });
+    ++consoleFixture.revision;
+}
+void ClearConsole() {
+    consoleFixture.lines.clear();
+    ++consoleFixture.revision;
+}
 void Enqueue(std::function<void()> action) {
     dispatch_async(gameQueue, ^{
         action();
@@ -528,13 +542,45 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                          return;
                                      }
                                      if (phase == 12 && N::volumeEdited == 3) {
+                                         [PRRoot openPage:"console"];
+                                         phase = 13;
+                                         return;
+                                     }
+                                     if (phase == 13) {
+                                         Require(
+                                             [PRRoot.detail.topViewController isKindOfClass:PRNativeConsole.class],
+                                             @"Console must be fully native, without opening an ImGui window."
+                                         );
+                                         PRNativeConsole* console = (PRNativeConsole*) PRRoot.detail.topViewController;
+                                         UITextField* command = [console valueForKey:@"command"];
+                                         command.text = @"help";
+                                         [console submitCommand];
+                                         phase = 14;
+                                         return;
+                                     }
+                                     if (phase == 14) {
+                                         PRNativeConsole* console = (PRNativeConsole*) PRRoot.detail.topViewController;
+                                         UITextView* output = [console valueForKey:@"output"];
+                                         if (![output.text containsString:@"Commands:"])
+                                             return;
+                                         CheckPageSeparation(PRRoot.detail);
+                                         [console clearOutput];
+                                         phase = 15;
+                                         return;
+                                     }
+                                     if (phase == 15) {
+                                         PRNativeConsole* console = (PRNativeConsole*) PRRoot.detail.topViewController;
+                                         UITextView* output = [console valueForKey:@"output"];
+                                         if (output.text.length)
+                                             return;
                                          Report(
                                              @"passed",
                                              @"Opened/reopened settings; rendered every control; verified "
                                              @"landscape/compact and nested navigation, adaptive volume cards, and the "
                                              @"correct channel edit through the game queue; Retina portraits and crisp "
                                              @"pixel scaling; opaque nested pages, scrolled title separation and "
-                                             @"uniform one-line sidebar labels."
+                                             @"uniform one-line sidebar labels; native console submission, output and "
+                                             @"clearing."
                                          );
                                          [timer invalidate];
                                          return;

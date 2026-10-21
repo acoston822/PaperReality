@@ -151,13 +151,14 @@ single-column fallback, and editing the correct channel through the queue. The
 fixture retains an Audio API selector beside the numeric controls to check mixed
 sections. General and Audio captures are actual UIKit views with synthetic settings.
 
-The capture workflow reads artifacts directly because run status can remain
-cached as queued after simulator results are available. An IPA is considered
-available only after its artifact can be downloaded and its bundle build number
-checked. A queued status alone is not evidence that compilation or packaging passed.
+The simulator harness is now a manual, local Mac check. GitHub Actions no longer
+runs the simulator, uploads its screenshots, or publishes capture branches. The
+unsigned IPA build workflow remains available. An IPA is considered available
+only after its artifact can be downloaded and its bundle build number checked.
+A queued status alone is not evidence that compilation or packaging passed.
 
 Verified for the opening fix: unsigned iOS build 40 succeeded, and the iPhone
 simulator regression passed. General, Audio and navigation captures are made
 from the actual view hierarchy in its landscape coordinates. The harness uses
-sample preferences, and does not import a game. Captures are uploaded as test
-artifacts; they are not encoded into check annotations.
+sample preferences, and does not import a game. Captures remain in the local
+test output directory.

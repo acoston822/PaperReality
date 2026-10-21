@@ -51,10 +51,26 @@ in the classic General page restores UIKit.
   Sidebar category and submenu labels share a smaller size fitted to the longest
   entry, keeping Enhancements on one line.
 
-Controller bindings, Event Debugger and Value Viewer still open their existing
-interfaces through explicit buttons. A **Back to UIKit Settings** control returns
-to native settings. This experiment does not claim a native rewrite of those
-advanced tools.
+Event Debugger and Value Viewer still open their existing interfaces through
+explicit buttons. A **Back to UIKit Settings** control returns to native settings.
+This experiment does not claim a native rewrite of those advanced tools.
+
+Controller Bindings now opens native pages for all four ports, buttons, D-pad,
+both analog sticks, sensitivity/dead zone/notch settings, global axis thresholds,
+and controller-supported rumble, gyro and LED options. Gamepad capture runs on
+the game queue, waits for held inputs to be released, and returns to the edited
+binding after success. Cancel, leaving settings, and a 20-second timeout stop
+capture; the old binding is retained until a replacement is detected. Existing
+keyboard/mouse mappings remain visible and are preserved when adding gamepad
+inputs or restoring gamepad defaults. Capture currently listens to SDL gamepad
+buttons and axes. Input names use regular Unicode arrows in place of ImGui font
+icons. Port choices survive a manual device refresh. Defaults and clearing a
+port use native confirmation dialogs; rumble tests stop after half a second or
+when settings closes.
+
+The sidebar uses its own opaque, clipped canvas with automatic content insets,
+sticky section-header space, and scroll-edge decoration disabled. Its navigation
+bar stays hidden when scrolling, avoiding a strip above the category selections.
 
 The Console is fully native: a selectable, scrollable monospaced transcript,
 command field, Run and Clear controls, and a recent-command menu. A note explains

@@ -51,6 +51,7 @@ struct Page {
     std::string id, title, subtitle;
     std::vector<Section> sections;
     bool searchable = false;
+    bool returnToParent = false;
 };
 struct Destination {
     std::string key, title, symbol;
@@ -111,6 +112,9 @@ Page BlueprintEditorPage(const std::string& key);
 Page ModPage(const std::string& key);
 Page InputViewerPage(const std::string& key);
 Page ShaderPage();
+Page ControllerBindingsPage(const std::string& key);
+void UpdateControllerBindings(bool visible);
+void CancelBindingCapture(const std::string& key = "");
 
 #if defined(__IOS__)
 void SetPresented(bool presented, std::vector<Group> navigation = { });

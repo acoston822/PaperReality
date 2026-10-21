@@ -8,6 +8,8 @@
 #include <fast/resource/factory/TextureFactory.h>
 #include <ship/resource/ResourceManager.h>
 #include <ship/resource/archive/ArchiveManager.h>
+#include <ship/controller/controldevice/controller/mapping/keyboard/KeyboardKeyToButtonMapping.h>
+#include <ship/controller/controldevice/controller/mapping/ControllerRumbleMapping.h>
 #include "common_structs.h"
 #include <cmath>
 #include <iostream>
@@ -49,6 +51,156 @@ static N::Row Find(const N::Page& page, const std::string& title) {
             if (row.title == title)
                 return row;
     throw std::runtime_error("Missing row: " + title);
+}
+class TestRumbleMapping final : public Ship::ControllerRumbleMapping {
+public:
+    TestRumbleMapping()
+        : ControllerRumbleMapping(Ship::PhysicalDeviceType::SDLGamepad, 3, 100, 100) {
+    }
+    bool started = false, stopped = false;
+    void StartRumble() override {
+        started = true;
+    }
+    void StopRumble() override {
+        stopped = true;
+    }
+    std::string GetRumbleMappingId() override {
+        return "native-fixture-rumble";
+    }
+    void SaveToConfig() override {
+    }
+    void EraseFromConfig() override {
+    }
+};
+static void CheckControllerBindings(PaperboatGui::PaperboatMenu& menu) {
+    auto controls = menu.NativePage("menu/Settings/Controls");
+    const auto entry = Find(controls, "Controller Bindings");
+    Require(
+        entry.kind == N::Kind::Link && entry.target == "bindings/root" && !entry.activate,
+        "Bindings still open or modify the classic controller window"
+    );
+    auto deck = Ship::Context::GetRawInstance()->GetControlDeck();
+    auto controller = deck->GetControllerByPort(3);
+    const auto buttonCount = controller->GetAllButtons().size();
+    N::ControllerBindingsPage("bindings/3/button/not-a-mask");
+    Require(
+        controller->GetAllButtons().size() == buttonCount, "Malformed button page inserted a null controller button"
+    );
+    const int device = SDL_JoystickAttachVirtual(
+        SDL_JOYSTICK_TYPE_GAMECONTROLLER, SDL_CONTROLLER_AXIS_MAX, SDL_CONTROLLER_BUTTON_MAX, 0
+    );
+    Require(device >= 0, "Could not create a synthetic controller");
+    SDL_Joystick* joystick = SDL_JoystickOpen(device);
+    Require(joystick != nullptr, "Could not open synthetic controller");
+    char guid[33];
+    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(joystick), guid, sizeof(guid));
+    const auto mapping = std::string(guid)
+        + ",Native Binding Fixture,a:b0,b:b1,x:b2,y:b3,start:b6,back:b4,"
+          "leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:a4,righttrigger:a5,";
+    Require(SDL_GameControllerAddMapping(mapping.c_str()) >= 0, "Synthetic gamepad mapping rejected");
+    SDL_JoystickSetVirtualAxis(joystick, SDL_CONTROLLER_AXIS_TRIGGERLEFT, -32768);
+    SDL_JoystickSetVirtualAxis(joystick, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, -32768);
+    auto devices = deck->GetConnectedPhysicalDeviceManager();
+    devices->HandlePhysicalDeviceConnect(device);
+    const auto instance = SDL_JoystickInstanceID(joystick);
+    devices->UnignoreInstanceIdForPort(3, instance);
+    Find(N::BuildPage("bindings/3"), "Refresh Controllers").activate();
+    Require(devices->GetConnectedSDLGamepadsForPort(3).contains(instance), "Synthetic controller not routed to port");
+    auto button = controller->GetButton(BTN_A);
+    auto keyboard = std::make_shared<Ship::KeyboardKeyToButtonMapping>(3, BTN_A, Ship::LUS_KB_X);
+    button->AddButtonMapping(keyboard);
+    keyboard->SaveToConfig();
+    button->SaveButtonMappingIdsToConfig();
+    const auto buttonKey = "bindings/3/button/" + std::to_string(BTN_A);
+    auto add = Find(N::BuildPage(buttonKey), "Add Binding");
+    add.activate();
+    SDL_JoystickSetVirtualButton(joystick, 0, 1);
+    SDL_Delay(260);
+    N::UpdateControllerBindings(true);
+    Require(button->GetAllButtonMappings().size() == 1, "Held input was captured while opening the binding page");
+    SDL_JoystickSetVirtualButton(joystick, 0, 0);
+    N::UpdateControllerBindings(true);
+    SDL_JoystickSetVirtualButton(joystick, 0, 1);
+    N::UpdateControllerBindings(true);
+    Require(
+        button->GetAllButtonMappings().size() == 2 && button->GetButtonMappingById(keyboard->GetButtonMappingId()),
+        "Capturing a gamepad input discarded another binding"
+    );
+    Require(N::BuildPage(add.target).returnToParent, "Successful capture did not return to the native editor");
+    controller->ReloadAllMappingsFromConfig();
+    Require(button->GetAllButtonMappings().size() == 2, "Captured binding was not persisted");
+    std::string gamepadId;
+    for (const auto& [id, input] : button->GetAllButtonMappings())
+        if (input->GetPhysicalDeviceType() == Ship::PhysicalDeviceType::SDLGamepad)
+            gamepadId = id;
+    Require(!gamepadId.empty(), "No gamepad binding saved");
+    N::Row change;
+    for (const auto& section : N::BuildPage(buttonKey).sections)
+        for (const auto& row : section.rows)
+            if (row.title == "Change Binding" && row.target.ends_with("/" + gamepadId))
+                change = row;
+    Require(bool(change.activate), "Native binding editor has no replace action");
+    change.activate();
+    SDL_JoystickSetVirtualButton(joystick, 0, 0);
+    SDL_Delay(260);
+    N::UpdateControllerBindings(true);
+    SDL_JoystickSetVirtualButton(joystick, 1, 1);
+    N::UpdateControllerBindings(true);
+    Require(
+        button->GetAllButtonMappings().size() == 2 && !button->GetButtonMappingById(gamepadId),
+        "Replacing a binding kept the old input or lost an unrelated mapping"
+    );
+    controller->ReloadAllMappingsFromConfig();
+    Require(
+        button->GetAllButtonMappings().size() == 2 && !button->GetButtonMappingById(gamepadId),
+        "Replaced binding was not persisted"
+    );
+    add.activate();
+    N::CancelBindingCapture(add.target);
+    SDL_JoystickSetVirtualButton(joystick, 1, 0);
+    SDL_JoystickSetVirtualButton(joystick, 0, 1);
+    N::UpdateControllerBindings(true);
+    Require(button->GetAllButtonMappings().size() == 2, "Cancelled capture still edited bindings");
+    SDL_JoystickSetVirtualButton(joystick, 0, 0);
+    const auto axisKey = "bindings/3/stick/0/" + std::to_string(int(Ship::UP));
+    auto axis = Find(N::BuildPage(axisKey), "Add Binding");
+    axis.activate();
+    SDL_Delay(260);
+    N::UpdateControllerBindings(true);
+    SDL_JoystickSetVirtualAxis(joystick, SDL_CONTROLLER_AXIS_LEFTY, -30000);
+    N::UpdateControllerBindings(true);
+    auto stick = controller->GetLeftStick();
+    Require(
+        stick->GetAllAxisDirectionMappingByDirection(Ship::UP).size() == 1,
+        "Native stick binding did not capture a controller axis"
+    );
+    auto remove = Find(N::BuildPage(axisKey), "Remove Binding");
+    remove.activate();
+    remove.activate(); // A stale UI callback must be harmless.
+    Require(
+        stick->GetAllAxisDirectionMappingByDirection(Ship::UP).empty(), "Native remove did not erase the axis mapping"
+    );
+    const auto stickPage = N::BuildPage("bindings/3/stick/0");
+    auto deadzone = Find(stickPage, "Dead Zone (%)");
+    deadzone.change(500);
+    Require(stick->GetDeadzonePercentage() == 100, "Stick dead zone was not clamped");
+    deadzone.change(NAN);
+    Require(stick->GetDeadzonePercentage() == 100, "Non-finite slider input changed the stick");
+    Find(stickPage, "Reset Stick Response").activate();
+    Require(stick->GetDeadzonePercentage() == DEFAULT_STICK_DEADZONE_PERCENTAGE, "Native stick reset failed");
+    auto rumble = std::make_shared<TestRumbleMapping>();
+    controller->GetRumble()->AddRumbleMapping(rumble);
+    Find(N::BuildPage("bindings/3/rumble"), "Test Rumble").activate();
+    Require(rumble->started, "Native rumble test did not start");
+    add.activate();
+    N::UpdateControllerBindings(false);
+    Require(rumble->stopped, "Leaving native settings did not stop the rumble test");
+    Require(N::BuildPage(add.target).returnToParent, "Closing settings left a binding capture active");
+    devices->HandlePhysicalDeviceDisconnect(instance);
+    SDL_JoystickClose(joystick);
+    Require(SDL_JoystickDetachVirtual(device) == 0, "Could not remove synthetic controller");
+    Require(!N::ClassicToolActive(), "Native controller editing opened a classic tool");
+    controller->ClearAllMappings();
 }
 static void CheckConsole() {
     N::ClearConsole();
@@ -266,6 +418,7 @@ int main() {
         N::Frame(menu);
         CheckConsole();
         CheckIosPickerBridge(menu);
+        CheckControllerBindings(menu);
         int queued = 0;
         std::thread producer([&] {
             N::Enqueue([&] {
@@ -376,7 +529,7 @@ int main() {
         CheckTextureSelection();
         std::cout << "PASS: " << visited.size() << " native pages, " << rows
                   << " rows; queued callbacks, race lock, navigation, save guards, resolution persistence, blank "
-                     "portraits, HD texture selection\n";
+                     "portraits, HD texture selection, console, iOS file routing, controller capture and persistence\n";
         N::Stop();
         PaperboatGui::Destroy();
         gsFast3dWindow.reset();

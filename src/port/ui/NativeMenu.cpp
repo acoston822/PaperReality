@@ -373,12 +373,13 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
                         row.title = "Show Input Viewer";
                         row.value = CVarGetInteger(w.cVar, 0);
                     } else {
-                        row.kind = N::Kind::Action;
+                        row.kind = N::Kind::Link;
                         row.title = "Controller Bindings";
                         row.symbol = "gamecontroller";
-                        row.detail =
-                            "Open the existing controller binding editor. Back to UIKit Settings returns here.";
-                        row.activate = [] { N::OpenClassic("Settings", "Controls"); };
+                        row.detail = "Edit buttons, sticks and connected controllers.";
+                        row.target = "bindings/root";
+                        row.activate = { };
+                        row.change = { };
                     }
                     break;
                 }

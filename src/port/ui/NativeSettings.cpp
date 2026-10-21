@@ -103,6 +103,7 @@ void Frame(PaperboatGui::PaperboatMenu& menu) {
         action();
 #if defined(__IOS__)
     const bool wanted = menu.IsVisible() && !classic && CVarGetInteger("gSettings.Menu.UseUIKit", 1);
+    UpdateControllerBindings(wanted);
     auto deck = Ship::Context::GetRawInstance()->GetControlDeck();
     if (wanted && !blocked) {
         deck->BlockGameInput(kInputBlock);
@@ -120,6 +121,7 @@ void Frame(PaperboatGui::PaperboatMenu& menu) {
 }
 
 void Stop() {
+    UpdateControllerBindings(false);
     SetPresented(false);
     std::lock_guard<std::mutex> lock(queueMutex);
     actions.clear();
@@ -174,6 +176,8 @@ bool ClassicToolActive() {
 }
 
 Page BuildPage(const std::string& key) {
+    if (key.starts_with("bindings/"))
+        return ControllerBindingsPage(key);
     if (key.starts_with("save/"))
         return SaveEditorPage(key);
     if (key.starts_with("blueprint/"))

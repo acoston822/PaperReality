@@ -184,6 +184,7 @@ static UIImage* PRBlankPortrait() {
     NSMutableSet<NSString*>* _pendingImages;
     N::Row _colorRow;
     BOOL _twoColumns;
+    NSTimer* _bindingTimer;
 }
 - (instancetype)initWithKey:(std::string)key;
 - (void)refresh;
@@ -660,6 +661,23 @@ static PRNativeRoot* PRRoot = nil;
     [super viewWillAppear:animated];
     if (self.isViewLoaded)
         [self refresh];
+    if (_key.starts_with("bindings/capture/")) {
+        __weak PRNativePage* weak = self;
+        _bindingTimer = [NSTimer scheduledTimerWithTimeInterval:.2
+                                                        repeats:YES
+                                                          block:^(NSTimer*) {
+                                                              [weak refresh];
+                                                          }];
+    }
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_bindingTimer invalidate];
+    _bindingTimer = nil;
+    if (_key.starts_with("bindings/capture/")) {
+        const auto key = _key;
+        N::Enqueue([key] { N::CancelBindingCapture(key); });
+    }
 }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
@@ -680,6 +698,11 @@ static PRNativeRoot* PRRoot = nil;
             PRNativePage* controller = weak;
             if (!controller || controller->_generation != generation)
                 return;
+            if (page->returnToParent) {
+                if (controller.navigationController.topViewController == controller)
+                    [controller.navigationController popViewControllerAnimated:YES];
+                return;
+            }
             controller->_page = std::move(*page);
             controller.title = PRText(controller->_page.title);
             [controller->_images removeAllObjects];
@@ -864,9 +887,11 @@ static PRNativeRoot* PRRoot = nil;
     const auto row = _sections[indexPath.section].rows[_rows[indexPath.section][indexPath.row].first];
     if (!row.enabled)
         return;
-    if (row.kind == N::Kind::Link)
+    if (row.kind == N::Kind::Link) {
+        if (row.activate)
+            N::Enqueue(row.activate);
         [self.navigationController pushViewController:[[PRNativePage alloc] initWithKey:row.target] animated:YES];
-    else if (row.kind == N::Kind::Choice)
+    } else if (row.kind == N::Kind::Choice)
         [self.navigationController pushViewController:[[PRNativeChoices alloc] initWithRow:row owner:self]
                                              animated:YES];
     else if (row.kind == N::Kind::Toggle)
@@ -1036,15 +1061,31 @@ static PRNativeRoot* PRRoot = nil;
 - (void)viewDidLoad {
     [super viewDidLoad];
     PRStyleTable(self.tableView);
+    PRIsolatePage(self);
     self.tableView.contentInset = UIEdgeInsetsMake(8, 0, 12, 0);
+    self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    self.tableView.showsVerticalScrollIndicator = NO;
+    self.tableView.showsHorizontalScrollIndicator = NO;
+    // Newer UIKit versions add a scroll-edge material even to a hidden-bar
+    // sidebar. Use the public property dynamically when running with an older SDK.
+    for (NSString* name in @[ @"topEdgeEffect", @"bottomEdgeEffect" ])
+        if ([self.tableView respondsToSelector:NSSelectorFromString(name)]) {
+            id effect = [self.tableView valueForKey:name];
+            if ([effect respondsToSelector:NSSelectorFromString(@"setHidden:")])
+                [effect setValue:@YES forKey:@"hidden"];
+        }
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 46;
 }
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self.navigationController setNavigationBarHidden:YES animated:NO];
+}
 - (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
-    return section ? 6 : 0;
+    return .01;
 }
 - (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
-    return 0;
+    return .01;
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView*)tableView {
     return _groups.size();
@@ -1288,7 +1329,14 @@ static void PRShowNextAlert() {
                                                             preferredStyle:UIAlertControllerStyleAlert];
     auto finish = [](std::function<void()> callback) {
         if (callback)
-            N::Enqueue(std::move(callback));
+            N::Enqueue([callback = std::move(callback)] {
+                callback();
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    UIViewController* page = PRRoot.detail.topViewController;
+                    if ([page isKindOfClass:PRNativePage.class])
+                        [(PRNativePage*) page refresh];
+                });
+            });
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             PRAlertVisible = false;
             PRShowNextAlert();

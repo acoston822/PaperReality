@@ -24,6 +24,8 @@ void ClearConsole() {
     consoleFixture.lines.clear();
     ++consoleFixture.revision;
 }
+void CancelBindingCapture(const std::string&) {
+}
 void Enqueue(std::function<void()> action) {
     dispatch_async(gameQueue, ^{
         action();
@@ -230,6 +232,19 @@ static UILabel* FindLabel(UIView* view, NSString* text) {
 }
 static void CheckSidebarLabels() {
     PRNativeSidebar* sidebar = (PRNativeSidebar*) PRRoot.primary.topViewController;
+    // Scrolling must not reveal a hidden navigation bar or reserve a title strip.
+    [sidebar.tableView layoutIfNeeded];
+    const CGPoint previous = sidebar.tableView.contentOffset;
+    [sidebar.tableView
+        setContentOffset:CGPointMake(
+                             0, MAX(0, sidebar.tableView.contentSize.height - sidebar.tableView.bounds.size.height)
+                         )
+                animated:NO];
+    [PRRoot.primary.view layoutIfNeeded];
+    Require(PRRoot.primary.navigationBarHidden, @"Scrolling the sidebar exposed a navigation bar.");
+    const CGRect sidebarFrame = [sidebar.view convertRect:sidebar.view.bounds toView:PRRoot.primary.view];
+    Require(fabs(CGRectGetMinY(sidebarFrame)) < .5, @"The sidebar reserved a hidden title-bar strip.");
+    [sidebar.tableView setContentOffset:previous animated:NO];
     CGFloat sharedSize = 0;
     for (NSInteger section = 0; section < [sidebar.tableView numberOfSections]; ++section)
         for (NSInteger row = 0; row < [sidebar.tableView numberOfRowsInSection:section]; ++row) {

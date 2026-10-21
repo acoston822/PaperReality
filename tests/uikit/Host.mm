@@ -230,6 +230,88 @@ static UILabel* FindLabel(UIView* view, NSString* text) {
             return label;
     return nil;
 }
+static std::vector<uint8_t> PanelEdgePixels(UIView* panel) {
+    UIView* root = PRRoot.view;
+    const CGFloat scale = root.window.screen.scale;
+    const CGRect frame = [panel convertRect:panel.bounds toView:root];
+    // Include the first/last physical pixels touched by the panel, but exclude
+    // its rounded corners. Fractional clipping must not expose the backdrop.
+    const CGFloat left = std::ceil((CGRectGetMinX(frame) + 24) * scale) / scale;
+    const CGFloat right = std::floor((CGRectGetMaxX(frame) - 24) * scale) / scale;
+    const CGFloat top = std::floor(CGRectGetMinY(frame) * scale + 1e-6) / scale;
+    const CGFloat bottom = std::ceil(CGRectGetMaxY(frame) * scale - 1e-6) / scale;
+    const CGRect region = CGRectMake(left, top, right - left, bottom - top);
+    UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat defaultFormat];
+    format.scale = scale;
+    format.opaque = YES;
+    UIGraphicsImageRenderer* renderer = [[UIGraphicsImageRenderer alloc] initWithSize:region.size format:format];
+    UIImage* image = [renderer imageWithActions:^(UIGraphicsImageRendererContext* capture) {
+        CGContextTranslateCTM(capture.CGContext, -left, -top);
+        [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:YES];
+    }];
+    const size_t width = CGImageGetWidth(image.CGImage), height = CGImageGetHeight(image.CGImage);
+    Require(width > 0 && height > 2, @"Scroll edge capture has no visible panel.");
+    std::vector<uint8_t> rgba(width * height * 4);
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(
+        rgba.data(), width, height, 8, width * 4, space, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big
+    );
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), image.CGImage);
+    CGContextRelease(context);
+    CGColorSpaceRelease(space);
+    std::vector<uint8_t> edges(rgba.begin(), rgba.begin() + width * 4);
+    edges.insert(edges.end(), rgba.end() - width * 4, rgba.end());
+    return edges;
+}
+static void CheckScrollPanelCoverage() {
+    const UIUserInterfaceStyle previousStyle = PRRoot.overrideUserInterfaceStyle;
+    const UIEdgeInsets previousInsets = PRRoot.additionalSafeAreaInsets;
+    const CGFloat scale = PRRoot.view.window.screen.scale;
+    // Exercise subpixel safe areas too, so an integer-point simulator viewport
+    // cannot hide a partially covered edge pixel.
+    PRRoot.additionalSafeAreaInsets = UIEdgeInsetsMake(
+        previousInsets.top + .5 / scale, previousInsets.left, previousInsets.bottom + .25 / scale, previousInsets.right
+    );
+    [PRRoot.view setNeedsLayout];
+    [PRRoot.view layoutIfNeeded];
+    for (NSNumber* style in @[ @(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark) ]) {
+        PRRoot.overrideUserInterfaceStyle = (UIUserInterfaceStyle) style.integerValue;
+        for (UINavigationController* navigation in @[ PRRoot.primary, PRRoot.detail ]) {
+            UITableView* table = ((UITableViewController*) navigation.topViewController).tableView;
+            UIView* panel = navigation.view.superview;
+            const CGPoint previousOffset = table.contentOffset;
+            [navigation.view layoutIfNeeded];
+            const CGFloat minimum = -table.adjustedContentInset.top;
+            const CGFloat maximum =
+                MAX(minimum, table.contentSize.height - table.bounds.size.height + table.adjustedContentInset.bottom);
+            UIView* backdrop = [[UIView alloc] initWithFrame:PRRoot.view.bounds];
+            [PRRoot.view insertSubview:backdrop belowSubview:panel];
+            // Keep native elastic scrolling. Sample while pulled beyond each
+            // limit and with fractional offsets, not just at the resting edge.
+            for (NSNumber* offset in @[ @(minimum - 56.25), @(maximum + 56.25) ]) {
+                [table setContentOffset:CGPointMake(0, offset.doubleValue) animated:NO];
+                [table layoutIfNeeded];
+                backdrop.backgroundColor = UIColor.blackColor;
+                const auto black = PanelEdgePixels(panel);
+                backdrop.backgroundColor = UIColor.whiteColor;
+                const auto white = PanelEdgePixels(panel);
+                Require(black.size() == white.size(), @"Panel size changed while checking scroll coverage.");
+                for (size_t i = 0; i < black.size(); ++i)
+                    Require(
+                        std::abs(int(black[i]) - int(white[i])) <= 1,
+                        @"The backdrop is visible through a top/bottom panel edge during overscroll."
+                    );
+            }
+            [backdrop removeFromSuperview];
+            [table setContentOffset:previousOffset animated:NO];
+        }
+    }
+    PRRoot.overrideUserInterfaceStyle = previousStyle;
+    PRRoot.additionalSafeAreaInsets = previousInsets;
+    [PRRoot.view setNeedsLayout];
+    [PRRoot.view layoutIfNeeded];
+    Progress("Scroll panel coverage checked: light/dark, top/bottom overscroll, fractional safe areas");
+}
 static void CheckSidebarLabels() {
     PRNativeSidebar* sidebar = (PRNativeSidebar*) PRRoot.primary.topViewController;
     // Scrolling must not reveal a hidden navigation bar or reserve a title strip.
@@ -446,6 +528,7 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              [PRRoot.view layoutIfNeeded];
                                              CheckPageSeparation(PRRoot.detail);
                                              CheckSidebarLabels();
+                                             CheckScrollPanelCoverage();
                                              Require(
                                                  !PRRoot.primary.view.superview.hidden
                                                      && !PRRoot.detail.view.superview.hidden,

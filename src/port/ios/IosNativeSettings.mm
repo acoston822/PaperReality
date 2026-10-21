@@ -43,12 +43,25 @@ static UIFont* PRFont(CGFloat size, UIFontWeight weight, UIFontTextStyle style) 
     return [[UIFontMetrics metricsForTextStyle:style] scaledFontForFont:[UIFont systemFontOfSize:size weight:weight]];
 }
 static void PRStyleTable(UITableView* table) {
-    table.backgroundColor = UIColor.clearColor;
+    table.backgroundColor = PRPageCanvas();
+    // UITableView keeps backgroundView stationary while its rows bounce. Cover
+    // the scroll limits as well as the content with the same opaque canvas.
+    UIView* backing = [[UIView alloc] init];
+    backing.backgroundColor = PRPageCanvas();
+    backing.userInteractionEnabled = NO;
+    table.backgroundView = backing;
     table.separatorStyle = UITableViewCellSeparatorStyleNone;
     table.contentInset = UIEdgeInsetsMake(4, 0, 20, 0);
     table.sectionHeaderTopPadding = 0;
     table.estimatedSectionHeaderHeight = 38;
     table.estimatedSectionFooterHeight = 20;
+}
+static CGRect PRPixelAlignedRect(CGRect frame, CGFloat scale) {
+    CGFloat left = std::round(CGRectGetMinX(frame) * scale) / scale;
+    CGFloat top = std::round(CGRectGetMinY(frame) * scale) / scale;
+    CGFloat right = std::round(CGRectGetMaxX(frame) * scale) / scale;
+    CGFloat bottom = std::round(CGRectGetMaxY(frame) * scale) / scale;
+    return CGRectMake(left, top, right - left, bottom - top);
 }
 static void PRStyleCard(UITableViewCell* cell) {
     UIBackgroundConfiguration* background = [UIBackgroundConfiguration clearConfiguration];
@@ -1210,11 +1223,14 @@ static PRNativeRoot* PRRoot = nil;
         [done.heightAnchor constraintGreaterThanOrEqualToConstant:44]
     ]];
     _primaryPanel = [[UIView alloc] init];
-    _primaryPanel.backgroundColor = PRSurface();
+    // The fixed panel must also cover the game when a scrolling child exposes
+    // an edge. Card material is translucent and is not a suitable backing.
+    _primaryPanel.backgroundColor = PRPageCanvas();
     _primaryPanel.layer.cornerRadius = 18;
     _primaryPanel.clipsToBounds = YES;
     [self.view addSubview:_primaryPanel];
     _detailPanel = [[UIView alloc] init];
+    _detailPanel.backgroundColor = PRPageCanvas();
     _detailPanel.clipsToBounds = YES;
     [self.view addSubview:_detailPanel];
     _menuButton = [UIButton buttonWithType:UIButtonTypeSystem];
@@ -1259,9 +1275,13 @@ static PRNativeRoot* PRRoot = nil;
     CGFloat y = safe.top + headerHeight + 6;
     CGFloat bodyHeight = MAX(0, height - headerHeight - 14);
     CGFloat sidebarWidth = _wide ? std::clamp(width * .28, 220., 290.) : width;
-    _primaryPanel.frame = CGRectMake(safe.left + 12, y, sidebarWidth, bodyHeight);
+    const CGFloat scale = self.view.window.screen.scale ?: UIScreen.mainScreen.scale;
+    // Align both edges, rather than just the size, so clipping cannot leave a
+    // partially covered pixel along the straight top/bottom of either panel.
+    _primaryPanel.frame = PRPixelAlignedRect(CGRectMake(safe.left + 12, y, sidebarWidth, bodyHeight), scale);
     CGFloat x = safe.left + 12 + (_wide ? sidebarWidth + 12 : 0);
-    _detailPanel.frame = CGRectMake(x, y, width - (_wide ? sidebarWidth + 12 : 0), bodyHeight);
+    _detailPanel.frame =
+        PRPixelAlignedRect(CGRectMake(x, y, width - (_wide ? sidebarWidth + 12 : 0), bodyHeight), scale);
     _primaryPanel.hidden = !_wide && !_showPrimary;
     _detailPanel.hidden = !_wide && _showPrimary;
     _category.hidden =

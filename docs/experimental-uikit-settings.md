@@ -71,6 +71,13 @@ when settings closes.
 The sidebar uses its own opaque, clipped canvas with automatic content insets,
 sticky section-header space, and scroll-edge decoration disabled. Its navigation
 bar stays hidden when scrolling, avoiding a strip above the category selections.
+Both fixed panel containers and each table's stationary background use the opaque
+page canvas. Panel edges align to physical pixels, including fractional safe-area
+insets, to keep elastic scrolling from exposing the game's backdrop through a seam.
+The local UIKit harness compares top/bottom edge pixels over black and white
+backdrops while pulling both lists past their limits, in Light and Dark appearance.
+That overscroll regression requires a local Mac simulator and has not been run
+in the Linux workspace.
 
 The Console is fully native: a selectable, scrollable monospaced transcript,
 command field, Run and Clear controls, and a recent-command menu. A note explains

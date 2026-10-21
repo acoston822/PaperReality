@@ -15,6 +15,58 @@ permissions:
   contents: write
 
 jobs:
+  cleanup-simulator-runs:
+    if: github.ref == 'refs/heads/experimental/uikit-settings'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write
+    steps:
+      - name: Remove completed simulator and capture runs
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const simulatorPaths = new Set([
+              '.github/workflows/uikit-smoke.yml',
+              '.github/workflows/uikit-captures.yml',
+            ]);
+            const deadline = Date.now() + 15 * 60 * 1000;
+            let simulatorRuns;
+            for (;;) {
+              const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+                ...context.repo,
+                per_page: 100,
+              });
+              simulatorRuns = runs.filter(run =>
+                simulatorPaths.has((run.path || '').split('@')[0])
+              ).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+              if (simulatorRuns.every(run => run.status === 'completed')) break;
+              if (Date.now() >= deadline) throw new Error('Simulator still active; cleanup left its run intact.');
+              core.info('Waiting for simulator checks to finish before cleanup.');
+              await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+            const latest = simulatorRuns[0];
+            if (latest) {
+              core.notice(`Latest simulator/capture run ${latest.run_number}: ${latest.conclusion}.`);
+            }
+            let removed = 0;
+            for (const run of simulatorRuns) {
+              // Retain the newest unsuccessful result until it can be diagnosed.
+              // After a successful rerun, all older results can be removed.
+              if (run.id === latest.id && latest.conclusion !== 'success') {
+                core.notice(`Retained unsuccessful simulator run ${run.run_number} for diagnosis.`);
+                continue;
+              }
+              try {
+                await github.rest.actions.deleteWorkflowRun({ ...context.repo, run_id: run.id });
+                ++removed;
+                core.info(`Removed completed simulator/capture run ${run.run_number}.`);
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+            core.notice(`Removed ${removed} completed simulator/capture runs. IPA runs were left intact.`);
+
   ios:
     runs-on: macos-14
     steps:

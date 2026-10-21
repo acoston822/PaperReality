@@ -197,8 +197,13 @@ not check out game sources, resources, submodules or private uploads. It runs
 `tests/uikit/run.py --no-captures`, which skips writing screenshots and gallery
 images. No simulator apps, screenshots, reports or logs are uploaded as artifacts,
 published to PRs/Pages, or committed to capture branches. Its text-only workflow
-run and logs remain visible in Actions until the run is deleted. Deleting a run
-requires separate cleanup access; the workflow does not claim to delete itself.
+run and logs remain visible in Actions during testing. A cleanup job inside the
+existing IPA workflow waits for simulator runs to finish, then removes completed
+runs belonging only to the UIKit smoke/capture workflow paths. It uses GitHub's
+API from the hosted runner, without requiring API access from the development
+workspace. The newest unsuccessful simulator result is retained for diagnosis;
+after a successful rerun, older results are removed too. IPA and other build runs
+are excluded from deletion. No separate cleanup workflow is created.
 The unsigned IPA build workflow remains available. An IPA is considered available
 only after its artifact can be downloaded and its bundle build number checked.
 A queued status alone is not evidence that compilation or packaging passed.

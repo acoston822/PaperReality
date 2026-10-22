@@ -277,12 +277,8 @@ static UIButton* FindButton(UIView* view, NSString* identifier) {
             return button;
     return nil;
 }
-static std::vector<uint8_t> EventGutterPixels(UITableView* table) {
+static std::vector<uint8_t> EventGutterPixels(CGRect region) {
     UIView* root = PRRoot.view;
-    CGRect frame = [table convertRect:table.bounds toView:root];
-    // Cards are inset 12 points. A strip covering this outside gutter is a
-    // table decoration, not part of a card. Capture only this narrow region.
-    CGRect region = CGRectMake(ceil(frame.origin.x) + 2, ceil(frame.origin.y) + 2, 2, floor(frame.size.height) - 4);
     Require(region.size.height > 0, @"Event list has no visible gutter.");
     UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat defaultFormat];
     format.scale = 1;
@@ -311,23 +307,34 @@ static void CheckEventBars(PRNativeEvents* events) {
     for (NSNumber* style in @[ @(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark) ]) {
         PRRoot.overrideUserInterfaceStyle = UIUserInterfaceStyle(style.integerValue);
         [PRRoot.view layoutIfNeeded];
-        table.hidden = YES;
-        const auto canvas = EventGutterPixels(table);
-        table.hidden = NO;
         const CGFloat maximum = MAX(0, table.contentSize.height - table.bounds.size.height + table.contentInset.bottom);
         for (NSNumber* offset in @[ @0, @37.25, @(maximum), @(maximum + 48.25) ]) {
             [table setContentOffset:CGPointMake(0, offset.doubleValue) animated:NO];
             [table layoutIfNeeded];
+            [PRRoot.view layoutIfNeeded];
             Require(
                 [table rectForHeaderInSection:0].size.height == 0 && [table rectForFooterInSection:0].size.height == 0,
                 @"Event list reserves a blank header/footer strip."
             );
-            const auto visible = EventGutterPixels(table);
+            // Keep one physical region for both captures. Hiding the list can
+            // change UIKit's primary-scroll-view layout and resize a reference.
+            const CGRect frame = [table convertRect:table.bounds toView:PRRoot.view];
+            const CGRect region =
+                CGRectMake(ceil(frame.origin.x) + 2, ceil(frame.origin.y) + 2, 2, floor(frame.size.height) - 4);
+            UIView* canvasProbe = [[UIView alloc] initWithFrame:region];
+            canvasProbe.backgroundColor = PRPageCanvas();
+            canvasProbe.userInteractionEnabled = NO;
+            [PRRoot.view addSubview:canvasProbe];
+            const auto canvas = EventGutterPixels(region);
+            [canvasProbe removeFromSuperview];
+            const auto visible = EventGutterPixels(region);
             Require(canvas.size() == visible.size(), @"Event gutter resized during scrolling.");
             for (size_t i = 0; i < canvas.size(); ++i)
                 Require(
                     abs(int(canvas[i]) - int(visible[i])) <= 2,
-                    @"A table decoration paints a bar over the Event Debugger gutter."
+                    [NSString stringWithFormat:
+                                  @"Event gutter obscured: style %@, offset %@, channel %zu, canvas %u, visible %u.",
+                                  style, offset, i, canvas[i], visible[i]]
                 );
         }
     }

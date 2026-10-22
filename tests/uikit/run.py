@@ -59,7 +59,12 @@ try:
         detail=progress.read_text() if progress.exists() else 'App did not reach launch callback'
         report={'status':'failed','message':'Simulator exited or timed out.\n'+detail}
     (out/'result.json').write_text(json.dumps(report,indent=2))
-    logs=run('xcrun','simctl','spawn',device,'log','show','--last','3m','--style','compact','--predicate','process == "UIKitSmoke"')
+    logs=''
+    if report['status']!='passed':
+        try:
+            logs=run('xcrun','simctl','spawn',device,'log','show','--last','1m','--style','compact','--predicate','process == "UIKitSmoke"',timeout=30)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+            logs='System-log retrieval unavailable: '+str(error)
     (out/'simulator.log').write_text(logs)
     if report['status']=='passed' and not args.no_captures:
         run('xcrun','simctl','status_bar',device,'override','--time','9:41','--batteryState','charged','--batteryLevel','100')

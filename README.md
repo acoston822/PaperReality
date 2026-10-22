@@ -53,11 +53,11 @@ The multi-platform `Build` and desktop `Release` workflows are temporarily pause
 in this repository. The IPA workflow enforces that pause and cancels their pending
 runs; existing build history is retained. To resume them, remove its
 `pause-other-builds` job, then re-enable both workflows in GitHub Actions. UIKit
-simulator checks are manual-only, for requested debugging or renders; routine
+simulator checks run only for requested debugging or renders; routine
 pushes do not run them. Their existing cleanup remains available.
-When debugging is requested, `[uikit-debug]` in the commit message explicitly
-dispatches the separate simulator check through the IPA workflow and cleans up
-its completed run afterward.
+When debugging is requested, updating `.github/uikit-debug-request.txt` starts the
+separate simulator check. `[uikit-debug]` in the commit message tells the IPA
+workflow to wait for that check to register before cleaning up its completed run.
 
 <a href="https://github.com/Kenix3/libultraship/">
   <picture>

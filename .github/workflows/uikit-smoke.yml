@@ -2,8 +2,12 @@ name: UIKit runtime smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches: [experimental/uikit-settings]
+    paths: [.github/uikit-debug-request.txt]
 
-# Run only when debugging or renders are requested, not for routine IPA pushes.
+# Only an explicit debug request file change triggers a push run. Editing normal
+# UI/game sources does not run a simulator during routine IPA builds.
 
 permissions:
   contents: read

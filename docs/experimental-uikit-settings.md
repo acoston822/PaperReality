@@ -249,7 +249,7 @@ fixture retains an Audio API selector beside the numeric controls to check mixed
 sections. General and Audio captures are actual UIKit views with synthetic settings.
 
 The simulator harness can run locally on a Mac. The UIKit runtime workflow is
-manual-only for requested debugging or renders; routine pushes do not run it.
+run only for requested debugging or renders; routine pushes do not run it.
 It checks only the native UI, its headers and synthetic fixtures; it does
 not check out game sources, resources, submodules or private uploads. It runs
 `tests/uikit/run.py --no-captures`, which skips writing screenshots and gallery
@@ -262,9 +262,10 @@ API from the hosted runner, without requiring API access from the development
 workspace. The newest unsuccessful simulator result is retained for diagnosis;
 after a successful rerun, older results are removed too. IPA and other build runs
 are excluded from deletion. No separate cleanup workflow is created.
-For a requested debugging investigation, a commit containing `[uikit-debug]`
-asks the IPA cleanup job to dispatch the separate UIKit check and wait for it
-before cleanup. This is opt-in; normal pushes do not run simulator checks.
+For a requested debugging investigation, updating `.github/uikit-debug-request.txt`
+starts the separate UIKit check. A commit containing `[uikit-debug]` asks the IPA
+cleanup job to wait for that run to register before cleanup. Manual dispatch is
+also defined. This is opt-in; editing normal sources does not start a simulator.
 The unsigned IPA build workflow remains available. An IPA is considered available
 only after its artifact can be downloaded and its bundle build number checked.
 A queued status alone is not evidence that compilation or packaging passed.

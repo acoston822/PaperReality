@@ -90,6 +90,16 @@ sidebar overscroll, including panel corners and gutters, and checks that it
 detects a deliberately translucent overlay. Confirmation with recording stopped
 on the affected iPhone is still necessary.
 
+The opaque-background candidate did not resolve the affected device's lines.
+The next candidate composites just the fixed sidebar (including its scrolling
+rows and rounded clip) into one Core Animation surface at the display's pixel
+density. Other settings panels retain normal composition. Empty sidebar section
+headers/footers now have zero height rather than accumulating fractional gaps.
+The harness checks those boundaries, the rasterization scale after resizing,
+and whole-window coverage at normal and fractional scroll offsets as well as
+overscroll. These checks still cannot establish whether the physical-display
+artifact is resolved; that requires testing with screen recording stopped.
+
 The Console is fully native: a selectable, scrollable monospaced transcript,
 command field, Run and Clear controls, and a recent-command menu. A note explains
 that `help` lists all available commands. It has no severity tabs, search bar,

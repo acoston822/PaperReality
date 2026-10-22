@@ -327,7 +327,12 @@ static void CheckOverlayCoverage() {
         WindowBackdropDifference(window, underlying) > 1, @"Window coverage check missed intentional transparency."
     );
     root.alpha = previousAlpha;
-    for (NSNumber* offset in @[ @(minimum - 56.25), @(maximum + 56.25) ]) {
+    const CGFloat halfPixel = .5 / window.screen.scale;
+    for (NSNumber* offset in @[
+             @(minimum - 56.25), @(minimum), @(minimum + halfPixel), @((minimum + maximum) / 2 + halfPixel), @(maximum),
+             @(maximum + 56.25)
+         ])
+    {
         [sidebar setContentOffset:CGPointMake(0, offset.doubleValue) animated:NO];
         const int difference = WindowBackdropDifference(window, underlying);
         Require(
@@ -429,6 +434,18 @@ static void CheckSidebarLabels() {
     PRNativeSidebar* sidebar = (PRNativeSidebar*) PRRoot.primary.topViewController;
     // Scrolling must not reveal a hidden navigation bar or reserve a title strip.
     [sidebar.tableView layoutIfNeeded];
+    UIView* panel = PRRoot.primary.view.superview;
+    Require(
+        panel.layer.shouldRasterize && fabs(panel.layer.rasterizationScale - panel.window.screen.scale) < .01,
+        @"The sidebar must composite at the display's pixel density."
+    );
+    for (NSInteger section = 0; section < sidebar.tableView.numberOfSections; ++section) {
+        Require(
+            [sidebar.tableView rectForHeaderInSection:section].size.height == 0 &&
+                [sidebar.tableView rectForFooterInSection:section].size.height == 0,
+            @"Empty sidebar sections must not introduce fractional-height bands between rows."
+        );
+    }
     const CGPoint previous = sidebar.tableView.contentOffset;
     [sidebar.tableView
         setContentOffset:CGPointMake(

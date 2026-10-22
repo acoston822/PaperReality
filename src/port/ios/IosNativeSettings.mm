@@ -1,6 +1,7 @@
 #include "port/ui/NativeSettings.h"
 #if defined(__IOS__)
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 #include <atomic>
 #include <deque>
 #include <memory>
@@ -1089,16 +1090,18 @@ static PRNativeRoot* PRRoot = nil;
         }
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 46;
+    self.tableView.estimatedSectionHeaderHeight = 0;
+    self.tableView.estimatedSectionFooterHeight = 0;
 }
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self.navigationController setNavigationBarHidden:YES animated:NO];
 }
 - (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
-    return .01;
+    return 0;
 }
 - (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
-    return .01;
+    return 0;
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView*)tableView {
     return _groups.size();
@@ -1222,6 +1225,11 @@ static PRNativeRoot* PRRoot = nil;
     _primaryPanel.backgroundColor = PRPageCanvas();
     _primaryPanel.layer.cornerRadius = 18;
     _primaryPanel.clipsToBounds = YES;
+    // Composite the fixed sidebar, its scrolling rows and its rounded clipping
+    // as one surface. The reported device-only seams follow these boundaries
+    // and disappear under screen capture; opaque backing alone did not help.
+    // Keep this scoped to the sidebar rather than rasterizing all settings.
+    _primaryPanel.layer.shouldRasterize = YES;
     [self.view addSubview:_primaryPanel];
     _detailPanel = [[UIView alloc] init];
     _detailPanel.backgroundColor = PRPageCanvas();
@@ -1270,6 +1278,7 @@ static PRNativeRoot* PRRoot = nil;
     CGFloat bodyHeight = MAX(0, height - headerHeight - 14);
     CGFloat sidebarWidth = _wide ? std::clamp(width * .28, 220., 290.) : width;
     const CGFloat scale = self.view.window.screen.scale ?: UIScreen.mainScreen.scale;
+    _primaryPanel.layer.rasterizationScale = scale;
     // Align both edges, rather than just the size, so clipping cannot leave a
     // partially covered pixel along the straight top/bottom of either panel.
     _primaryPanel.frame = PRPixelAlignedRect(CGRectMake(safe.left + 12, y, sidebarWidth, bodyHeight), scale);

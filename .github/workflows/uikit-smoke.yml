@@ -2,15 +2,8 @@ name: UIKit runtime smoke
 
 on:
   workflow_dispatch:
-  push:
-    branches: [experimental/uikit-settings]
-    paths:
-      - src/port/ios/IosNativeSettings.mm
-      - src/port/ui/NativeSettings.h
-      - src/port/ui/NativePortrait.h
-      - tests/native-settings/portraits.cpp
-      - tests/uikit/**
-      - .github/workflows/uikit-smoke.yml
+
+# Run only when debugging or renders are requested, not for routine IPA pushes.
 
 permissions:
   contents: read

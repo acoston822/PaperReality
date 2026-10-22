@@ -212,8 +212,9 @@ single-column fallback, and editing the correct channel through the queue. The
 fixture retains an Audio API selector beside the numeric controls to check mixed
 sections. General and Audio captures are actual UIKit views with synthetic settings.
 
-The simulator harness can run locally on a Mac. The restored UIKit runtime
-workflow checks only the native UI, its headers and synthetic fixtures; it does
+The simulator harness can run locally on a Mac. The UIKit runtime workflow is
+manual-only for requested debugging or renders; routine pushes do not run it.
+It checks only the native UI, its headers and synthetic fixtures; it does
 not check out game sources, resources, submodules or private uploads. It runs
 `tests/uikit/run.py --no-captures`, which skips writing screenshots and gallery
 images. No simulator apps, screenshots, reports or logs are uploaded as artifacts,

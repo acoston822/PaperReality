@@ -49,6 +49,13 @@ If you're interested in creating and/or packing your own custom asset `.o2r`/`.o
 ### Building
 Pushing to any branch other than `develop` runs the `Build unsigned iOS IPA` workflow, which builds the app and uploads the IPA. To build locally on a Mac, follow the iOS notes in [docs/android-ios-web.md](docs/android-ios-web.md).
 
+The multi-platform `Build` and desktop `Release` workflows are temporarily paused
+in this repository. The IPA workflow enforces that pause and cancels their pending
+runs; existing build history is retained. To resume them, remove its
+`pause-other-builds` job, then re-enable both workflows in GitHub Actions. UIKit
+simulator checks are manual-only, for requested debugging or renders; routine
+pushes do not run them. Their existing cleanup remains available.
+
 <a href="https://github.com/Kenix3/libultraship/">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./docs/poweredbylus.darkmode.png">

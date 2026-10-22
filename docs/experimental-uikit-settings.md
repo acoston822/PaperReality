@@ -18,7 +18,8 @@ in the classic General page restores UIKit.
   category browser button, with native navigation inside each page.
 - Rounded material cards, a shared PaperReality header, blue selected sidebar rows,
   and consistent spacing across settings and editor submenus. Materials and colors
-  follow the system Light/Dark appearance; no game artwork is bundled for the backdrop.
+  follow the system Light/Dark appearance. The full-screen background is opaque;
+  it does not blur/sample the live game surface. No game artwork is bundled for it.
 - Consecutive numeric settings share a two-column card layout when there is enough
   space. Narrow widths and accessibility text retain a single column.
 - Native lists, switches, sliders with precise increment/decrement buttons,
@@ -78,6 +79,16 @@ The local UIKit harness compares top/bottom edge pixels over black and white
 backdrops while pulling both lists past their limits, in Light and Dark appearance.
 That overscroll regression requires a Mac simulator and cannot run directly
 in the Linux workspace.
+
+The entire settings root now has an opaque Light/Dark canvas, with the live
+`UIVisualEffectView` backdrop removed. This targets a reported on-device line
+artifact that disappears during screenshots/recording and returns afterward.
+The compositing cause has not been established, and capture-based simulator
+checks cannot verify this physical-display behavior. The harness additionally
+compares the full window over two synthetic presenting-view colors during
+sidebar overscroll, including panel corners and gutters, and checks that it
+detects a deliberately translucent overlay. Confirmation with recording stopped
+on the affected iPhone is still necessary.
 
 The Console is fully native: a selectable, scrollable monospaced transcript,
 command field, Run and Clear controls, and a recent-command menu. A note explains

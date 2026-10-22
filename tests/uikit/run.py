@@ -27,7 +27,8 @@ subprocess.run([str(out/'portrait-check')],check=True)
 subprocess.run(['xcrun','--sdk','iphonesimulator','clang++','-std=c++20','-fobjc-arc',
                 '-target',platform.machine()+'-apple-ios16.3-simulator','-isysroot',sdk,
                 '-D__IOS__','-I'+str(root/'src'),str(root/'tests/uikit/Host.mm'),
-                '-framework','UIKit','-framework','Foundation','-framework','CoreGraphics','-o',str(app/'UIKitSmoke')],check=True)
+                '-framework','UIKit','-framework','Foundation','-framework','CoreGraphics',
+                '-framework','QuartzCore','-o',str(app/'UIKitSmoke')],check=True)
 with (app/'Info.plist').open('wb') as f:
     plistlib.dump({'CFBundleExecutable':'UIKitSmoke','CFBundleIdentifier':'org.paperreality.uikit-smoke',
                   'CFBundleName':'UIKitSmoke','CFBundlePackageType':'APPL','CFBundleVersion':'1',

@@ -20,8 +20,8 @@ static UIColor* PRSurface() {
 static UIColor* PRCanvas() {
     return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
         return traits.userInterfaceStyle == UIUserInterfaceStyleDark
-            ? [UIColor colorWithRed:.025 green:.045 blue:.08 alpha:.82]
-            : [UIColor colorWithRed:.93 green:.95 blue:.98 alpha:.86];
+            ? [UIColor colorWithRed:.025 green:.045 blue:.08 alpha:1]
+            : [UIColor colorWithRed:.93 green:.95 blue:.98 alpha:1];
     }];
 }
 // Pages must cover the outgoing page during navigation. Transparent tables and
@@ -1171,18 +1171,12 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = UIColor.clearColor;
-    UIVisualEffectView* material = [[UIVisualEffectView alloc]
-        initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial]];
-    material.frame = self.view.bounds;
-    material.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    material.userInteractionEnabled = NO;
-    [self.view addSubview:material];
-    UIView* canvas = [[UIView alloc] initWithFrame:self.view.bounds];
-    canvas.backgroundColor = PRCanvas();
-    canvas.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    canvas.userInteractionEnabled = NO;
-    [self.view addSubview:canvas];
+    // Do not sample the live Metal surface through a backdrop blur. On-device
+    // edge artifacts can disappear during screen capture, so snapshot tests
+    // alone cannot validate that compositing path. Cover the whole overlay,
+    // including the gutters and rounded panel edges, with an opaque canvas.
+    self.view.backgroundColor = PRCanvas();
+    self.view.opaque = YES;
     _header = [[UIView alloc] init];
     [self.view addSubview:_header];
     UIImageView* logo = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"paperplane.fill"]];

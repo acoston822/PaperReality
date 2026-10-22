@@ -1,6 +1,7 @@
 // Asset-free runtime harness for the production UIKit controllers.
 // The actual view/controller implementation is compiled unchanged below.
 #include "../../src/port/ios/IosNativeSettings.mm"
+#import <QuartzCore/QuartzCore.h>
 #include <cstdio>
 #include <execinfo.h>
 #include <fcntl.h>
@@ -270,6 +271,74 @@ static std::vector<uint8_t> PanelEdgePixels(UIView* panel) {
     edges.insert(edges.end(), rgba.end() - width * 4, rgba.end());
     return edges;
 }
+static std::vector<uint8_t> WindowPixels(UIWindow* window) {
+    @autoreleasepool {
+        [window layoutIfNeeded];
+        UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat defaultFormat];
+        format.scale = window.screen.scale;
+        format.opaque = YES;
+        UIGraphicsImageRenderer* renderer = [[UIGraphicsImageRenderer alloc] initWithSize:window.bounds.size
+                                                                                   format:format];
+        UIImage* image = [renderer imageWithActions:^(UIGraphicsImageRendererContext* capture) {
+            [window.layer renderInContext:capture.CGContext];
+        }];
+        const size_t width = CGImageGetWidth(image.CGImage), height = CGImageGetHeight(image.CGImage);
+        Require(width > 0 && height > 0, @"Window coverage capture is empty.");
+        std::vector<uint8_t> rgba(width * height * 4);
+        CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+        CGContextRef context = CGBitmapContextCreate(
+            rgba.data(), width, height, 8, width * 4, space, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big
+        );
+        CGContextDrawImage(context, CGRectMake(0, 0, width, height), image.CGImage);
+        CGContextRelease(context);
+        CGColorSpaceRelease(space);
+        return rgba;
+    }
+}
+static int WindowBackdropDifference(UIWindow* window, UIView* underlying) {
+    underlying.backgroundColor = UIColor.blackColor;
+    const auto black = WindowPixels(window);
+    underlying.backgroundColor = UIColor.whiteColor;
+    const auto white = WindowPixels(window);
+    Require(black.size() == white.size(), @"Window size changed during coverage check.");
+    int largest = 0;
+    for (size_t i = 0; i < black.size(); ++i)
+        largest = MAX(largest, std::abs(int(black[i]) - int(white[i])));
+    return largest;
+}
+static void CheckOverlayCoverage() {
+    // Check the entire settings overlay, including the gutters/corner cutouts,
+    // over the presenting view. The per-panel probe cannot test this backing.
+    // Offscreen checks establish coverage, not the physical display behavior
+    // that changes when screen recording is enabled on an actual iPhone.
+    UIView* root = PRRoot.view;
+    UIView* underlying = PRRoot.presentingViewController.view;
+    UIWindow* window = root.window;
+    Require(window && underlying.window == window, @"Coverage check needs the visible presenting view.");
+    UIColor* previousBackground = underlying.backgroundColor;
+    CGFloat previousAlpha = root.alpha;
+    UITableView* sidebar = ((UITableViewController*) PRRoot.primary.topViewController).tableView;
+    const CGPoint previousOffset = sidebar.contentOffset;
+    const CGFloat minimum = -sidebar.adjustedContentInset.top;
+    const CGFloat maximum =
+        MAX(minimum, sidebar.contentSize.height - sidebar.bounds.size.height + sidebar.adjustedContentInset.bottom);
+    root.alpha = .9;
+    Require(
+        WindowBackdropDifference(window, underlying) > 1, @"Window coverage check missed intentional transparency."
+    );
+    root.alpha = previousAlpha;
+    for (NSNumber* offset in @[ @(minimum - 56.25), @(maximum + 56.25) ]) {
+        [sidebar setContentOffset:CGPointMake(0, offset.doubleValue) animated:NO];
+        const int difference = WindowBackdropDifference(window, underlying);
+        Require(
+            difference <= 1,
+            [NSString stringWithFormat:@"Underlying view is visible through settings: delta %d, root %@, window %@.",
+                                       difference, NSStringFromCGRect(root.frame), NSStringFromCGRect(window.bounds)]
+        );
+    }
+    underlying.backgroundColor = previousBackground;
+    [sidebar setContentOffset:previousOffset animated:NO];
+}
 static void CheckScrollPanelCoverage() {
     const UIUserInterfaceStyle previousStyle = PRRoot.overrideUserInterfaceStyle;
     const UIEdgeInsets previousInsets = PRRoot.additionalSafeAreaInsets;
@@ -348,12 +417,13 @@ static void CheckScrollPanelCoverage() {
             [backdrop removeFromSuperview];
             [table setContentOffset:previousOffset animated:NO];
         }
+        CheckOverlayCoverage();
     }
     PRRoot.overrideUserInterfaceStyle = previousStyle;
     PRRoot.additionalSafeAreaInsets = previousInsets;
     [PRRoot.view setNeedsLayout];
     [PRRoot.view layoutIfNeeded];
-    Progress("Scroll panel coverage checked: light/dark, top/bottom overscroll, fractional safe areas");
+    Progress("Scroll/overlay coverage checked: light/dark, top/bottom overscroll, fractional safe areas");
 }
 static void CheckSidebarLabels() {
     PRNativeSidebar* sidebar = (PRNativeSidebar*) PRRoot.primary.topViewController;
@@ -719,7 +789,8 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              @"Opened/reopened settings; rendered every control; verified "
                                              @"landscape/compact and nested navigation, adaptive volume cards, and the "
                                              @"correct channel edit through the game queue; Retina portraits and crisp "
-                                             @"pixel scaling; opaque nested pages, scrolled title separation and "
+                                             @"pixel scaling; opaque overlay/nested pages, scrolled title separation "
+                                             @"and "
                                              @"uniform one-line sidebar labels; native console submission, output and "
                                              @"clearing."
                                          );

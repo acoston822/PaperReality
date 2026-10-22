@@ -29,8 +29,13 @@ jobs:
         with:
           script: |
             for (const workflow_id of ['build.yml', 'release.yml']) {
-              await github.rest.actions.disableWorkflow({ ...context.repo, workflow_id });
-              core.notice(`Paused ${workflow_id}; unsigned IPA and UIKit workflows remain enabled.`);
+              const { data: workflow } = await github.rest.actions.getWorkflow({ ...context.repo, workflow_id });
+              if (workflow.state === 'active') {
+                await github.rest.actions.disableWorkflow({ ...context.repo, workflow_id });
+                core.notice(`Paused ${workflow_id}; unsigned IPA and UIKit workflows remain enabled.`);
+              } else {
+                core.notice(`${workflow_id} is already paused (${workflow.state}).`);
+              }
               const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
                 ...context.repo,
                 workflow_id,

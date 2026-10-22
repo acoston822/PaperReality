@@ -12,6 +12,18 @@ namespace Paperboat::NativeSettings {
 static std::atomic<int> volumeEdited { -1 };
 static dispatch_queue_t gameQueue = dispatch_queue_create("org.paperreality.uikit-smoke.game", DISPATCH_QUEUE_SERIAL);
 static ConsoleSnapshot consoleFixture;
+static EventSnapshot eventFixture { true,
+                                    false,
+                                    { { 0,
+                                        "GameFrameUpdate",
+                                        { { "src/map.c", 418, 9007199254740993ULL } },
+                                        { { 4294967296LL, "src/high.cpp", 10, EventPriority::High },
+                                          { 2, "src/normal.cpp", 20, EventPriority::Normal },
+                                          { 3, "src/low.cpp", 30, EventPriority::Low } } },
+                                      { 24, "OnMapLoad", { }, { } } } };
+EventSnapshot ReadEvents() {
+    return eventFixture;
+}
 ConsoleSnapshot ReadConsole() {
     return consoleFixture;
 }
@@ -178,9 +190,7 @@ static void Report(NSString* status, NSString* message) {
 static void Uncaught(NSException* exception) {
     Report(
         @"failed",
-        [NSString stringWithFormat:@"%@: %@\n%@",
-                                   exception.name,
-                                   exception.reason,
+        [NSString stringWithFormat:@"%@: %@\n%@", exception.name, exception.reason,
                                    [exception.callStackSymbols componentsJoinedByString:@"\n"]]
     );
 }
@@ -230,6 +240,41 @@ static UILabel* FindLabel(UIView* view, NSString* text) {
         if (UILabel* label = FindLabel(child, text))
             return label;
     return nil;
+}
+static UIButton* FindButton(UIView* view, NSString* identifier) {
+    if ([view isKindOfClass:UIButton.class] && [view.accessibilityIdentifier isEqualToString:identifier])
+        return (UIButton*) view;
+    for (UIView* child in view.subviews)
+        if (UIButton* button = FindButton(child, identifier))
+            return button;
+    return nil;
+}
+static void CheckEventCards(PRNativeEvents* events) {
+    UITableView* table = [events valueForKey:@"table"];
+    const auto first = [NSIndexPath indexPathForRow:0 inSection:0];
+    const auto second = [NSIndexPath indexPathForRow:1 inSection:0];
+    UITableViewCell* card = [events tableView:table cellForRowAtIndexPath:first];
+    Require(!FindLabel(card, @"High"), @"Events should start collapsed.");
+    UIButton* toggle = FindButton(card, @"event-0");
+    Require(toggle != nil, @"Event card has no accessible expansion control.");
+    [toggle sendActionsForControlEvents:UIControlEventTouchUpInside];
+    card = [events tableView:table cellForRowAtIndexPath:first];
+    Require(
+        FindLabel(card, @"9007199254740993 calls") && FindLabel(card, @"High") && FindLabel(card, @"Normal")
+            && FindLabel(card, @"Low"),
+        @"Expanded events lost counts or listener priorities."
+    );
+    Require(FindLabel(card, @"Listener ID 4294967296 · src"), @"Actual 64-bit listener ID lost.");
+    [events collapseAll];
+    card = [events tableView:table cellForRowAtIndexPath:first];
+    Require(!FindLabel(card, @"High"), @"Collapse All left event details visible.");
+    [events expandAll];
+    card = [events tableView:table cellForRowAtIndexPath:second];
+    Require(
+        FindLabel(card, @"This build does not record call sites.") && FindLabel(card, @"No listeners registered."),
+        @"Empty event details do not explain unavailable diagnostics."
+    );
+    CheckPageSeparation(PRRoot.detail);
 }
 static std::vector<uint8_t> PanelEdgePixels(UIView* panel) {
     UIView* root = PRRoot.view;
@@ -623,10 +668,7 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              [NSString
                                                  stringWithFormat:
                                                      @"Timed out in phase %ld. Root: %@; detail: %@; children: %@",
-                                                     (long) phase,
-                                                     PRRoot,
-                                                     PRRoot.detail,
-                                                     PRRoot.childViewControllers]
+                                                     (long) phase, PRRoot, PRRoot.detail, PRRoot.childViewControllers]
                                          );
                                          [timer invalidate];
                                          return;
@@ -801,6 +843,57 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                          UITextView* output = [console valueForKey:@"output"];
                                          if (output.text.length)
                                              return;
+                                         [PRRoot openPage:"menu/Dev Tools/Event Debugger"];
+                                         phase = 16;
+                                         return;
+                                     }
+                                     if (phase == 16) {
+                                         Require(
+                                             [PRRoot.detail.topViewController isKindOfClass:PRNativeEvents.class],
+                                             @"Event Debugger must open its native inspector."
+                                         );
+                                         PRNativeEvents* events = (PRNativeEvents*) PRRoot.detail.topViewController;
+                                         UITableView* table = [events valueForKey:@"table"];
+                                         if ([table numberOfRowsInSection:0] != 2)
+                                             return;
+                                         CheckEventCards(events);
+                                         N::Enqueue([] {
+                                             N::eventFixture.events[0].callers[0].calls = 9007199254740994ULL;
+                                         });
+                                         [events refresh];
+                                         phase = 17;
+                                         return;
+                                     }
+                                     if (phase == 17) {
+                                         PRNativeEvents* events = (PRNativeEvents*) PRRoot.detail.topViewController;
+                                         UITableView* table = [events valueForKey:@"table"];
+                                         UITableViewCell* card =
+                                             [table cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
+                                         if (!FindLabel(card, @"9007199254740994 calls"))
+                                             return;
+                                         N::Enqueue([] { N::eventFixture.events.clear(); });
+                                         [events refresh];
+                                         phase = 18;
+                                         return;
+                                     }
+                                     if (phase == 18) {
+                                         PRNativeEvents* events = (PRNativeEvents*) PRRoot.detail.topViewController;
+                                         UITableView* table = [events valueForKey:@"table"];
+                                         if ([table numberOfRowsInSection:0])
+                                             return;
+                                         Require(
+                                             FindLabel(events.view, @"No events registered."),
+                                             @"Empty registry has no native message."
+                                         );
+                                         Require(
+                                             !FindButton(events.view, @"events-expand-all").enabled,
+                                             @"Expand All should be disabled for an empty registry."
+                                         );
+                                         Require(
+                                             [PRPageController("menu/Dev Tools/Event Debugger")
+                                                 isKindOfClass:PRNativeEvents.class],
+                                             @"Restoring Event Debugger would open a generic page."
+                                         );
                                          Report(
                                              @"passed",
                                              @"Opened/reopened settings; rendered every control; verified "
@@ -809,7 +902,9 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              @"pixel scaling; opaque overlay/nested pages, scrolled title separation "
                                              @"and "
                                              @"uniform one-line sidebar labels; native console submission, output and "
-                                             @"clearing."
+                                             @"clearing; native event expansion/collapse, live 64-bit counts, "
+                                             @"priorities "
+                                             @"and empty registry handling."
                                          );
                                          [timer invalidate];
                                          return;

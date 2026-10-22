@@ -1,4 +1,5 @@
 #include "NativeSettings.h"
+#include "NativeEventSnapshot.h"
 #include "PaperboatMenu.h"
 #include "port/ShipInit.hpp"
 #include "fast/Fast3dWindow.h"
@@ -17,6 +18,10 @@
 #include <set>
 
 namespace Paperboat::NativeSettings {
+EventSnapshot ReadEvents() {
+    auto context = Ship::Context::GetRawInstance();
+    return CaptureEvents(context ? context->GetEventSystem().get() : nullptr);
+}
 namespace {
     std::mutex queueMutex;
     std::deque<std::function<void()>> actions;

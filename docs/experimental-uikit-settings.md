@@ -52,9 +52,22 @@ in the classic General page restores UIKit.
   Sidebar category and submenu labels share a smaller size fitted to the longest
   entry, keeping Enhancements on one line.
 
-Event Debugger and Value Viewer still open their existing interfaces through
-explicit buttons. A **Back to UIKit Settings** control returns to native settings.
-This experiment does not claim a native rewrite of those advanced tools.
+Event Debugger now opens a native, read-only inspector with expandable event
+cards, Expand All/Collapse All, registered event IDs, caller source locations and
+64-bit counts, actual listener IDs, source locations and Low/Normal/High priorities.
+The registry is copied on the game-frame queue, with owned strings and no engine
+pointers passed to UIKit. It refreshes once per second while visible, preserves
+expansion/scroll state during count updates, and stops refreshing when left.
+Live updates wait until scrolling finishes. Newly registered events and removed
+listeners are reflected in fresh snapshots. Empty registries, missing metadata
+and unavailable call-site instrumentation have explicit messages. Upstream only
+records caller counts in debug builds; normal release IPAs still show registered
+events and listeners, without inventing counts. The native page is also restored
+when Settings reopens on Event Debugger. It follows system Light/Dark appearance
+and Dynamic Type using the same opaque page, title and card styling as Settings.
+
+Value Viewer still opens its existing interface through an explicit button.
+A **Back to UIKit Settings** control returns to native settings.
 
 Controller Bindings now opens native pages for all four ports, buttons, D-pad,
 both analog sticks, sensitivity/dead zone/notch settings, global axis thresholds,
@@ -177,6 +190,17 @@ It never runs a game or writes into a user's save directory.
 Validated locally: the Linux build and integration harness pass (804 pages,
 5,583 rows), including actual Input Viewer visibility and clean shutdown.
 The Apple SDK Objective-C++ check also passed on the macOS Actions runner.
+
+The event snapshot regression runs without a renderer or game resources. Compile
+`tests/native-settings/events.cpp` with the actual
+`external/libultraship/src/ship/events/EventSystem.cpp`, using C++20 and include
+paths `src` and `external/libultraship/include`. Run it with and without `_DEBUG`
+to cover instrumentation availability, real dispatch counts, 64-bit metadata,
+stable ordering, listener removal, null metadata and immutable snapshot ownership.
+The optional UIKit harness also covers event card expansion/collapse, live count
+updates, priority labels and empty-registry messages. Routine IPA builds syntax
+check the UIKit source and harness with the Apple SDK; they do not launch a
+simulator. Runtime simulator checks remain manual-only.
 
 The iOS Actions workflow checks Objective-C++ sources with the Apple SDK before
 building the full unsigned IPA. Linux checks cannot validate UIKit presentation.

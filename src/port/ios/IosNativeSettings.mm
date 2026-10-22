@@ -7,6 +7,7 @@
 #include <memory>
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace N = Paperboat::NativeSettings;
 // Shared materials keep the settings pages and editor submenus visually consistent.
@@ -649,6 +650,411 @@ static PRNativeRoot* PRRoot = nil;
 }
 @end
 
+static UIFont* PREventMonoFont(CGFloat size) {
+    return [[UIFontMetrics metricsForTextStyle:UIFontTextStyleFootnote]
+        scaledFontForFont:[UIFont monospacedSystemFontOfSize:size weight:UIFontWeightRegular]];
+}
+static UILabel* PREventLabel(NSString* text, UIFont* font, UIColor* color) {
+    UILabel* label = [[UILabel alloc] init];
+    label.text = text;
+    label.font = font;
+    label.textColor = color;
+    label.numberOfLines = 0;
+    label.adjustsFontForContentSizeCategory = YES;
+    return label;
+}
+static NSString* PREventPath(const std::string& path) {
+    NSString* text = [PRText(path) stringByReplacingOccurrencesOfString:@"\\" withString:@"/"];
+    // Drop build-machine prefixes while retaining the useful source directory.
+    for (NSString* prefix in @[ @"/external/", @"/src/", @"/include/" ]) {
+        NSRange range = [text rangeOfString:prefix];
+        if (range.location != NSNotFound)
+            return [text substringFromIndex:range.location + 1];
+    }
+    return text;
+}
+static bool PREventStructureMatches(const N::EventSnapshot& left, const N::EventSnapshot& right) {
+    if (left.available != right.available || left.recordsCallSites != right.recordsCallSites
+        || left.events.size() != right.events.size())
+        return false;
+    for (size_t i = 0; i < left.events.size(); ++i) {
+        const auto& a = left.events[i];
+        const auto& b = right.events[i];
+        if (a.id != b.id || a.name != b.name || a.listeners != b.listeners || a.callers.size() != b.callers.size())
+            return false;
+        for (size_t c = 0; c < a.callers.size(); ++c)
+            if (a.callers[c].path != b.callers[c].path || a.callers[c].line != b.callers[c].line)
+                return false;
+    }
+    return true;
+}
+
+@interface PRNativeEventCard : UITableViewCell {
+    UIStackView* _stack;
+    NSMutableArray<UILabel*>* _callLabels;
+}
+- (void)configure:(const N::EventInfo&)event expanded:(BOOL)expanded recordsCalls:(BOOL)recordsCalls target:(id)target;
+- (void)updateCalls:(const N::EventInfo&)event;
+@end
+
+@implementation PRNativeEventCard
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString*)identifier {
+    self = [super initWithStyle:style reuseIdentifier:identifier];
+    if (self) {
+        PRStyleCard(self);
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        _callLabels = [NSMutableArray array];
+        _stack = [[UIStackView alloc] init];
+        _stack.axis = UILayoutConstraintAxisVertical;
+        _stack.spacing = 10;
+        _stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.contentView addSubview:_stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [_stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:16],
+            [_stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-16],
+            [_stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:30],
+            [_stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-30]
+        ]];
+    }
+    return self;
+}
+- (void)addHeading:(NSString*)title {
+    [_stack addArrangedSubview:PREventLabel(
+                                   title, PRFont(12, UIFontWeightSemibold, UIFontTextStyleCaption1),
+                                   UIColor.secondaryLabelColor
+                               )];
+}
+- (UILabel*)addSource:(const std::string&)source
+                 line:(int)line
+               detail:(NSString*)detail
+                value:(NSString*)value
+                color:(UIColor*)color {
+    NSString* path = PREventPath(source);
+    NSString* location =
+        path.length ? [NSString stringWithFormat:@"%@:%d", path.lastPathComponent, line] : @"Unknown source";
+    UILabel* primary = PREventLabel(location, PREventMonoFont(13), UIColor.labelColor);
+    primary.lineBreakMode = NSLineBreakByCharWrapping;
+    primary.accessibilityLabel = path.length ? [NSString stringWithFormat:@"%@:%d", path, line] : location;
+    UIStackView* sourceLabels = [[UIStackView alloc] initWithArrangedSubviews:@[ primary ]];
+    sourceLabels.axis = UILayoutConstraintAxisVertical;
+    sourceLabels.spacing = 3;
+    NSString* directory = path.stringByDeletingLastPathComponent;
+    if ([directory isEqualToString:@"."])
+        directory = @"";
+    NSString* secondary = detail.length && directory.length ? [NSString stringWithFormat:@"%@ · %@", detail, directory]
+                                                            : (detail.length ? detail : directory);
+    if (secondary.length) {
+        UILabel* label = PREventLabel(secondary, PREventMonoFont(11), UIColor.secondaryLabelColor);
+        label.lineBreakMode = NSLineBreakByCharWrapping;
+        [sourceLabels addArrangedSubview:label];
+    }
+    UILabel* metric = PREventLabel(value, PREventMonoFont(13), color);
+    metric.textAlignment = NSTextAlignmentRight;
+    metric.numberOfLines = 1;
+    metric.adjustsFontSizeToFitWidth = YES;
+    metric.minimumScaleFactor = .5;
+    [metric setContentCompressionResistancePriority:UILayoutPriorityRequired - 1
+                                            forAxis:UILayoutConstraintAxisHorizontal];
+    [metric setContentHuggingPriority:UILayoutPriorityRequired - 1 forAxis:UILayoutConstraintAxisHorizontal];
+    // Reserve a stable column so growing live counts cannot rewrap source rows
+    // and invalidate the table's cached card height during a count-only update.
+    [metric.widthAnchor constraintEqualToConstant:130].active = YES;
+    UIStackView* content = [[UIStackView alloc] initWithArrangedSubviews:@[ sourceLabels, metric ]];
+    content.alignment = UIStackViewAlignmentCenter;
+    content.spacing = 12;
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    UIView* row = [[UIView alloc] init];
+    row.backgroundColor = [UIColor.labelColor colorWithAlphaComponent:.025];
+    row.layer.cornerRadius = 8;
+    [row addSubview:content];
+    [NSLayoutConstraint activateConstraints:@[
+        [content.topAnchor constraintEqualToAnchor:row.topAnchor constant:9],
+        [content.bottomAnchor constraintEqualToAnchor:row.bottomAnchor constant:-9],
+        [content.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:10],
+        [content.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-10],
+        [sourceLabels.widthAnchor constraintGreaterThanOrEqualToConstant:44]
+    ]];
+    [_stack addArrangedSubview:row];
+    return metric;
+}
+- (void)configure:(const N::EventInfo&)event expanded:(BOOL)expanded recordsCalls:(BOOL)recordsCalls target:(id)target {
+    for (UIView* view in _stack.arrangedSubviews.copy)
+        [view removeFromSuperview];
+    [_callLabels removeAllObjects];
+    UILabel* title =
+        PREventLabel(PRText(event.name), PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody), UIColor.labelColor);
+    NSString* subtitle = [NSString stringWithFormat:@"ID %d · %zu %@", event.id, event.listeners.size(),
+                                                    event.listeners.size() == 1 ? @"listener" : @"listeners"];
+    UIStackView* labels = [[UIStackView alloc] initWithArrangedSubviews:@[
+        title,
+        PREventLabel(subtitle, PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote), UIColor.secondaryLabelColor)
+    ]];
+    labels.axis = UILayoutConstraintAxisVertical;
+    labels.spacing = 5;
+    labels.userInteractionEnabled = NO;
+    labels.translatesAutoresizingMaskIntoConstraints = NO;
+    UIImageView* chevron =
+        [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:expanded ? @"chevron.down" : @"chevron.right"]];
+    chevron.tintColor = UIColor.tertiaryLabelColor;
+    chevron.contentMode = UIViewContentModeScaleAspectFit;
+    chevron.translatesAutoresizingMaskIntoConstraints = NO;
+    UIButton* heading = [UIButton buttonWithType:UIButtonTypeCustom];
+    heading.tag = event.id;
+    heading.accessibilityIdentifier = [NSString stringWithFormat:@"event-%d", event.id];
+    heading.accessibilityLabel = [NSString stringWithFormat:@"%@, %@", title.text, subtitle];
+    heading.accessibilityValue = expanded ? @"Expanded" : @"Collapsed";
+    [heading addTarget:target action:@selector(toggleEvent:) forControlEvents:UIControlEventTouchUpInside];
+    [heading addSubview:labels];
+    [heading addSubview:chevron];
+    [NSLayoutConstraint activateConstraints:@[
+        [heading.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+        [labels.topAnchor constraintEqualToAnchor:heading.topAnchor constant:4],
+        [labels.bottomAnchor constraintEqualToAnchor:heading.bottomAnchor constant:-4],
+        [labels.leadingAnchor constraintEqualToAnchor:heading.leadingAnchor],
+        [labels.trailingAnchor constraintEqualToAnchor:chevron.leadingAnchor constant:-12],
+        [chevron.trailingAnchor constraintEqualToAnchor:heading.trailingAnchor],
+        [chevron.centerYAnchor constraintEqualToAnchor:heading.centerYAnchor],
+        [chevron.widthAnchor constraintEqualToConstant:16], [chevron.heightAnchor constraintEqualToConstant:16]
+    ]];
+    [_stack addArrangedSubview:heading];
+    if (!expanded)
+        return;
+    [self addHeading:[NSString stringWithFormat:@"CALLERS · %zu", event.callers.size()]];
+    if (event.callers.empty())
+        [_stack addArrangedSubview:PREventLabel(
+                                       recordsCalls ? @"No call sites recorded yet."
+                                                    : @"This build does not record call sites.",
+                                       PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote),
+                                       UIColor.secondaryLabelColor
+                                   )];
+    for (const auto& caller : event.callers)
+        [_callLabels addObject:[self addSource:caller.path
+                                          line:caller.line
+                                        detail:@""
+                                         value:@""
+                                         color:UIColor.secondaryLabelColor]];
+    [self updateCalls:event];
+    UIView* divider = [[UIView alloc] init];
+    divider.backgroundColor = [UIColor.separatorColor colorWithAlphaComponent:.3];
+    [divider.heightAnchor constraintEqualToConstant:1 / UIScreen.mainScreen.scale].active = YES;
+    [_stack addArrangedSubview:divider];
+    [self addHeading:[NSString stringWithFormat:@"LISTENERS · %zu", event.listeners.size()]];
+    if (event.listeners.empty())
+        [_stack addArrangedSubview:PREventLabel(
+                                       @"No listeners registered.",
+                                       PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote),
+                                       UIColor.secondaryLabelColor
+                                   )];
+    for (const auto& listener : event.listeners) {
+        NSString* priority = @"Unknown";
+        UIColor* color = UIColor.secondaryLabelColor;
+        switch (listener.priority) {
+            case N::EventPriority::High:
+                priority = @"High";
+                color = UIColor.systemRedColor;
+                break;
+            case N::EventPriority::Normal:
+                priority = @"Normal";
+                color = UIColor.systemOrangeColor;
+                break;
+            case N::EventPriority::Low:
+                priority = @"Low";
+                break;
+            case N::EventPriority::Unknown:
+                break;
+        }
+        [self addSource:listener.path
+                   line:listener.line
+                 detail:[NSString stringWithFormat:@"Listener ID %lld", (long long) listener.id]
+                  value:priority
+                  color:color];
+    }
+}
+- (void)updateCalls:(const N::EventInfo&)event {
+    for (size_t i = 0; i < event.callers.size() && i < _callLabels.count; ++i)
+        _callLabels[i].text = [NSString stringWithFormat:@"%llu %@", (unsigned long long) event.callers[i].calls,
+                                                         event.callers[i].calls == 1 ? @"call" : @"calls"];
+}
+@end
+
+@interface PRNativeEvents : UIViewController <UITableViewDataSource, UITableViewDelegate> {
+    UITableView* _table;
+    UILabel* _empty;
+    UIButton* _expand;
+    UIButton* _collapse;
+    NSTimer* _timer;
+    N::EventSnapshot _snapshot;
+    std::set<int32_t> _expanded;
+    uint64_t _generation;
+    BOOL _active, _refreshing, _received, _allExpanded;
+}
+- (void)refresh;
+@end
+
+@implementation PRNativeEvents
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRIsolatePage(self);
+    self.title = @"Event Debugger";
+    _expand = [UIButton buttonWithType:UIButtonTypeSystem];
+    _collapse = [UIButton buttonWithType:UIButtonTypeSystem];
+    for (UIButton* button in @[ _expand, _collapse ]) {
+        UIButtonConfiguration* configuration = [UIButtonConfiguration plainButtonConfiguration];
+        configuration.title = button == _expand ? @"Expand All" : @"Collapse All";
+        configuration.contentInsets = NSDirectionalEdgeInsetsMake(8, 4, 8, 4);
+        button.configuration = configuration;
+        button.titleLabel.font = PRFont(14, UIFontWeightMedium, UIFontTextStyleSubheadline);
+        button.titleLabel.adjustsFontForContentSizeCategory = YES;
+        button.titleLabel.numberOfLines = 0;
+        button.enabled = NO;
+        [button.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
+    }
+    _expand.accessibilityIdentifier = @"events-expand-all";
+    _collapse.accessibilityIdentifier = @"events-collapse-all";
+    [_expand addTarget:self action:@selector(expandAll) forControlEvents:UIControlEventTouchUpInside];
+    [_collapse addTarget:self action:@selector(collapseAll) forControlEvents:UIControlEventTouchUpInside];
+    UIView* spacer = [[UIView alloc] init];
+    [spacer.widthAnchor constraintGreaterThanOrEqualToConstant:8].active = YES;
+    UIStackView* toolbar = [[UIStackView alloc] initWithArrangedSubviews:@[ _expand, spacer, _collapse ]];
+    toolbar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:toolbar];
+    _table = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    PRStyleTable(_table);
+    _table.dataSource = self;
+    _table.delegate = self;
+    _table.rowHeight = UITableViewAutomaticDimension;
+    _table.estimatedRowHeight = 90;
+    _table.translatesAutoresizingMaskIntoConstraints = NO;
+    [_table registerClass:PRNativeEventCard.class forCellReuseIdentifier:@"event"];
+    [self.view addSubview:_table];
+    _empty = PREventLabel(
+        @"Loading events…", PRFont(14, UIFontWeightRegular, UIFontTextStyleBody), UIColor.secondaryLabelColor
+    );
+    _empty.textAlignment = NSTextAlignmentCenter;
+    _empty.userInteractionEnabled = NO;
+    _empty.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_empty];
+    UILayoutGuide* safe = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [toolbar.topAnchor constraintEqualToAnchor:safe.topAnchor constant:4],
+        [toolbar.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:26],
+        [toolbar.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-26],
+        [_table.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:2],
+        [_table.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [_table.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
+        [_table.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+        [_empty.centerYAnchor constraintEqualToAnchor:_table.centerYAnchor],
+        [_empty.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:24],
+        [_empty.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-24]
+    ]];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    _active = YES;
+    [self refresh];
+    __weak PRNativeEvents* weak = self;
+    _timer = [NSTimer scheduledTimerWithTimeInterval:1
+                                             repeats:YES
+                                               block:^(NSTimer*) {
+                                                   [weak refresh];
+                                               }];
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    _active = NO;
+    ++_generation;
+    _refreshing = NO;
+    [_timer invalidate];
+    _timer = nil;
+}
+- (void)dealloc {
+    [_timer invalidate];
+}
+- (void)refresh {
+    if (!_active || _refreshing || _table.dragging || _table.decelerating
+        || UIApplication.sharedApplication.applicationState != UIApplicationStateActive)
+        return;
+    _refreshing = YES;
+    const uint64_t generation = ++_generation;
+    __weak PRNativeEvents* weak = self;
+    N::Enqueue([weak, generation] {
+        auto snapshot = std::make_shared<N::EventSnapshot>(N::ReadEvents());
+        dispatch_async(dispatch_get_main_queue(), ^{
+            PRNativeEvents* controller = weak;
+            if (!controller || !controller->_active || controller->_generation != generation)
+                return;
+            controller->_refreshing = NO;
+            if (controller->_table.dragging || controller->_table.decelerating)
+                return;
+            if (controller->_received && controller->_snapshot == *snapshot)
+                return;
+            const bool structureChanged =
+                !controller->_received || !PREventStructureMatches(controller->_snapshot, *snapshot);
+            controller->_received = YES;
+            controller->_snapshot = std::move(*snapshot);
+            std::set<int32_t> current;
+            for (const auto& event : controller->_snapshot.events)
+                if (controller->_allExpanded || controller->_expanded.contains(event.id))
+                    current.insert(event.id);
+            controller->_expanded = std::move(current);
+            controller->_expand.enabled = !controller->_snapshot.events.empty();
+            controller->_collapse.enabled = !controller->_expanded.empty();
+            controller->_empty.hidden = !controller->_snapshot.events.empty();
+            controller->_empty.text =
+                controller->_snapshot.available ? @"No events registered." : @"Event system unavailable.";
+            if (structureChanged) {
+                [controller->_table reloadData];
+            } else {
+                // Counts are the common live update. Do not rebuild cards or reset
+                // their expansion/scroll state just because another frame ran.
+                for (NSIndexPath* path in controller->_table.indexPathsForVisibleRows) {
+                    PRNativeEventCard* cell = (PRNativeEventCard*) [controller->_table cellForRowAtIndexPath:path];
+                    [cell updateCalls:controller->_snapshot.events[path.row]];
+                }
+            }
+        });
+    });
+}
+- (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
+    return _snapshot.events.size();
+}
+- (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)path {
+    PRNativeEventCard* cell = [tableView dequeueReusableCellWithIdentifier:@"event" forIndexPath:path];
+    const auto& event = _snapshot.events[path.row];
+    [cell configure:event expanded:_expanded.contains(event.id) recordsCalls:_snapshot.recordsCallSites target:self];
+    return cell;
+}
+- (void)toggleEvent:(UIButton*)sender {
+    const int32_t id = int32_t(sender.tag);
+    auto event = std::find_if(_snapshot.events.begin(), _snapshot.events.end(), [id](const auto& entry) {
+        return entry.id == id;
+    });
+    if (event == _snapshot.events.end())
+        return;
+    _allExpanded = NO;
+    if (!_expanded.erase(id))
+        _expanded.insert(id);
+    _collapse.enabled = !_expanded.empty();
+    NSIndexPath* path = [NSIndexPath indexPathForRow:event - _snapshot.events.begin() inSection:0];
+    [UIView performWithoutAnimation:^{
+        [_table reloadRowsAtIndexPaths:@[ path ] withRowAnimation:UITableViewRowAnimationNone];
+    }];
+}
+- (void)expandAll {
+    _allExpanded = YES;
+    for (const auto& event : _snapshot.events)
+        _expanded.insert(event.id);
+    _collapse.enabled = !_expanded.empty();
+    [_table reloadData];
+}
+- (void)collapseAll {
+    _allExpanded = NO;
+    _expanded.clear();
+    _collapse.enabled = NO;
+    [_table reloadData];
+}
+@end
+
 @implementation PRNativePage
 - (instancetype)initWithKey:(std::string)key {
     self = [super initWithStyle:UITableViewStyleGrouped];
@@ -1163,6 +1569,14 @@ static PRNativeRoot* PRRoot = nil;
 }
 @end
 
+static UIViewController* PRPageController(std::string key) {
+    if (key == "menu/Dev Tools/Console" || key == "console")
+        return [[PRNativeConsole alloc] init];
+    if (key == "menu/Dev Tools/Event Debugger" || key == "events")
+        return [[PRNativeEvents alloc] init];
+    return [[PRNativePage alloc] initWithKey:std::move(key)];
+}
+
 @implementation PRNativeRoot
 - (instancetype)init {
     self = [super init];
@@ -1312,9 +1726,7 @@ static PRNativeRoot* PRRoot = nil;
 - (void)openPage:(std::string)key {
     N::Enqueue([key] { N::RememberPage(key); });
     [(PRNativeSidebar*) self.primary.viewControllers.firstObject selectPage:key];
-    UIViewController* page = (key == "menu/Dev Tools/Console" || key == "console")
-        ? [[PRNativeConsole alloc] init]
-        : [[PRNativePage alloc] initWithKey:std::move(key)];
+    UIViewController* page = PRPageController(std::move(key));
     [self.detail setViewControllers:@[ page ] animated:NO];
     [self showColumn:UISplitViewControllerColumnSecondary];
 }
@@ -1402,8 +1814,7 @@ static void PRPresentSettings(
     PRNativeSidebar* sidebar = [[PRNativeSidebar alloc] initWithGroups:*groups initial:initial host:PRRoot];
     UINavigationController* primary = [[UINavigationController alloc] initWithRootViewController:sidebar];
     PRStyleNavigation(primary);
-    PRRoot.detail =
-        [[UINavigationController alloc] initWithRootViewController:[[PRNativePage alloc] initWithKey:initial]];
+    PRRoot.detail = [[UINavigationController alloc] initWithRootViewController:PRPageController(initial)];
     PRStyleNavigation(PRRoot.detail);
     [PRRoot setViewController:primary forColumn:UISplitViewControllerColumnPrimary];
     [PRRoot setViewController:PRRoot.detail forColumn:UISplitViewControllerColumnSecondary];

@@ -74,6 +74,40 @@ ConsoleSnapshot ReadConsole();
 void SubmitConsole(std::string command);
 void ClearConsole();
 
+enum class EventPriority {
+    Low,
+    Normal,
+    High,
+    Unknown
+};
+struct EventCaller {
+    std::string path;
+    int line = 0;
+    uint64_t calls = 0;
+    bool operator==(const EventCaller&) const = default;
+};
+struct EventListener {
+    int64_t id = 0;
+    std::string path;
+    int line = 0;
+    EventPriority priority = EventPriority::Unknown;
+    bool operator==(const EventListener&) const = default;
+};
+struct EventInfo {
+    int32_t id = 0;
+    std::string name;
+    std::vector<EventCaller> callers;
+    std::vector<EventListener> listeners;
+    bool operator==(const EventInfo&) const = default;
+};
+struct EventSnapshot {
+    bool available = false, recordsCallSites = false;
+    std::vector<EventInfo> events;
+    bool operator==(const EventSnapshot&) const = default;
+};
+// Copy event metadata on the game-frame queue. No engine pointers cross to UIKit.
+EventSnapshot ReadEvents();
+
 void Enqueue(std::function<void()> action);
 void Frame(PaperboatGui::PaperboatMenu& menu);
 void Stop();

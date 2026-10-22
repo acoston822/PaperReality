@@ -247,7 +247,9 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
             return N::SaveEditorPage("save/root");
         if (page == "Blueprint Editor")
             return N::BlueprintEditorPage("blueprint/root");
-        if (page == "Event Debugger" || page == "Value Viewer")
+        if (page == "Event Debugger")
+            return { key, "Event Debugger", "", { } };
+        if (page == "Value Viewer")
             return ClassicPage(key, page, group, page);
         if (page == "Stats") {
             N::Row fps;

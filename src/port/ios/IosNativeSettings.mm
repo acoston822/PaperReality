@@ -44,6 +44,17 @@ static void PRIsolatePage(UIViewController* page) {
 static UIFont* PRFont(CGFloat size, UIFontWeight weight, UIFontTextStyle style) {
     return [[UIFontMetrics metricsForTextStyle:style] scaledFontForFont:[UIFont systemFontOfSize:size weight:weight]];
 }
+static void PRHideScrollEdgeEffects(UIScrollView* scroll) {
+    // Public API on newer iOS versions, guarded for older SDKs and devices.
+    // Our opaque panes already separate content from titles/toolbars; a second
+    // system edge material can paint strips over the first/last visible cards.
+    for (NSString* name in @[ @"topEdgeEffect", @"bottomEdgeEffect" ])
+        if ([scroll respondsToSelector:NSSelectorFromString(name)]) {
+            id effect = [scroll valueForKey:name];
+            if ([effect respondsToSelector:NSSelectorFromString(@"setHidden:")])
+                [effect setValue:@YES forKey:@"hidden"];
+        }
+}
 static void PRStyleTable(UITableView* table) {
     table.backgroundColor = PRPageCanvas();
     // UITableView keeps backgroundView stationary while its rows bounce. Cover
@@ -57,6 +68,7 @@ static void PRStyleTable(UITableView* table) {
     table.sectionHeaderTopPadding = 0;
     table.estimatedSectionHeaderHeight = 38;
     table.estimatedSectionFooterHeight = 20;
+    PRHideScrollEdgeEffects(table);
 }
 static CGRect PRPixelAlignedRect(CGRect frame, CGFloat scale) {
     CGFloat left = std::round(CGRectGetMinX(frame) * scale) / scale;
@@ -924,6 +936,12 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     _table.delegate = self;
     _table.rowHeight = UITableViewAutomaticDimension;
     _table.estimatedRowHeight = 90;
+    _table.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    _table.sectionHeaderHeight = 0;
+    _table.sectionFooterHeight = 0;
+    _table.estimatedSectionHeaderHeight = 0;
+    _table.estimatedSectionFooterHeight = 0;
+    _table.clipsToBounds = YES;
     _table.translatesAutoresizingMaskIntoConstraints = NO;
     [_table registerClass:PRNativeEventCard.class forCellReuseIdentifier:@"event"];
     [self.view addSubview:_table];
@@ -1017,6 +1035,12 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
 }
 - (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
     return _snapshot.events.size();
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
+    return 0;
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
+    return 0;
 }
 - (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)path {
     PRNativeEventCard* cell = [tableView dequeueReusableCellWithIdentifier:@"event" forIndexPath:path];
@@ -1486,14 +1510,6 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     self.tableView.showsVerticalScrollIndicator = NO;
     self.tableView.showsHorizontalScrollIndicator = NO;
-    // Newer UIKit versions add a scroll-edge material even to a hidden-bar
-    // sidebar. Use the public property dynamically when running with an older SDK.
-    for (NSString* name in @[ @"topEdgeEffect", @"bottomEdgeEffect" ])
-        if ([self.tableView respondsToSelector:NSSelectorFromString(name)]) {
-            id effect = [self.tableView valueForKey:name];
-            if ([effect respondsToSelector:NSSelectorFromString(@"setHidden:")])
-                [effect setValue:@YES forKey:@"hidden"];
-        }
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 46;
     self.tableView.estimatedSectionHeaderHeight = 0;

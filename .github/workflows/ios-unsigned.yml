@@ -63,6 +63,24 @@ jobs:
         uses: actions/github-script@v9
         with:
           script: |
+            // Debug checks are opt-in for a specific requested investigation.
+            // Routine pushes continue to build only the IPA.
+            if (context.eventName === 'push' && context.payload.head_commit?.message.includes('[uikit-debug]')) {
+              await github.rest.actions.createWorkflowDispatch({
+                ...context.repo, workflow_id: 'uikit-smoke.yml', ref: context.ref,
+              });
+              let started = false;
+              for (let attempt = 0; attempt < 40; ++attempt) {
+                const { data } = await github.rest.actions.listWorkflowRuns({
+                  ...context.repo, workflow_id: 'uikit-smoke.yml', head_sha: context.sha,
+                  event: 'workflow_dispatch', per_page: 10,
+                });
+                if (data.workflow_runs.length) { started = true; break; }
+                await new Promise(resolve => setTimeout(resolve, 1500));
+              }
+              if (!started) throw new Error('Requested UIKit debug run did not start; cleanup left it intact.');
+              core.notice('Started requested UIKit debug check.');
+            }
             const simulatorPaths = new Set([
               '.github/workflows/uikit-smoke.yml',
               '.github/workflows/uikit-captures.yml',

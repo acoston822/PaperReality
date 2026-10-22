@@ -85,15 +85,6 @@ namespace {
         }
         return title;
     }
-    N::Page ClassicPage(std::string key, std::string title, std::string group, std::string page) {
-        N::Row row;
-        row.title = "Open " + title;
-        row.kind = N::Kind::Action;
-        row.symbol = "arrow.up.right.square";
-        row.detail = "This advanced tool currently uses the existing interface. Back to UIKit Settings returns here.";
-        row.activate = [group, page] { N::OpenClassic(group, page); };
-        return { key, title, "", { { "", "", { row } } } };
-    }
 }
 
 std::vector<N::Group> PaperboatMenu::NativeNavigation() {
@@ -250,7 +241,7 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
         if (page == "Event Debugger")
             return { key, "Event Debugger", "", { } };
         if (page == "Value Viewer")
-            return ClassicPage(key, page, group, page);
+            return N::ValueViewerPage();
         if (page == "Stats") {
             N::Row fps;
             fps.title = "Frame Rate";

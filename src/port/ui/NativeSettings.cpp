@@ -191,6 +191,8 @@ Page BuildPage(const std::string& key) {
         return ModPage(key);
     if (key.starts_with("viewer/"))
         return InputViewerPage(key);
+    if (key == "values/root")
+        return ValueViewerPage();
     if (key == "shaders")
         return ShaderPage();
     return owner ? owner->NativePage(key) : Page { key, "Settings", "", { } };

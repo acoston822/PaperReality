@@ -145,6 +145,7 @@ Page SaveEditorPage(const std::string& key);
 Page BlueprintEditorPage(const std::string& key);
 Page ModPage(const std::string& key);
 Page InputViewerPage(const std::string& key);
+Page ValueViewerPage();
 Page ShaderPage();
 Page ControllerBindingsPage(const std::string& key);
 void UpdateControllerBindings(bool visible);

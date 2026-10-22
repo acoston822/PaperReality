@@ -84,6 +84,34 @@ std::vector<Group> BuildNavigation() {
 }
 Page BuildPage(const std::string& key) {
     Page page { key, key == "controls-test" ? "Control Types" : "General", "", { } };
+    if (key == "menu/Dev Tools/Value Viewer") {
+        page.title = "Value Viewer";
+        auto toggle = [](const char* title) {
+            Row row;
+            row.title = title;
+            row.kind = Kind::Toggle;
+            row.change = [](double) { };
+            return row;
+        };
+        Row opacity;
+        opacity.title = "Background Opacity";
+        opacity.kind = Kind::Decimal;
+        opacity.maximum = 1;
+        opacity.step = .01;
+        opacity.value = .5;
+        opacity.percentage = true;
+        opacity.change = [](double) { };
+        Row size = opacity;
+        size.title = "Overlay Size";
+        size.minimum = .5;
+        size.maximum = 2.5;
+        size.step = .1;
+        size.percentage = false;
+        page.sections = { { "", "", { toggle("Show Value Viewer") } },
+                          { "Window Options", "", { toggle("Floating Window"), opacity, size } },
+                          { "Value Options", "", { toggle("Show Current Map"), toggle("Show Mario's Position") } } };
+        return page;
+    }
     if (key == "menu/Settings/General" || key == "audio") {
         auto row = [](const char* title, Kind kind) {
             Row r;
@@ -249,6 +277,63 @@ static UIButton* FindButton(UIView* view, NSString* identifier) {
             return button;
     return nil;
 }
+static std::vector<uint8_t> EventGutterPixels(UITableView* table) {
+    UIView* root = PRRoot.view;
+    CGRect frame = [table convertRect:table.bounds toView:root];
+    // Cards are inset 12 points. A strip covering this outside gutter is a
+    // table decoration, not part of a card. Capture only this narrow region.
+    CGRect region = CGRectMake(ceil(frame.origin.x) + 2, ceil(frame.origin.y) + 2, 2, floor(frame.size.height) - 4);
+    Require(region.size.height > 0, @"Event list has no visible gutter.");
+    UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat defaultFormat];
+    format.scale = 1;
+    format.opaque = YES;
+    UIGraphicsImageRenderer* renderer = [[UIGraphicsImageRenderer alloc] initWithSize:region.size format:format];
+    UIImage* capture = [renderer imageWithActions:^(UIGraphicsImageRendererContext* context) {
+        CGContextTranslateCTM(context.CGContext, -region.origin.x, -region.origin.y);
+        [root drawViewHierarchyInRect:root.bounds afterScreenUpdates:YES];
+    }];
+    const size_t width = CGImageGetWidth(capture.CGImage), height = CGImageGetHeight(capture.CGImage);
+    std::vector<uint8_t> pixels(width * height * 4);
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(
+        pixels.data(), width, height, 8, width * 4, space, kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big
+    );
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), capture.CGImage);
+    CGContextRelease(context);
+    CGColorSpaceRelease(space);
+    return pixels;
+}
+static void CheckEventBars(PRNativeEvents* events) {
+    UITableView* table = [events valueForKey:@"table"];
+    [events.view layoutIfNeeded];
+    const CGPoint previous = table.contentOffset;
+    const UIUserInterfaceStyle previousStyle = PRRoot.overrideUserInterfaceStyle;
+    for (NSNumber* style in @[ @(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark) ]) {
+        PRRoot.overrideUserInterfaceStyle = UIUserInterfaceStyle(style.integerValue);
+        [PRRoot.view layoutIfNeeded];
+        table.hidden = YES;
+        const auto canvas = EventGutterPixels(table);
+        table.hidden = NO;
+        const CGFloat maximum = MAX(0, table.contentSize.height - table.bounds.size.height + table.contentInset.bottom);
+        for (NSNumber* offset in @[ @0, @37.25, @(maximum), @(maximum + 48.25) ]) {
+            [table setContentOffset:CGPointMake(0, offset.doubleValue) animated:NO];
+            [table layoutIfNeeded];
+            Require(
+                [table rectForHeaderInSection:0].size.height == 0 && [table rectForFooterInSection:0].size.height == 0,
+                @"Event list reserves a blank header/footer strip."
+            );
+            const auto visible = EventGutterPixels(table);
+            Require(canvas.size() == visible.size(), @"Event gutter resized during scrolling.");
+            for (size_t i = 0; i < canvas.size(); ++i)
+                Require(
+                    abs(int(canvas[i]) - int(visible[i])) <= 2,
+                    @"A table decoration paints a bar over the Event Debugger gutter."
+                );
+        }
+    }
+    PRRoot.overrideUserInterfaceStyle = previousStyle;
+    [table setContentOffset:previous animated:NO];
+}
 static void CheckEventCards(PRNativeEvents* events) {
     UITableView* table = [events valueForKey:@"table"];
     const auto first = [NSIndexPath indexPathForRow:0 inSection:0];
@@ -275,6 +360,7 @@ static void CheckEventCards(PRNativeEvents* events) {
         @"Empty event details do not explain unavailable diagnostics."
     );
     CheckPageSeparation(PRRoot.detail);
+    CheckEventBars(events);
 }
 static std::vector<uint8_t> PanelEdgePixels(UIView* panel) {
     UIView* root = PRRoot.view;
@@ -894,6 +980,28 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                                  isKindOfClass:PRNativeEvents.class],
                                              @"Restoring Event Debugger would open a generic page."
                                          );
+                                         [PRRoot openPage:"menu/Dev Tools/Value Viewer"];
+                                         phase = 19;
+                                         return;
+                                     }
+                                     if (phase == 19) {
+                                         PRNativePage* page = PRSmokePage(PRRoot);
+                                         if (!page || ![page.title isEqualToString:@"Value Viewer"])
+                                             return;
+                                         Require(
+                                             [page.tableView numberOfSections] == 3 &&
+                                                 [page.tableView numberOfRowsInSection:1] == 2,
+                                             @"Value Viewer must pair opacity/size beside its floating toggle."
+                                         );
+                                         UITableViewCell* pair = [page tableView:page.tableView
+                                                           cellForRowAtIndexPath:[NSIndexPath indexPathForRow:1
+                                                                                                    inSection:1]];
+                                         Require(
+                                             PRSmokeSlider(pair, @"Background Opacity")
+                                                 && PRSmokeSlider(pair, @"Overlay Size"),
+                                             @"Value Viewer numeric controls are missing."
+                                         );
+                                         CheckPageSeparation(PRRoot.detail);
                                          Report(
                                              @"passed",
                                              @"Opened/reopened settings; rendered every control; verified "
@@ -904,7 +1012,8 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              @"uniform one-line sidebar labels; native console submission, output and "
                                              @"clearing; native event expansion/collapse, live 64-bit counts, "
                                              @"priorities "
-                                             @"and empty registry handling."
+                                             @"and empty registry handling; event scroll-bar coverage in light/dark "
+                                             @"and native Value Viewer cards."
                                          );
                                          [timer invalidate];
                                          return;

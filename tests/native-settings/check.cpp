@@ -2,6 +2,7 @@
 #include "port/Engine.h"
 #include "port/ui/PaperboatGui.hpp"
 #include "port/ui/NativeSettings.h"
+#include "port/ui/devtools/valueviewer/ValueViewer.h"
 #include "port/FilePicker.h"
 #include "port/enhancements/gameplay/ActorBlueprints.h"
 #include <fast/resource/ResourceType.h>
@@ -256,6 +257,41 @@ static void CheckConsole() {
         N::ReadConsole().lines.empty() && !N::ReadConsole().history.empty(), "Clear lost history or retained output"
     );
 }
+static void CheckValueViewer(PaperboatGui::PaperboatMenu& menu) {
+    extern std::vector<ValueViewerTypes> enabledSettingsList;
+    extern ImVec4 valueViewerBG;
+    extern float valueViewerScale;
+    extern ImGuiWindowFlags valueViewerWindowFlags;
+    CVarSetFloat("gValueViewer.Scale", .9f);
+    const auto page = menu.NativePage("menu/Dev Tools/Value Viewer");
+    Require(page.id == "values/root" && page.sections.size() == 3, "Value Viewer still opens a classic tool");
+    Require(CVarGetFloat("gValueViewer.Scale", 0) == .9f, "Opening Value Viewer changed the overlay size");
+    auto change = [&](const char* title, double value) {
+        N::Enqueue([row = Find(page, title), value] { row.change(value); });
+        N::Frame(menu);
+    };
+    change("Show Value Viewer", 1);
+    Require(CVarGetInteger("gWindows.ValueViewer", 0) == 1, "Value Viewer toggle did not enable the overlay");
+    change("Floating Window", 1);
+    Require(valueViewerWindowFlags & ImGuiWindowFlags_NoTitleBar, "Floating toggle did not update overlay flags");
+    change("Floating Window", 0);
+    Require(!(valueViewerWindowFlags & ImGuiWindowFlags_NoTitleBar), "Floating toggle did not restore title bar");
+    change("Background Opacity", .73);
+    Require(fabs(valueViewerBG.w - .73f) < .001, "Opacity did not reach the existing overlay");
+    change("Overlay Size", 99);
+    Require(fabs(valueViewerScale - 2.5f) < .001, "Overlay size was not clamped/applied");
+    change("Show Current Map", 1);
+    change("Show Mario's Position", 1);
+    Require(enabledSettingsList.size() == 2, "Value toggles did not refresh overlay values");
+    change("Show Current Map", 0);
+    Require(
+        enabledSettingsList.size() == 1 && enabledSettingsList[0] == VALUE_TYPE_POSITION,
+        "Map toggle changed the wrong overlay value"
+    );
+    change("Show Value Viewer", 0);
+    Require(!CVarGetInteger("gWindows.ValueViewer", 0), "Value Viewer toggle did not hide the overlay");
+    Require(!N::ClassicToolActive(), "Editing Value Viewer opened classic settings");
+}
 static void CheckIosPickerBridge(PaperboatGui::PaperboatMenu& menu) {
     namespace fs = std::filesystem;
     Ship::FileBrowserRequest request;
@@ -417,6 +453,7 @@ int main() {
         auto& menu = *PaperboatGui::mPaperboatMenu;
         N::Frame(menu);
         CheckConsole();
+        CheckValueViewer(menu);
         CheckIosPickerBridge(menu);
         CheckControllerBindings(menu);
         int queued = 0;

@@ -66,8 +66,20 @@ events and listeners, without inventing counts. The native page is also restored
 when Settings reopens on Event Debugger. It follows system Light/Dark appearance
 and Dynamic Type using the same opaque page, title and card styling as Settings.
 
-Value Viewer still opens its existing interface through an explicit button.
-A **Back to UIKit Settings** control returns to native settings.
+Value Viewer settings are native too: Show Value Viewer, Floating Window,
+Background Opacity, Overlay Size, Show Current Map and Show Mario's Position.
+The opacity/size controls share the existing adaptive numeric-card layout.
+They update the existing overlay CVars and cached drawing state on the game
+queue, and preserve current preferences when the page opens. The overlay itself
+continues using its existing in-game drawing path; its size is separate from
+the settings interface. The existing 0.5 size fallback remains supported.
+
+All styled tables suppress system scroll-edge material where that API exists.
+Event Debugger additionally uses zero header/footer heights and estimates, and
+no automatic inset adjustment inside its explicitly constrained content area.
+This avoids blank sticky strips over the first/last visible event cards. The
+simulator regression compares the outside card gutter against its unobstructed
+canvas at normal, fractional and overscrolled offsets in Light and Dark mode.
 
 Controller Bindings now opens native pages for all four ports, buttons, D-pad,
 both analog sticks, sensitivity/dead zone/notch settings, global axis thresholds,
@@ -250,6 +262,9 @@ API from the hosted runner, without requiring API access from the development
 workspace. The newest unsuccessful simulator result is retained for diagnosis;
 after a successful rerun, older results are removed too. IPA and other build runs
 are excluded from deletion. No separate cleanup workflow is created.
+For a requested debugging investigation, a commit containing `[uikit-debug]`
+asks the IPA cleanup job to dispatch the separate UIKit check and wait for it
+before cleanup. This is opt-in; normal pushes do not run simulator checks.
 The unsigned IPA build workflow remains available. An IPA is considered available
 only after its artifact can be downloaded and its bundle build number checked.
 A queued status alone is not evidence that compilation or packaging passed.

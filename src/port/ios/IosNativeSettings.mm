@@ -234,36 +234,41 @@ static UIImage* PRBlankPortrait() {
     }];
 }
 
-#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
-@class PRNativeTimingHUD;
-@interface PRNativeTimingTarget : NSObject
-@property (nonatomic, weak) PRNativeTimingHUD* hud;
+// The menu owns its refresh request, independently of the game's frame limit.
+// This view has no size or visible content outside development builds.
+@class PRNativeFrameClock;
+@interface PRNativeFrameTarget : NSObject
+@property (nonatomic, weak) PRNativeFrameClock* clock;
 - (void)tick:(CADisplayLink*)link;
 @end
 
-@interface PRNativeTimingHUD : UIView {
-    UILabel* _label;
+@interface PRNativeFrameClock : UIView {
     CADisplayLink* _link;
-    PRNativeTimingTarget* _target;
+    PRNativeFrameTarget* _target;
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    UILabel* _label;
     N::FrameTiming _timing;
+#endif
 }
 @property (nonatomic) BOOL monitoring;
 - (void)tick:(CADisplayLink*)link;
 - (void)syncMonitoring;
+- (void)resetTiming;
 @end
 
-@implementation PRNativeTimingTarget
+@implementation PRNativeFrameTarget
 - (void)tick:(CADisplayLink*)link {
-    [self.hud tick:link];
+    [self.clock tick:link];
 }
 @end
 
-@implementation PRNativeTimingHUD
+@implementation PRNativeFrameClock
 - (instancetype)init {
     self = [super initWithFrame:CGRectZero];
     if (!self)
         return nil;
     self.userInteractionEnabled = NO;
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
     self.backgroundColor = [UIColor colorWithWhite:.025 alpha:.94];
     self.layer.cornerRadius = 8;
     self.clipsToBounds = YES;
@@ -272,10 +277,11 @@ static UIImage* PRBlankPortrait() {
     _label.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
     _label.textColor = UIColor.whiteColor;
     _label.numberOfLines = 4;
-    _label.text = @"UI timing · DEVELOPMENT\nCollecting callback timing…\n\nTiming estimate; not GPU FPS";
     [self addSubview:_label];
-    _target = [[PRNativeTimingTarget alloc] init];
-    _target.hud = self;
+    [self resetTiming];
+#endif
+    _target = [[PRNativeFrameTarget alloc] init];
+    _target.clock = self;
     NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
     for (NSNotificationName name in
          @[ UIApplicationDidBecomeActiveNotification, UIApplicationWillResignActiveNotification ])
@@ -284,7 +290,15 @@ static UIImage* PRBlankPortrait() {
 }
 - (void)layoutSubviews {
     [super layoutSubviews];
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
     _label.frame = CGRectInset(self.bounds, 8, 6);
+#endif
+}
+- (void)resetTiming {
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    _timing.Reset();
+    _label.text = @"UI timing · DEVELOPMENT\nCollecting callback timing…\n\nTiming estimate; not GPU FPS";
+#endif
 }
 - (void)setMonitoring:(BOOL)monitoring {
     _monitoring = monitoring;
@@ -298,7 +312,7 @@ static UIImage* PRBlankPortrait() {
     if ([notification.name isEqualToString:UIApplicationWillResignActiveNotification]) {
         [_link invalidate];
         _link = nil;
-        _timing.Reset();
+        [self resetTiming];
     } else {
         [self syncMonitoring];
     }
@@ -309,21 +323,21 @@ static UIImage* PRBlankPortrait() {
     {
         [_link invalidate];
         _link = nil;
-        _timing.Reset();
+        [self resetTiming];
         return;
     }
     if (_link)
         return;
-    _timing.Reset();
+    [self resetTiming];
     _link = [CADisplayLink displayLinkWithTarget:_target selector:@selector(tick:)];
-    // Avoid a 60 Hz cap on the diagnostic callback itself. iOS still chooses
-    // the delivered cadence; this request can influence adaptive refresh rate.
+    // Ask for the screen's full refresh rate only while Settings is visible.
+    // iOS can still reduce it for power, thermal or adaptive-refresh reasons.
     const float maximum = MAX(30, self.window.screen.maximumFramesPerSecond);
     _link.preferredFrameRateRange = CAFrameRateRangeMake(30, maximum, maximum);
-    // Common modes include active tracking and deceleration, unlike default mode.
     [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 - (void)tick:(CADisplayLink*)link {
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
     const auto sample = _timing.Sample(CACurrentMediaTime(), link.targetTimestamp - link.timestamp);
     if (!sample)
         return;
@@ -331,13 +345,13 @@ static UIImage* PRBlankPortrait() {
                                              @"peak %.1f ms\nLate callbacks %llu · timing estimate",
                                              sample->updatesPerSecond, sample->targetHz, sample->averageMs,
                                              sample->longestMs, (unsigned long long) sample->lateCallbacks];
+#endif
 }
 - (void)dealloc {
     [_link invalidate];
     [NSNotificationCenter.defaultCenter removeObserver:self];
 }
 @end
-#endif
 
 @class PRNativeRoot;
 @interface PRNativePage : UITableViewController <UISearchResultsUpdating, UIColorPickerViewControllerDelegate> {
@@ -384,9 +398,7 @@ static UIImage* PRBlankPortrait() {
     UILabel* _category;
     UIButton* _menuButton;
     UIButton* _done;
-#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
-    PRNativeTimingHUD* _timingHUD;
-#endif
+    PRNativeFrameClock* _frameClock;
     BOOL _showPrimary;
     BOOL _wide;
     BOOL _consoleTyping;
@@ -1853,22 +1865,16 @@ static void PRRefreshTheme(UIViewController* controller) {
     _menuButton.accessibilityLabel = @"Browse settings categories";
     [_menuButton addTarget:self action:@selector(browse) forControlEvents:UIControlEventTouchUpInside];
     _menuButton.frame = CGRectMake(0, 0, 44, 44);
-#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
-    _timingHUD = [[PRNativeTimingHUD alloc] init];
-    [self.view addSubview:_timingHUD];
-#endif
+    _frameClock = [[PRNativeFrameClock alloc] init];
+    [self.view addSubview:_frameClock];
 }
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
-#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
-    _timingHUD.monitoring = YES;
-#endif
+    _frameClock.monitoring = YES;
 }
 - (void)viewWillDisappear:(BOOL)animated {
     [super viewWillDisappear:animated];
-#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
-    _timingHUD.monitoring = NO;
-#endif
+    _frameClock.monitoring = NO;
 }
 - (void)setCategory:(NSString*)title {
     _category.text = title;
@@ -1922,14 +1928,14 @@ static void PRRefreshTheme(UIViewController* controller) {
     page.navigationItem.leftBarButtonItem = _wide ? nil : [[UIBarButtonItem alloc] initWithCustomView:_menuButton];
 #if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
     const CGFloat hudWidth = MIN(width, 260);
-    _timingHUD.frame = PRPixelAlignedRect(
+    _frameClock.frame = PRPixelAlignedRect(
         CGRectMake(
             CGRectGetWidth(self.view.bounds) - safe.right - hudWidth - 12,
             CGRectGetHeight(self.view.bounds) - safe.bottom - 82, hudWidth, 74
         ),
         scale
     );
-    [self.view bringSubviewToFront:_timingHUD];
+    [self.view bringSubviewToFront:_frameClock];
 #endif
 }
 - (void)traitCollectionDidChange:(UITraitCollection*)previous {
@@ -2060,6 +2066,31 @@ void SetThemeColor(ThemeColor color) {
 }
 bool IsPresented() {
     return PRWanted.load();
+}
+bool WaitForUi(double seconds) {
+    if (!std::isfinite(seconds) || seconds <= 0 || !NSThread.isMainThread || !IsPresented()
+        || !PRRoot.viewIfLoaded.window || UIApplication.sharedApplication.applicationState != UIApplicationStateActive)
+        return false;
+    const double deadline = CACurrentMediaTime() + seconds;
+    // SDL's main loop normally services UIKit only between game frames. Spend
+    // the existing limiter wait in the run loop instead of sleeping through UI
+    // refreshes. UI callbacks still enqueue engine work for the next game frame.
+    // Poll tracking mode as SDL2 does, without entering the SDL/game loop again.
+    while (true) {
+        const double remaining = deadline - CACurrentMediaTime();
+        if (remaining <= 0)
+            break;
+        if (!IsPresented() || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) {
+            [NSThread sleepForTimeInterval:remaining];
+            break;
+        }
+        @autoreleasepool {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, std::min(remaining, .002), true);
+            if (CACurrentMediaTime() < deadline)
+                CFRunLoopRunInMode((__bridge CFStringRef) UITrackingRunLoopMode, 0, true);
+        }
+    }
+    return true;
 }
 void SetPresented(bool presented, std::vector<Group> navigation) {
     const uint64_t generation = ++PRPresentation;

@@ -20,6 +20,7 @@
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
 #include "ui/TouchDragScroll.h"
+#include "ui/NativeSettings.h"
 #include "ui/PaperboatModMenuWindow.h"
 #ifdef __EMSCRIPTEN__
 #include "port/web/WebUtils.h"
@@ -75,6 +76,9 @@
 #include <ship/window/gui/resource/Font.h>
 #include <thread>
 #include <unordered_map>
+#if defined(__IOS__)
+#include <fast/backends/ios_frame_wait.h>
+#endif
 
 // The decomp EVT script API's Add and End macros collide with ComponentList::Add()
 // and ImGui::End(). Engine.cpp does not build EVT scripts, so we drop them.
@@ -965,6 +969,7 @@ void GameEngine::Create(int argc, char* argv[]) {
     PaperboatGui::SetupGuiElements();
     Paperboat::IosExternalDisplayInit();
 #if defined(__IOS__)
+    Fast::SetIosFrameWaitCallback(Paperboat::NativeSettings::WaitForUi);
     // Write the log to disk every second, so it is complete even if the app is swiped away instead of quit.
     spdlog::flush_every(std::chrono::seconds(1));
 #endif

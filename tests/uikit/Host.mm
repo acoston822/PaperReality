@@ -693,6 +693,50 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
     [NSException raise:@"UIKitMissingControl" format:@"%@ is missing", title];
     return nil;
 }
+static void CheckIndependentUiPacing() {
+    PRNativeFrameClock* clock = [PRRoot valueForKey:@"frameClock"];
+    CADisplayLink* link = [clock valueForKey:@"link"];
+    Require(clock.monitoring && link, @"Visible settings have no independent refresh request.");
+    Require(
+        link.preferredFrameRateRange.preferred == MAX(30, clock.window.screen.maximumFramesPerSecond),
+        @"Settings must request the display refresh rate independently of game FPS."
+    );
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    Require(clock.subviews.count == 1, @"Development timing overlay is missing.");
+#else
+    Require(clock.subviews.count == 0 && CGRectIsEmpty(clock.frame), @"Release settings expose the timing overlay.");
+#endif
+    __block int normalTicks = 0, trackingTicks = 0;
+    CFRunLoopTimerRef normal =
+        CFRunLoopTimerCreateWithHandler(nullptr, CFAbsoluteTimeGetCurrent() + .002, .002, 0, 0, ^(CFRunLoopTimerRef) {
+            ++normalTicks;
+        });
+    CFRunLoopTimerRef tracking =
+        CFRunLoopTimerCreateWithHandler(nullptr, CFAbsoluteTimeGetCurrent() + .002, .002, 0, 0, ^(CFRunLoopTimerRef) {
+            ++trackingTicks;
+        });
+    CFRunLoopAddTimer(CFRunLoopGetMain(), normal, kCFRunLoopDefaultMode);
+    CFRunLoopAddTimer(CFRunLoopGetMain(), tracking, (__bridge CFStringRef) UITrackingRunLoopMode);
+    [NSThread sleepForTimeInterval:.04];
+    Require(normalTicks == 0 && trackingTicks == 0, @"Blocking-wait comparison unexpectedly serviced the run loop.");
+    const double started = CACurrentMediaTime();
+    Require(N::WaitForUi(.04), @"Native settings did not service a frame-limiter wait.");
+    Require(CACurrentMediaTime() - started >= .04, @"Servicing UIKit shortened the game-frame wait.");
+    Require(normalTicks >= 3 && trackingTicks >= 3, @"Frame wait starved normal or scrolling run-loop callbacks.");
+    CFRunLoopTimerInvalidate(normal);
+    CFRunLoopTimerInvalidate(tracking);
+    CFRelease(normal);
+    CFRelease(tracking);
+    Require(!N::WaitForUi(0) && !N::WaitForUi(-1), @"Invalid frame waits must fall back to normal pacing.");
+    [clock applicationChanged:[NSNotification notificationWithName:UIApplicationWillResignActiveNotification
+                                                            object:nil]];
+    Require(![clock valueForKey:@"link"], @"Backgrounding did not stop the settings refresh request.");
+    [clock applicationChanged:[NSNotification notificationWithName:UIApplicationDidBecomeActiveNotification
+                                                            object:nil]];
+    Require([clock valueForKey:@"link"], @"Foregrounding did not restore the settings refresh request.");
+    Progress("Independent UI pacing passed: frame deadline, normal/tracking callbacks, refresh request and lifecycle");
+}
+
 @interface SmokeDelegate : UIResponder <UIApplicationDelegate>
 @property (nonatomic, strong) UIWindow* window;
 @end
@@ -752,6 +796,7 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                      );
                                  }];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        Require(!N::WaitForUi(.01), @"Closed settings must retain the game's normal frame wait.");
         Progress("Opening settings");
         N::Enqueue([] { N::SetPresented(true, N::BuildNavigation()); });
     });
@@ -776,6 +821,8 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                      if (phase == 0 || phase == 5) {
                                          if (!PRRoot.presentingViewController || PRRoot.isBeingPresented)
                                              return;
+                                         if (phase == 0)
+                                             CheckIndependentUiPacing();
                                          [PRRoot showColumn:UISplitViewControllerColumnSecondary];
                                          Progress(phase == 0 ? "Settings presented" : "Settings reopened");
                                          ++phase;
@@ -1042,7 +1089,9 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                              @"clearing; native event expansion/collapse, live 64-bit counts, "
                                              @"priorities "
                                              @"and empty registry handling; event scroll-bar coverage in light/dark "
-                                             @"and native Value Viewer cards."
+                                             @"and native Value Viewer cards; independent settings refresh, "
+                                             @"cooperative "
+                                             @"frame waiting and background/foreground refresh lifecycle."
                                          );
                                          [timer invalidate];
                                          return;

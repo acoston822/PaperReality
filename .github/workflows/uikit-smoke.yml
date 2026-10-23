@@ -36,7 +36,7 @@ jobs:
       - name: Check native UI and overscroll on iPhone Simulator
         run: |
           mkdir -p build-uikit-smoke
-          if python3 tests/uikit/run.py --no-captures > build-uikit-smoke/runner.log 2>&1; then
+          if (python3 tests/uikit/run.py --no-captures && python3 tests/uikit/run.py --no-captures --ui-diagnostics) > build-uikit-smoke/runner.log 2>&1; then
             cat build-uikit-smoke/runner.log
           else
             cat build-uikit-smoke/runner.log

@@ -12,6 +12,7 @@ import time
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--no-captures', action='store_true', help='Run checks without writing screenshots or gallery images.')
+parser.add_argument('--ui-diagnostics', action='store_true', help='Include the development settings timing overlay.')
 args = parser.parse_args()
 
 root = Path(__file__).resolve().parents[2]
@@ -26,7 +27,8 @@ subprocess.run(['c++','-std=c++20','-I'+str(root/'src'),str(root/'tests/native-s
 subprocess.run([str(out/'portrait-check')],check=True)
 subprocess.run(['xcrun','--sdk','iphonesimulator','clang++','-std=c++20','-fobjc-arc',
                 '-target',platform.machine()+'-apple-ios16.3-simulator','-isysroot',sdk,
-                '-D__IOS__','-I'+str(root/'src'),str(root/'tests/uikit/Host.mm'),
+                '-D__IOS__','-DPAPERREALITY_UI_DIAGNOSTICS='+str(int(args.ui_diagnostics)),
+                '-I'+str(root/'src'),str(root/'tests/uikit/Host.mm'),
                 '-framework','UIKit','-framework','Foundation','-framework','CoreGraphics',
                 '-framework','QuartzCore','-o',str(app/'UIKitSmoke')],check=True)
 with (app/'Info.plist').open('wb') as f:

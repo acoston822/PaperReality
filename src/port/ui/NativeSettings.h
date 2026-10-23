@@ -161,6 +161,9 @@ void CancelBindingCapture(const std::string& key = "");
 void SetThemeColor(ThemeColor color);
 void SetPresented(bool presented, std::vector<Group> navigation = { });
 bool IsPresented();
+// Main/render thread only. Services UIKit during an existing game-frame wait;
+// returns false when the native menu is inactive so normal pacing is retained.
+bool WaitForUi(double seconds);
 bool Alert(
     std::string title,
     std::string message,

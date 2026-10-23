@@ -151,6 +151,18 @@ requests return through the render-frame queue. Game input is blocked while
 UIKit settings are open. Presentation targets the main iPhone/iPad window,
 excluding an AirPlay display. The full-screen overlay keeps SDL rendering alive.
 
+Settings owns a display-link request for the screen's maximum refresh rate while
+visible, independently of Current FPS and Match Refresh Rate. The iOS SDL frame
+limiter has an optional application wait callback: while native settings is open,
+the existing wait services default/tracking run-loop callbacks until its original
+deadline. It does not render extra game frames or change the FPS CVars. Outside
+the active native menu it falls back to the existing sleep. UI actions continue
+to enqueue engine work for the next game frame; the wait does not reenter SDL or
+the engine. Rendering work itself can still delay UIKit on the shared main thread.
+The refresh request stops on dismissal/backgrounding; iOS retains control over
+adaptive refresh, Low Power Mode and thermal limits. Only development IPAs display
+callback timing; those readings do not measure GPU presentation.
+
 No ROM, save, texture pack or extracted game artwork is included in this branch
 or its tests. Runtime portraits are not checked-in screenshots or bundled art.
 The implementation does not upload user assets. Blueprint exports contain the

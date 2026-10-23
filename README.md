@@ -53,6 +53,18 @@ If you're interested in creating and/or packing your own custom asset `.o2r`/`.o
 ### Building
 Pushing to any branch other than `develop` runs the `Build unsigned iOS IPA` workflow, which builds the app and uploads the IPA. To build locally on a Mac, follow the iOS notes in [docs/android-ios-web.md](docs/android-ios-web.md).
 
+For UI timing measurements, enable **ui_diagnostics** when manually running that
+same IPA workflow, or include `[ui-diagnostics]` in a push commit message. These
+development IPAs have `-development` in their artifact, filename and app version.
+They use the normal optimized game build with a small overlay above Settings
+showing display-link callbacks per second, target cadence, mean/peak callback
+intervals and late callbacks. The counter pauses when Settings closes or the app
+becomes inactive. It estimates main-thread responsiveness, not GPU-presented FPS;
+its display-link request can influence ProMotion's adaptive refresh rate.
+Normal Release IPAs compile the overlay out, and development IPAs cannot be
+published through the release option. Local iOS Debug builds also include it;
+an optimized local build can opt in with `-DPAPERREALITY_UI_DIAGNOSTICS=ON`.
+
 The multi-platform `Build` and desktop `Release` workflows are temporarily paused
 in this repository. The IPA workflow enforces that pause and cancels their pending
 runs; existing build history is retained. To resume them, remove its

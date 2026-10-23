@@ -3,6 +3,11 @@ name: Build unsigned iOS IPA
 on:
   workflow_dispatch:
     inputs:
+      ui_diagnostics:
+        description: 'Development IPA with UIKit timing overlay (not for releases)'
+        type: boolean
+        required: false
+        default: false
       release_version:
         description: 'Publish a release with this version (for example 1.0.0). Leave empty for a normal build.'
         required: false
@@ -122,17 +127,37 @@ jobs:
 
   ios:
     runs-on: macos-14
+    env:
+      UI_DIAGNOSTICS: ${{ (github.event_name == 'workflow_dispatch' && inputs.ui_diagnostics) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[ui-diagnostics]')) }}
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Select IPA variant
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
+        run: |
+          if [[ "$UI_DIAGNOSTICS" == true ]]; then
+            if [[ -n "$RELEASE_VERSION" || "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "Development UI diagnostics must be built separately from a release."
+              exit 1
+            fi
+            echo 'IPA_FLAVOR=-development' >> "$GITHUB_ENV"
+          else
+            echo 'IPA_FLAVOR=' >> "$GITHUB_ENV"
+          fi
+
       - name: Check UIKit sources
         run: |
-          xcrun --sdk iphoneos clang++ -std=c++20 -fobjc-arc -fsyntax-only \
-            -target arm64-apple-ios16.3 -D__IOS__ -Isrc \
-            src/port/ios/IosNativeSettings.mm src/port/ios/IosFilePicker.mm tests/uikit/Host.mm
+          for DIAGNOSTICS in 0 1; do
+            xcrun --sdk iphoneos clang++ -std=c++20 -fobjc-arc -fsyntax-only \
+              -target arm64-apple-ios16.3 -D__IOS__ -DPAPERREALITY_UI_DIAGNOSTICS=$DIAGNOSTICS -Isrc \
+              src/port/ios/IosNativeSettings.mm src/port/ios/IosFilePicker.mm tests/uikit/Host.mm
+          done
+          c++ -std=c++20 -Isrc tests/native-settings/frame-timing.cpp -o "$RUNNER_TEMP/ui-timing-check"
+          "$RUNNER_TEMP/ui-timing-check"
 
       - name: Install dependencies
         run: brew install cmake ninja
@@ -148,7 +173,7 @@ jobs:
         run: |
           cmake -S . -B build-ios -G Xcode \
             -DCMAKE_TOOLCHAIN_FILE=cmake/ios.paperboat.toolchain.cmake \
-            -DPLATFORM=OS64 -DIOS_SIGNING=OFF
+            -DPLATFORM=OS64 -DIOS_SIGNING=OFF -DPAPERREALITY_UI_DIAGNOSTICS="$UI_DIAGNOSTICS"
 
       - name: Build
         run: cmake --build build-ios --config Release --parallel $(sysctl -n hw.logicalcpu)
@@ -171,18 +196,18 @@ jobs:
             # Release builds show the release version (1.0.0).
             /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${REL}" "$PLIST"
           else
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE}-b${{ github.run_number }}" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE}-b${{ github.run_number }}${IPA_FLAVOR}" "$PLIST"
           fi
           mkdir -p out/Payload
           cp -R "$APP" out/Payload/
           (cd out && zip -qry PaperReality-unsigned.ipa Payload)
-          mv out/PaperReality-unsigned.ipa out/PaperReality-b${{ github.run_number }}-unsigned.ipa
+          mv out/PaperReality-unsigned.ipa "out/PaperReality-b${{ github.run_number }}${IPA_FLAVOR}-unsigned.ipa"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7
         with:
-          name: PaperReality-unsigned-ipa-b${{ github.run_number }}
-          path: out/PaperReality-b${{ github.run_number }}-unsigned.ipa
+          name: PaperReality-unsigned-ipa-b${{ github.run_number }}${{ env.IPA_FLAVOR }}
+          path: out/PaperReality-b${{ github.run_number }}${{ env.IPA_FLAVOR }}-unsigned.ipa
 
       - name: Create the release
         if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_version != ''

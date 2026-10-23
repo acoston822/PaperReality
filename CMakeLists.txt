@@ -324,6 +324,11 @@ if(IOS)
         ${ICON_FILES}
     )
 
+    option(PAPERREALITY_UI_DIAGNOSTICS "Include development-only UIKit timing overlay" OFF)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        $<$<OR:$<CONFIG:Debug>,$<BOOL:${PAPERREALITY_UI_DIAGNOSTICS}>>:PAPERREALITY_UI_DIAGNOSTICS=1>
+    )
+
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST ${IOS_DIR}/plist.in

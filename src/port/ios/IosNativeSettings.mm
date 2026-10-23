@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <cmath>
 #include <set>
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+#include "port/ui/NativeFrameTiming.h"
+#endif
 
 namespace N = Paperboat::NativeSettings;
 // Main-queue copy only; CVars and the shared game palette stay on the frame queue.
@@ -231,6 +234,111 @@ static UIImage* PRBlankPortrait() {
     }];
 }
 
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+@class PRNativeTimingHUD;
+@interface PRNativeTimingTarget : NSObject
+@property (nonatomic, weak) PRNativeTimingHUD* hud;
+- (void)tick:(CADisplayLink*)link;
+@end
+
+@interface PRNativeTimingHUD : UIView {
+    UILabel* _label;
+    CADisplayLink* _link;
+    PRNativeTimingTarget* _target;
+    N::FrameTiming _timing;
+}
+@property (nonatomic) BOOL monitoring;
+- (void)tick:(CADisplayLink*)link;
+- (void)syncMonitoring;
+@end
+
+@implementation PRNativeTimingTarget
+- (void)tick:(CADisplayLink*)link {
+    [self.hud tick:link];
+}
+@end
+
+@implementation PRNativeTimingHUD
+- (instancetype)init {
+    self = [super initWithFrame:CGRectZero];
+    if (!self)
+        return nil;
+    self.userInteractionEnabled = NO;
+    self.backgroundColor = [UIColor colorWithWhite:.025 alpha:.94];
+    self.layer.cornerRadius = 8;
+    self.clipsToBounds = YES;
+    self.accessibilityIdentifier = @"development-ui-timing";
+    _label = [[UILabel alloc] init];
+    _label.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
+    _label.textColor = UIColor.whiteColor;
+    _label.numberOfLines = 4;
+    _label.text = @"UI timing · DEVELOPMENT\nCollecting callback timing…\n\nTiming estimate; not GPU FPS";
+    [self addSubview:_label];
+    _target = [[PRNativeTimingTarget alloc] init];
+    _target.hud = self;
+    NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+    for (NSNotificationName name in
+         @[ UIApplicationDidBecomeActiveNotification, UIApplicationWillResignActiveNotification ])
+        [center addObserver:self selector:@selector(applicationChanged:) name:name object:nil];
+    return self;
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    _label.frame = CGRectInset(self.bounds, 8, 6);
+}
+- (void)setMonitoring:(BOOL)monitoring {
+    _monitoring = monitoring;
+    [self syncMonitoring];
+}
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    [self syncMonitoring];
+}
+- (void)applicationChanged:(NSNotification*)notification {
+    if ([notification.name isEqualToString:UIApplicationWillResignActiveNotification]) {
+        [_link invalidate];
+        _link = nil;
+        _timing.Reset();
+    } else {
+        [self syncMonitoring];
+    }
+}
+- (void)syncMonitoring {
+    if (!self.monitoring || !self.window
+        || UIApplication.sharedApplication.applicationState != UIApplicationStateActive)
+    {
+        [_link invalidate];
+        _link = nil;
+        _timing.Reset();
+        return;
+    }
+    if (_link)
+        return;
+    _timing.Reset();
+    _link = [CADisplayLink displayLinkWithTarget:_target selector:@selector(tick:)];
+    // Avoid a 60 Hz cap on the diagnostic callback itself. iOS still chooses
+    // the delivered cadence; this request can influence adaptive refresh rate.
+    const float maximum = MAX(30, self.window.screen.maximumFramesPerSecond);
+    _link.preferredFrameRateRange = CAFrameRateRangeMake(30, maximum, maximum);
+    // Common modes include active tracking and deceleration, unlike default mode.
+    [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+- (void)tick:(CADisplayLink*)link {
+    const auto sample = _timing.Sample(CACurrentMediaTime(), link.targetTimestamp - link.timestamp);
+    if (!sample)
+        return;
+    _label.text = [NSString stringWithFormat:@"UI timing · DEVELOPMENT\nUpdates %.1f/s · target %.0f Hz\nAvg %.1f ms · "
+                                             @"peak %.1f ms\nLate callbacks %llu · timing estimate",
+                                             sample->updatesPerSecond, sample->targetHz, sample->averageMs,
+                                             sample->longestMs, (unsigned long long) sample->lateCallbacks];
+}
+- (void)dealloc {
+    [_link invalidate];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+@end
+#endif
+
 @class PRNativeRoot;
 @interface PRNativePage : UITableViewController <UISearchResultsUpdating, UIColorPickerViewControllerDelegate> {
     std::string _key;
@@ -276,6 +384,9 @@ static UIImage* PRBlankPortrait() {
     UILabel* _category;
     UIButton* _menuButton;
     UIButton* _done;
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    PRNativeTimingHUD* _timingHUD;
+#endif
     BOOL _showPrimary;
     BOOL _wide;
     BOOL _consoleTyping;
@@ -1742,6 +1853,22 @@ static void PRRefreshTheme(UIViewController* controller) {
     _menuButton.accessibilityLabel = @"Browse settings categories";
     [_menuButton addTarget:self action:@selector(browse) forControlEvents:UIControlEventTouchUpInside];
     _menuButton.frame = CGRectMake(0, 0, 44, 44);
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    _timingHUD = [[PRNativeTimingHUD alloc] init];
+    [self.view addSubview:_timingHUD];
+#endif
+}
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    _timingHUD.monitoring = YES;
+#endif
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    _timingHUD.monitoring = NO;
+#endif
 }
 - (void)setCategory:(NSString*)title {
     _category.text = title;
@@ -1793,6 +1920,17 @@ static void PRRefreshTheme(UIViewController* controller) {
         width < 500 || UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
     UIViewController* page = self.detail.viewControllers.firstObject;
     page.navigationItem.leftBarButtonItem = _wide ? nil : [[UIBarButtonItem alloc] initWithCustomView:_menuButton];
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    const CGFloat hudWidth = MIN(width, 260);
+    _timingHUD.frame = PRPixelAlignedRect(
+        CGRectMake(
+            CGRectGetWidth(self.view.bounds) - safe.right - hudWidth - 12,
+            CGRectGetHeight(self.view.bounds) - safe.bottom - 82, hudWidth, 74
+        ),
+        scale
+    );
+    [self.view bringSubviewToFront:_timingHUD];
+#endif
 }
 - (void)traitCollectionDidChange:(UITraitCollection*)previous {
     [super traitCollectionDidChange:previous];

@@ -185,6 +185,14 @@ Page BuildPage(const std::string& key) {
         row.value = 50;
         row.step = 1;
         row.choices = { { 0, "First" }, { 50, "Second" }, { 100, "Third" } };
+        if (kind == Kind::Choice) {
+            row.title = "Menu Theme";
+            row.value = 10;
+            row.choices.clear();
+            for (const char* title : { "Red", "Dark Red", "Orange", "Green", "Dark Green", "Light Blue", "Blue",
+                                       "Dark Blue", "Indigo", "Violet", "Purple", "Brown", "Gray", "Dark Gray" })
+                row.choices.push_back({ int(row.choices.size()), title });
+        }
         row.target = "details";
         row.change = [](double) { };
         row.activate = [] { };
@@ -277,9 +285,9 @@ static UIButton* FindButton(UIView* view, NSString* identifier) {
             return button;
     return nil;
 }
-static std::vector<uint8_t> EventGutterPixels(CGRect region) {
+static std::vector<uint8_t> ListGutterPixels(CGRect region) {
     UIView* root = PRRoot.view;
-    Require(region.size.height > 0, @"Event list has no visible gutter.");
+    Require(region.size.height > 0, @"Flat list has no visible gutter.");
     UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat defaultFormat];
     format.scale = 1;
     format.opaque = YES;
@@ -299,9 +307,8 @@ static std::vector<uint8_t> EventGutterPixels(CGRect region) {
     CGColorSpaceRelease(space);
     return pixels;
 }
-static void CheckEventBars(PRNativeEvents* events) {
-    UITableView* table = [events valueForKey:@"table"];
-    [events.view layoutIfNeeded];
+static void CheckListBars(UITableView* table) {
+    [PRRoot.view layoutIfNeeded];
     const CGPoint previous = table.contentOffset;
     const UIUserInterfaceStyle previousStyle = PRRoot.overrideUserInterfaceStyle;
     for (NSNumber* style in @[ @(UIUserInterfaceStyleLight), @(UIUserInterfaceStyleDark) ]) {
@@ -314,7 +321,7 @@ static void CheckEventBars(PRNativeEvents* events) {
             [PRRoot.view layoutIfNeeded];
             Require(
                 [table rectForHeaderInSection:0].size.height == 0 && [table rectForFooterInSection:0].size.height == 0,
-                @"Event list reserves a blank header/footer strip."
+                @"Flat list reserves a blank header/footer strip."
             );
             // Keep one physical region for both captures. Hiding the list can
             // change UIKit's primary-scroll-view layout and resize a reference.
@@ -325,15 +332,15 @@ static void CheckEventBars(PRNativeEvents* events) {
             canvasProbe.backgroundColor = PRPageCanvas();
             canvasProbe.userInteractionEnabled = NO;
             [PRRoot.view addSubview:canvasProbe];
-            const auto canvas = EventGutterPixels(region);
+            const auto canvas = ListGutterPixels(region);
             [canvasProbe removeFromSuperview];
-            const auto visible = EventGutterPixels(region);
-            Require(canvas.size() == visible.size(), @"Event gutter resized during scrolling.");
+            const auto visible = ListGutterPixels(region);
+            Require(canvas.size() == visible.size(), @"List gutter resized during scrolling.");
             for (size_t i = 0; i < canvas.size(); ++i)
                 Require(
                     abs(int(canvas[i]) - int(visible[i])) <= 2,
                     [NSString stringWithFormat:
-                                  @"Event gutter obscured: style %@, offset %@, channel %zu, canvas %u, visible %u.",
+                                  @"List gutter obscured: style %@, offset %@, channel %zu, canvas %u, visible %u.",
                                   style, offset, i, canvas[i], visible[i]]
                 );
         }
@@ -367,7 +374,7 @@ static void CheckEventCards(PRNativeEvents* events) {
         @"Empty event details do not explain unavailable diagnostics."
     );
     CheckPageSeparation(PRRoot.detail);
-    CheckEventBars(events);
+    CheckListBars(table);
 }
 static std::vector<uint8_t> PanelEdgePixels(UIView* panel) {
     UIView* root = PRRoot.view;
@@ -863,6 +870,21 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
                                          [PRRoot.detail.topViewController isKindOfClass:PRNativeChoices.class]) {
                                          PRNativeChoices* choices = (PRNativeChoices*) PRRoot.detail.topViewController;
                                          CheckPageSeparation(PRRoot.detail);
+                                         Require(
+                                             [choices.tableView numberOfRowsInSection:0] == 14,
+                                             @"Menu Theme fixture must exercise the full scrolling color list."
+                                         );
+                                         CheckListBars(choices.tableView);
+                                         UISearchController* search = choices.navigationItem.searchController;
+                                         search.searchBar.text = @"Dark Red";
+                                         [choices updateSearchResultsForSearchController:search];
+                                         Require(
+                                             [choices.tableView numberOfRowsInSection:0] == 1,
+                                             @"Choice filtering did not retain the matching color."
+                                         );
+                                         CheckListBars(choices.tableView);
+                                         search.searchBar.text = @"";
+                                         [choices updateSearchResultsForSearchController:search];
                                          [choices tableView:choices.tableView
                                              didSelectRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
                                          phase = 10;

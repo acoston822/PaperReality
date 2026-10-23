@@ -93,8 +93,12 @@ static void PRStyleTable(UITableView* table) {
     table.separatorStyle = UITableViewCellSeparatorStyleNone;
     table.contentInset = UIEdgeInsetsMake(4, 0, 20, 0);
     table.sectionHeaderTopPadding = 0;
-    table.estimatedSectionHeaderHeight = 38;
-    table.estimatedSectionFooterHeight = 20;
+    // Flat lists have no section chrome. Leaving UIKit's default dimensions
+    // creates empty floating header/footer materials over the first/last rows.
+    table.sectionHeaderHeight = 0;
+    table.sectionFooterHeight = 0;
+    table.estimatedSectionHeaderHeight = 0;
+    table.estimatedSectionFooterHeight = 0;
     PRHideScrollEdgeEffects(table);
 }
 static CGRect PRPixelAlignedRect(CGRect frame, CGFloat scale) {
@@ -1125,6 +1129,11 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
 - (void)viewDidLoad {
     [super viewDidLoad];
     PRStyleTable(self.tableView);
+    // This grouped page supplies real section labels and explanatory footers.
+    self.tableView.sectionHeaderHeight = UITableViewAutomaticDimension;
+    self.tableView.sectionFooterHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedSectionHeaderHeight = 38;
+    self.tableView.estimatedSectionFooterHeight = 20;
     PRIsolatePage(self);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 62;
@@ -1471,6 +1480,12 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
 }
 - (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
     return _choices.size();
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
+    return 0;
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
+    return 0;
 }
 - (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
     const auto& choice = _choices[indexPath.row];

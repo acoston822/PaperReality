@@ -230,7 +230,7 @@ Row Toggle(std::string title, std::string cvar, bool defaultValue, std::string d
     row.id = cvar;
     row.kind = Kind::Toggle;
     row.value = CVarGetInteger(cvar.c_str(), defaultValue);
-    row.help = std::move(detail);
+    row.detail = std::move(detail);
     row.change = [cvar](double value) {
         CVarSetInteger(cvar.c_str(), value != 0);
         SaveSettings(cvar);
@@ -254,7 +254,7 @@ Row Number(
     row.minimum = min;
     row.maximum = max;
     row.step = step;
-    row.help = std::move(detail);
+    row.detail = std::move(detail);
     row.value = integer ? CVarGetInteger(cvar.c_str(), defaultValue) : CVarGetFloat(cvar.c_str(), defaultValue);
     row.change = [cvar, integer, min, max, step](double value) {
         if (!std::isfinite(value))

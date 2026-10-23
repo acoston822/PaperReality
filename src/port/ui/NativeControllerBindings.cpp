@@ -204,7 +204,7 @@ namespace {
             toggle.title = name;
             toggle.kind = Kind::Toggle;
             toggle.value = !manager->PortIsIgnoringInstanceId(port, id);
-            toggle.help = "Use this controller on Port " + std::to_string(port + 1);
+            toggle.detail = "Use this controller on Port " + std::to_string(port + 1);
             toggle.change = [manager, port, id](double value) {
                 if (!manager->GetConnectedSDLGamepadNames().contains(id))
                     return;

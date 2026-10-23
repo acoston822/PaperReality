@@ -293,21 +293,16 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
             N::Row row;
             row.id = "widget/" + group + "/" + page + "/" + std::to_string(c) + "/" + std::to_string(i);
             row.title = CleanTitle(w.name);
-            row.help = w.options->tooltip ? w.options->tooltip : "";
+            row.detail = w.options->tooltip ? w.options->tooltip : "";
             if (w.name == "Menu Theme")
-                row.help = "Changes the settings accent color and touch-stick cursor color.";
+                row.detail = "Changes the settings accent color and touch-stick cursor color.";
             row.enabled = !w.options->disabled && w.activeDisables.empty()
                 && !(w.raceDisable && CVarGetInteger(CVAR_SETTING("DisableChanges"), 0));
             if (!row.enabled) {
-                auto appendReason = [&](const std::string& text) {
-                    if (!row.detail.empty())
-                        row.detail += '\n';
-                    row.detail += text;
-                };
                 for (const auto reason : w.activeDisables)
-                    appendReason(disabledMap.at(reason).reason);
+                    row.detail += "\n" + std::string(disabledMap.at(reason).reason);
                 if (w.options->disabled && w.options->disabledTooltip)
-                    appendReason(w.options->disabledTooltip);
+                    row.detail += "\n" + std::string(w.options->disabledTooltip);
             }
             const std::string id = row.id;
             row.change = [this, id](double value) { ApplyNativeWidget(id, value); };
@@ -375,7 +370,7 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
                         row.kind = N::Kind::Link;
                         row.title = "Controller Bindings";
                         row.symbol = "gamecontroller";
-                        row.help = "Edit buttons, sticks and connected controllers.";
+                        row.detail = "Edit buttons, sticks and connected controllers.";
                         row.target = "bindings/root";
                         row.activate = { };
                         row.change = { };
@@ -392,7 +387,7 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
                     for (auto value : *audio->GetAvailableAudioBackends())
                         row.choices.push_back({ static_cast<int>(value), audioBackendsMap.at(value) });
                     row.enabled = row.choices.size() > 1;
-                    row.help = "Changing the audio API requires a relaunch.";
+                    row.detail = "Changing the audio API requires a relaunch.";
                     row.change = [audio](double value) {
                         const auto available = audio->GetAvailableAudioBackends();
                         const auto selected = static_cast<Ship::AudioBackend>(int(value));

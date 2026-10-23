@@ -608,7 +608,7 @@ Page ModPage(const std::string& key) {
     coverage.title = "Export Sprite Texture Report";
     coverage.kind = Kind::Action;
     coverage.symbol = "doc.text.magnifyingglass";
-    coverage.help =
+    coverage.detail =
         "Check installed HD icons. Exports a small text report with names and load results; no images or game data.";
     coverage.activate = [] {
         const auto path = std::filesystem::temp_directory_path() / "PaperReality-Sprite-Textures.txt";

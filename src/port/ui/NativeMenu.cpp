@@ -296,6 +296,15 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
             row.detail = w.options->tooltip ? w.options->tooltip : "";
             if (w.name == "Menu Theme")
                 row.detail = "Changes the settings accent color and touch-stick cursor color.";
+            else if (w.name == "DX Debug Menu")
+                row.detail =
+                    "Uses the game's mapped N64 buttons:\n"
+                    "Open: D-pad Left (main menu), Right (script debugger).\n"
+                    "D-pad Up/Down: navigate or change a selected digit.\n"
+                    "D-pad Left/Right: adjust values or select columns/digits in submenus.\n"
+                    "R: tap and release to enter or confirm.\n"
+                    "L: go back; closes from the top-level menu.\n\n"
+                    "Leave this off to keep the D-pad free for normal play.";
             row.enabled = !w.options->disabled && w.activeDisables.empty()
                 && !(w.raceDisable && CVarGetInteger(CVAR_SETTING("DisableChanges"), 0));
             if (!row.enabled) {

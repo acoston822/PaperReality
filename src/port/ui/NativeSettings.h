@@ -31,6 +31,12 @@ struct Image {
     int width = 0, height = 0;
     std::vector<uint8_t> rgba;
 };
+struct ThemeColor {
+    float red = 0, green = .24f, blue = .8f;
+    bool operator==(const ThemeColor&) const = default;
+};
+// Read the existing menu/touch-stick palette on the game-frame queue.
+ThemeColor ReadThemeColor();
 struct Row {
     std::string id, title, detail, symbol, target, text;
     Kind kind = Kind::Info;
@@ -152,6 +158,7 @@ void UpdateControllerBindings(bool visible);
 void CancelBindingCapture(const std::string& key = "");
 
 #if defined(__IOS__)
+void SetThemeColor(ThemeColor color);
 void SetPresented(bool presented, std::vector<Group> navigation = { });
 bool IsPresented();
 bool Alert(

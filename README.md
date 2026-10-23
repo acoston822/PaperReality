@@ -36,6 +36,10 @@ Congratulations, you are now sailing with PaperReality! Have fun!
 
 Touch controls are on by default. You can move them, resize them and change their opacity from the settings menu, and the on-screen buttons give haptic feedback. When a game controller is connected, the touch controls hide automatically and come back when it disconnects (this can be turned off in the touch settings). The `Select`/`Back` button on a controller opens the menu.
 
+In **Settings → General → Menu Theme**, choose the accent color for the iOS
+settings and touch-stick cursor. Light/dark appearance still controls the
+backgrounds; accent text adjusts for readability.
+
 # Custom Assets
 
 Custom assets are packed in `.o2r` or `.otr` files. In the **Mods** menu, tap **Add Files** and pick your files in the Files app; they are copied to the app's `mods` folder. Turn on **Alternate Assets** and restart the app to use texture packs.

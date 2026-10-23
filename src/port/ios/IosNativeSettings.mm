@@ -1,4 +1,5 @@
 #include "port/ui/NativeSettings.h"
+#include "port/ui/NativeTheme.h"
 #if defined(__IOS__)
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -10,6 +11,32 @@
 #include <set>
 
 namespace N = Paperboat::NativeSettings;
+// Main-queue copy only; CVars and the shared game palette stay on the frame queue.
+static N::ThemeColor PRTheme;
+static UIColor* PRColor(N::ThemeColor color) {
+    return [UIColor colorWithRed:color.red green:color.green blue:color.blue alpha:1];
+}
+static UIColor* PRAccentFill() {
+    return PRColor(PRTheme);
+}
+static UIColor* PRAccentForeground() {
+    return PRColor(N::ThemeForeground(PRTheme));
+}
+static UIColor* PRAccent() {
+    const auto color = PRTheme;
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        const N::ThemeColor background = traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? N::ThemeColor { .09f, .12f, .17f }
+            : N::ThemeColor { .94f, .96f, .98f };
+        return PRColor(N::AccessibleThemeColor(color, background));
+    }];
+}
+static void PRStyleFilledButton(UIButton* button) {
+    UIButtonConfiguration* config = [button.configuration copy];
+    config.baseBackgroundColor = PRAccentFill();
+    config.baseForegroundColor = PRAccentForeground();
+    button.configuration = config;
+}
 // Shared materials keep the settings pages and editor submenus visually consistent.
 // Use dynamic colors so a system appearance change also updates an already-open menu.
 static UIColor* PRSurface() {
@@ -86,7 +113,7 @@ static void PRStyleCard(UITableViewCell* cell) {
     background.strokeWidth = .5;
     cell.backgroundConfiguration = background;
     cell.contentView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(17, 30, 17, 30);
-    cell.tintColor = UIColor.systemBlueColor;
+    cell.tintColor = PRAccent();
 }
 static void PRStyleNavigation(UINavigationController* navigation) {
     UINavigationBarAppearance* appearance = [[UINavigationBarAppearance alloc] init];
@@ -244,6 +271,7 @@ static UIImage* PRBlankPortrait() {
     UIView* _detailPanel;
     UILabel* _category;
     UIButton* _menuButton;
+    UIButton* _done;
     BOOL _showPrimary;
     BOOL _wide;
     BOOL _consoleTyping;
@@ -256,6 +284,7 @@ static UIImage* PRBlankPortrait() {
 - (void)setCategory:(NSString*)title;
 - (void)closeSettings;
 - (void)setConsoleTyping:(BOOL)typing;
+- (void)applyTheme;
 @end
 static PRNativeRoot* PRRoot = nil;
 
@@ -286,7 +315,7 @@ static PRNativeRoot* PRRoot = nil;
     _value = [[UILabel alloc] init];
     _value.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleSubheadline]
         scaledFontForFont:[UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightSemibold]];
-    _value.textColor = UIColor.systemBlueColor;
+    _value.textColor = PRAccent();
     _value.adjustsFontForContentSizeCategory = YES;
     [_value setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [_value setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
@@ -416,6 +445,7 @@ static PRNativeRoot* PRRoot = nil;
 }
 - (void)refresh;
 - (void)renderOutput;
+- (void)applyTheme;
 @end
 
 @implementation PRNativeConsole
@@ -490,6 +520,7 @@ static PRNativeRoot* PRRoot = nil;
     configuration.title = @"Run";
     configuration.cornerStyle = UIButtonConfigurationCornerStyleMedium;
     _run.configuration = configuration;
+    PRStyleFilledButton(_run);
     _run.accessibilityIdentifier = @"console-run";
     [_run addTarget:self action:@selector(submitCommand) forControlEvents:UIControlEventTouchUpInside];
     UIStackView* composer = [[UIStackView alloc] initWithArrangedSubviews:@[ _command, _run ]];
@@ -626,6 +657,10 @@ static PRNativeRoot* PRRoot = nil;
         });
     });
 }
+- (void)applyTheme {
+    PRStyleFilledButton(_run);
+    [self renderOutput];
+}
 - (void)renderOutput {
     const BOOL follow =
         _scrollNext || _output.contentOffset.y + _output.bounds.size.height >= _output.contentSize.height - 40;
@@ -636,9 +671,7 @@ static PRNativeRoot* PRRoot = nil;
     NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
     paragraph.paragraphSpacing = 6;
     for (const auto& line : _snapshot.lines) {
-        UIColor* color = line.error ? UIColor.systemRedColor
-            : line.command          ? UIColor.systemBlueColor
-                                    : UIColor.labelColor;
+        UIColor* color = line.error ? UIColor.systemRedColor : line.command ? PRAccent() : UIColor.labelColor;
         [text appendAttributedString:[[NSAttributedString alloc]
                                          initWithString:[PRText(line.text) stringByAppendingString:@"\n"]
                                              attributes:@{
@@ -1244,7 +1277,7 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     content.secondaryTextProperties.color = UIColor.secondaryLabelColor;
     content.textToSecondaryTextVerticalPadding = 5;
     content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(18, 30, 18, 30);
-    content.imageProperties.tintColor = UIColor.systemBlueColor;
+    content.imageProperties.tintColor = PRAccent();
     content.text = PRText(row.title);
     content.secondaryText = PRText(row.detail);
     content.secondaryTextProperties.numberOfLines = 0;
@@ -1275,7 +1308,7 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     if (row.destructive)
         content.textProperties.color = UIColor.systemRedColor;
     else if (row.kind == N::Kind::Action)
-        content.textProperties.color = UIColor.systemBlueColor;
+        content.textProperties.color = PRAccent();
     if (row.kind == N::Kind::Choice) {
         for (const auto& choice : row.choices)
             if (choice.value == int(row.value))
@@ -1286,6 +1319,7 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     if (row.kind == N::Kind::Toggle) {
         UISwitch* toggle = [[UISwitch alloc] init];
+        toggle.onTintColor = PRAccentFill();
         toggle.on = row.value != 0;
         toggle.enabled = row.enabled;
         toggle.accessibilityLabel = PRText(row.title);
@@ -1560,9 +1594,9 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
         content.image = [UIImage systemImageNamed:PRText(page.symbol)];
         content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(13, 24, 13, 18);
         if ([_selected isEqualToString:PRText(page.key)]) {
-            background.backgroundColor = UIColor.systemBlueColor;
-            content.textProperties.color = UIColor.whiteColor;
-            content.imageProperties.tintColor = UIColor.whiteColor;
+            background.backgroundColor = PRAccentFill();
+            content.textProperties.color = PRAccentForeground();
+            content.imageProperties.tintColor = PRAccentForeground();
             cell.accessibilityTraits |= UIAccessibilityTraitSelected;
         }
     }
@@ -1593,7 +1627,27 @@ static UIViewController* PRPageController(std::string key) {
     return [[PRNativePage alloc] initWithKey:std::move(key)];
 }
 
+static void PRRefreshTheme(UIViewController* controller) {
+    if (!controller.isViewLoaded)
+        return;
+    controller.view.tintColor = PRAccent();
+    if ([controller isKindOfClass:UITableViewController.class])
+        [((UITableViewController*) controller).tableView reloadData];
+    if ([controller isKindOfClass:PRNativeConsole.class])
+        [(PRNativeConsole*) controller applyTheme];
+    for (UIViewController* child in controller.childViewControllers)
+        PRRefreshTheme(child);
+}
+
 @implementation PRNativeRoot
+- (void)applyTheme {
+    if (!self.isViewLoaded)
+        return;
+    PRStyleFilledButton(_done);
+    // Repaint existing controls from their snapshots without rebuilding pages,
+    // changing navigation/expansion state or reading engine data on UIKit.
+    PRRefreshTheme(self);
+}
 - (instancetype)init {
     self = [super init];
     if (self) {
@@ -1609,6 +1663,7 @@ static UIViewController* PRPageController(std::string key) {
     // alone cannot validate that compositing path. Cover the whole overlay,
     // including the gutters and rounded panel edges, with an opaque canvas.
     self.view.backgroundColor = PRCanvas();
+    self.view.tintColor = PRAccent();
     self.view.opaque = YES;
     _header = [[UIView alloc] init];
     [self.view addSubview:_header];
@@ -1633,11 +1688,13 @@ static UIViewController* PRPageController(std::string key) {
     brand.translatesAutoresizingMaskIntoConstraints = NO;
     [_header addSubview:brand];
     UIButton* done = [UIButton buttonWithType:UIButtonTypeSystem];
+    _done = done;
     UIButtonConfiguration* config = [UIButtonConfiguration filledButtonConfiguration];
     config.title = @"Done";
     config.cornerStyle = UIButtonConfigurationCornerStyleMedium;
     config.contentInsets = NSDirectionalEdgeInsetsMake(10, 20, 10, 20);
     done.configuration = config;
+    PRStyleFilledButton(done);
     [done addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
     done.translatesAutoresizingMaskIntoConstraints = NO;
     [_header addSubview:done];
@@ -1842,6 +1899,12 @@ static void PRPresentSettings(
 }
 
 namespace Paperboat::NativeSettings {
+void SetThemeColor(ThemeColor color) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        PRTheme = color;
+        [PRRoot applyTheme];
+    });
+}
 bool IsPresented() {
     return PRWanted.load();
 }

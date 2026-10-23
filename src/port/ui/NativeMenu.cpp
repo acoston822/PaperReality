@@ -24,7 +24,6 @@ namespace {
     bool MobileSetting(const WidgetInfo& widget) {
         static const std::vector<std::string> hidden = { "Cursor Always Visible",
                                                          "ImGui Menu Scaling",
-                                                         "Menu Theme",
                                                          "Menu Background Opacity",
                                                          "Menu Controller Navigation",
                                                          "Search In Sidebar",
@@ -295,6 +294,8 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
             row.id = "widget/" + group + "/" + page + "/" + std::to_string(c) + "/" + std::to_string(i);
             row.title = CleanTitle(w.name);
             row.detail = w.options->tooltip ? w.options->tooltip : "";
+            if (w.name == "Menu Theme")
+                row.detail = "Changes the settings accent color and touch-stick cursor color.";
             row.enabled = !w.options->disabled && w.activeDisables.empty()
                 && !(w.raceDisable && CVarGetInteger(CVAR_SETTING("DisableChanges"), 0));
             if (!row.enabled) {

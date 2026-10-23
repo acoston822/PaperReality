@@ -18,6 +18,15 @@
 #include <set>
 
 namespace Paperboat::NativeSettings {
+ThemeColor ReadThemeColor() {
+    using namespace UIWidgets;
+    const int selected = CVarGetInteger("gSettings.Menu.Theme", Colors::LightBlue);
+    const auto color = ColorValues.at(
+        selected >= Colors::Red && selected <= Colors::DarkGray ? static_cast<Colors>(selected) : Colors::LightBlue
+    );
+    return { color.x, color.y, color.z };
+}
+
 EventSnapshot ReadEvents() {
     auto context = Ship::Context::GetRawInstance();
     return CaptureEvents(context ? context->GetEventSystem().get() : nullptr);
@@ -108,6 +117,14 @@ void Frame(PaperboatGui::PaperboatMenu& menu) {
         action();
 #if defined(__IOS__)
     const bool wanted = menu.IsVisible() && !classic && CVarGetInteger("gSettings.Menu.UseUIKit", 1);
+    if (wanted) {
+        static ThemeColor previous { -1, -1, -1 };
+        const auto color = ReadThemeColor();
+        if (color != previous) {
+            previous = color;
+            SetThemeColor(color);
+        }
+    }
     UpdateControllerBindings(wanted);
     auto deck = Ship::Context::GetRawInstance()->GetControlDeck();
     if (wanted && !blocked) {

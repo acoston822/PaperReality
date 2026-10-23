@@ -2,6 +2,7 @@
 #include "port/Engine.h"
 #include "port/ui/PaperboatGui.hpp"
 #include "port/ui/NativeSettings.h"
+#include "port/ui/NativeTheme.h"
 #include "port/ui/devtools/valueviewer/ValueViewer.h"
 #include "port/FilePicker.h"
 #include "port/enhancements/gameplay/ActorBlueprints.h"
@@ -257,6 +258,48 @@ static void CheckConsole() {
         N::ReadConsole().lines.empty() && !N::ReadConsole().history.empty(), "Clear lost history or retained output"
     );
 }
+static void CheckMenuTheme(PaperboatGui::PaperboatMenu& menu) {
+    const auto page = menu.NativePage("menu/Settings/General");
+    const auto row = Find(page, "Menu Theme");
+    Require(row.kind == N::Kind::Choice && row.choices.size() == 14, "Native Menu Theme choices are missing");
+    const int original = CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue);
+    for (const auto& choice : row.choices) {
+        const int before = CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue);
+        N::Enqueue([row, value = choice.value] { row.change(value); });
+        Require(
+            CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue) == before,
+            "Theme changed outside the frame queue"
+        );
+        N::Frame(menu);
+        menu.UpdateElement();
+        const auto theme = N::ReadThemeColor();
+        const auto cursor = UIWidgets::ColorValues.at(menu.GetMenuThemeColor());
+        Require(
+            CVarGetInteger("gSettings.Menu.Theme", -1) == choice.value
+                && theme == N::ThemeColor { cursor.x, cursor.y, cursor.z },
+            "Native theme and touch-stick palette diverged"
+        );
+        Require(
+            N::ThemeContrast(theme, N::ThemeForeground(theme)) >= 4.5, "Filled theme controls have unreadable labels"
+        );
+        for (const N::ThemeColor background : { N::ThemeColor { .09f, .12f, .17f }, N::ThemeColor { 1, 1, 1 } })
+            Require(
+                N::ThemeContrast(N::AccessibleThemeColor(theme, background), background) >= 4.5,
+                "Theme accent is unreadable in light/dark appearance"
+            );
+    }
+    const int selected = CVarGetInteger("gSettings.Menu.Theme", -1);
+    row.change(999);
+    Require(CVarGetInteger("gSettings.Menu.Theme", -1) == selected, "Theme selector accepted an invalid choice");
+    CVarSetInteger("gSettings.Menu.Theme", -1);
+    const auto fallback = UIWidgets::ColorValues.at(UIWidgets::Colors::LightBlue);
+    Require(
+        N::ReadThemeColor() == N::ThemeColor { fallback.x, fallback.y, fallback.z },
+        "Invalid saved theme did not fall back safely"
+    );
+    CVarSetInteger("gSettings.Menu.Theme", original);
+    menu.UpdateElement();
+}
 static void CheckValueViewer(PaperboatGui::PaperboatMenu& menu) {
     extern std::vector<ValueViewerTypes> enabledSettingsList;
     extern ImVec4 valueViewerBG;
@@ -452,6 +495,7 @@ int main() {
         PaperboatGui::SetupGuiElements();
         auto& menu = *PaperboatGui::mPaperboatMenu;
         N::Frame(menu);
+        CheckMenuTheme(menu);
         CheckConsole();
         CheckValueViewer(menu);
         CheckIosPickerBridge(menu);

@@ -681,7 +681,7 @@ static UISlider* PRSmokeSlider(UIView* view, NSString* label) {
     return nil;
 }
 static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
-    NSString* title = [NSString stringWithFormat:@"Control %d", int(kind)];
+    NSString* title = kind == N::Kind::Choice ? @"Menu Theme" : [NSString stringWithFormat:@"Control %d", int(kind)];
     for (NSInteger section = 0; section < [page.tableView numberOfSections]; ++section)
         for (NSInteger row = 0; row < [page.tableView numberOfRowsInSection:section]; ++row) {
             NSIndexPath* index = [NSIndexPath indexPathForRow:row inSection:section];

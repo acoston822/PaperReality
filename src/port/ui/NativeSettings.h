@@ -39,6 +39,8 @@ struct ThemeColor {
 ThemeColor ReadThemeColor();
 struct Row {
     std::string id, title, detail, symbol, target, text;
+    // Explanatory text is separate from live values, defaults and disabled reasons.
+    std::string help;
     Kind kind = Kind::Info;
     double value = 0, minimum = 0, maximum = 1, step = 1;
     bool enabled = true, destructive = false, percentage = false, alpha = true;

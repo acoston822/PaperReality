@@ -40,6 +40,10 @@ In **Settings → General → Menu Theme**, choose the accent color for the iOS
 settings and touch-stick cursor. Light/dark appearance still controls the
 backgrounds; accent text adjusts for readability.
 
+Tap the **ⓘ** button beside a setting to read its description, then **Done** to
+dismiss it. Original menu tooltips are reused where available; selected values,
+defaults and disabled-state messages stay visible in the list.
+
 # Custom Assets
 
 Custom assets are packed in `.o2r` or `.otr` files. In the **Mods** menu, tap **Add Files** and pick your files in the Files app; they are copied to the app's `mods` folder. Turn on **Alternate Assets** and restart the app to use texture packs.

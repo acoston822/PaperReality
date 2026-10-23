@@ -145,6 +145,39 @@ static NSString* PRText(const std::string& text) {
 static std::string PRString(NSString* text) {
     return text.UTF8String ?: "";
 }
+static void PRShowSettingInformation(UIViewController* owner, NSString* title, NSString* message) {
+    if (!owner.view.window || owner.presentedViewController)
+        return;
+    UIAlertController* alert = [UIAlertController alertControllerWithTitle:title
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Done" style:UIAlertActionStyleCancel handler:nil]];
+    [owner presentViewController:alert animated:YES completion:nil];
+    alert.view.tintColor = PRAccent();
+}
+static UIButton* PRInformationButton(const N::Row& row, UIViewController* owner) {
+    UIButton* button = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration* config = [UIButtonConfiguration plainButtonConfiguration];
+    config.image = [UIImage systemImageNamed:@"info.circle"];
+    button.configuration = config;
+    button.frame = CGRectMake(0, 0, 44, 44);
+    [button.widthAnchor constraintEqualToConstant:44].active = YES;
+    [button.heightAnchor constraintEqualToConstant:44].active = YES;
+    NSString* title = PRText(row.title);
+    NSString* message = PRText(row.help);
+    if (!row.enabled && !row.detail.empty())
+        message = [message stringByAppendingFormat:@"\n\n%@", PRText(row.detail)];
+    button.accessibilityLabel = [NSString stringWithFormat:@"About %@", title];
+    button.accessibilityHint = @"Opens the setting description.";
+    button.accessibilityIdentifier =
+        [@"setting-info/" stringByAppendingString:PRText(row.id.empty() ? row.title : row.id)];
+    __weak UIViewController* weak = owner;
+    [button addAction:[UIAction actionWithHandler:^(UIAction*) {
+                PRShowSettingInformation(weak, title, message);
+            }]
+        forControlEvents:UIControlEventTouchUpInside];
+    return button;
+}
 static std::atomic<bool> PRWanted { false };
 static std::atomic<uint64_t> PRPresentation { 0 };
 static UIViewController* PRTopController() {
@@ -435,6 +468,8 @@ static PRNativeRoot* PRRoot = nil;
     [_value setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     [_value setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
     UIStackView* heading = [[UIStackView alloc] initWithArrangedSubviews:@[ title, _value ]];
+    if (!row.help.empty())
+        [heading insertArrangedSubview:PRInformationButton(row, owner) atIndex:1];
     heading.spacing = 12;
     heading.alignment = UIStackViewAlignmentCenter;
     _slider = [[UISlider alloc] init];
@@ -497,7 +532,7 @@ static PRNativeRoot* PRRoot = nil;
         [stack.topAnchor constraintEqualToAnchor:margins.topAnchor],
         [stack.bottomAnchor constraintEqualToAnchor:margins.bottomAnchor]
     ]];
-    self.alpha = row.enabled ? 1 : .5;
+    title.alpha = _value.alpha = controls.alpha = row.enabled ? 1 : .5;
     [self changing:_slider];
     return self;
 }
@@ -1463,8 +1498,25 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
                                                  alpha:(rgba & 255) / 255.];
         cell.accessoryView = swatch;
     }
+    if (!row.help.empty()) {
+        NSMutableArray<UIView*>* accessories = [NSMutableArray arrayWithObject:PRInformationButton(row, self)];
+        if (cell.accessoryView)
+            [accessories addObject:cell.accessoryView];
+        if (cell.accessoryType == UITableViewCellAccessoryDisclosureIndicator) {
+            UIImageView* chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
+            chevron.tintColor = UIColor.tertiaryLabelColor;
+            [accessories addObject:chevron];
+        }
+        UIStackView* stack = [[UIStackView alloc] initWithArrangedSubviews:accessories];
+        stack.axis = UILayoutConstraintAxisHorizontal;
+        stack.alignment = UIStackViewAlignmentCenter;
+        stack.spacing = 8;
+        stack.frame = (CGRect) { CGPointZero, [stack systemLayoutSizeFittingSize:UILayoutFittingCompressedSize] };
+        cell.accessoryType = UITableViewCellAccessoryNone;
+        cell.accessoryView = stack;
+    }
     cell.contentConfiguration = content;
-    cell.userInteractionEnabled = row.enabled;
+    cell.userInteractionEnabled = row.enabled || !row.help.empty();
     cell.contentView.alpha = row.enabled ? 1 : .45;
     cell.accessibilityHint = PRText(row.detail);
     return cell;
@@ -1515,9 +1567,10 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
                                                alpha:(c & 255) / 255.];
         [self presentViewController:picker animated:YES completion:nil];
     } else if (row.kind == N::Kind::Text) {
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:PRText(row.title)
-                                                                       message:PRText(row.detail)
-                                                                preferredStyle:UIAlertControllerStyleAlert];
+        UIAlertController* alert =
+            [UIAlertController alertControllerWithTitle:PRText(row.title)
+                                                message:PRText(row.help.empty() ? row.detail : row.help)
+                                         preferredStyle:UIAlertControllerStyleAlert];
         [alert addTextFieldWithConfigurationHandler:^(UITextField* field) {
             field.autocapitalizationType = UITextAutocapitalizationTypeNone;
             field.autocorrectionType = UITextAutocorrectionTypeNo;
@@ -1573,6 +1626,9 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     PRIsolatePage(self);
     self.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableView.estimatedRowHeight = 52;
+    if (!_row.help.empty())
+        self.navigationItem.rightBarButtonItem =
+            [[UIBarButtonItem alloc] initWithCustomView:PRInformationButton(_row, self)];
     if (_row.choices.size() > 12) {
         UISearchController* search = [[UISearchController alloc] initWithSearchResultsController:nil];
         search.obscuresBackgroundDuringPresentation = NO;

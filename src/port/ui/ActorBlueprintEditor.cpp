@@ -1173,7 +1173,8 @@ Page BlueprintEditorPage(const std::string& key) {
             row.maximum = info.max;
             row.step = 1;
             row.value = ov.isSet[i] ? ov.value[i] : original;
-            row.detail = fmt::format("{} Default: {}.", info.tooltip, original);
+            row.help = info.tooltip ? info.tooltip : "";
+            row.detail = fmt::format("Default: {}.", original);
             row.percentage =
                 field == FIELD_ATTACK_PERCENT || (field >= FIELD_ESCAPE_CHANCE && field <= FIELD_UP_AND_AWAY_CHANCE);
             row.change = [actor, field, original, min = info.min, max = info.max](double value) {

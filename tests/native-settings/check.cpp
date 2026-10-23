@@ -258,6 +258,32 @@ static void CheckConsole() {
         N::ReadConsole().lines.empty() && !N::ReadConsole().history.empty(), "Clear lost history or retained output"
     );
 }
+static void CheckSettingHelp(PaperboatGui::PaperboatMenu& menu) {
+    size_t copied = 0;
+    for (const auto& group : N::BuildNavigation())
+        for (const auto& destination : group.pages)
+            for (const auto& section : menu.NativePage(destination.key).sections)
+                for (const auto& row : section.rows) {
+                    const auto* widget = menu.NativeWidget(row.id);
+                    if (!widget || !widget->options->tooltip || row.title == "Menu Theme"
+                        || row.title == "Controller Bindings" || row.title == "Audio API")
+                        continue;
+                    Require(row.help == widget->options->tooltip, "Native setting lost its original tooltip");
+                    ++copied;
+                }
+    Require(copied > 50, "Too few upstream setting descriptions were checked");
+    const auto controls = menu.NativePage("menu/Settings/Controls");
+    const auto stick = Find(controls, "Hide Joystick When Idle");
+    Require(!stick.help.empty() && stick.detail.empty(), "Description still occupies the setting's value subtitle");
+    const auto slider = N::Number("Help fixture", "test.NativeHelp", false, 0, 1, .1, .5, "A slider description.");
+    Require(slider.help == "A slider description." && slider.detail.empty(), "Custom slider help was not preserved");
+    const auto before = CVarGetInteger("gEnhancements.SprintButton", 0);
+    CVarSetInteger("gSettings.DisableChanges", 1);
+    const auto locked = Find(menu.NativePage("menu/Enhancements/Gameplay"), "Sprint Button");
+    Require(!locked.enabled && !locked.help.empty(), "Disabled setting lost access to its description");
+    Require(CVarGetInteger("gEnhancements.SprintButton", 0) == before, "Reading help changed a setting");
+    CVarSetInteger("gSettings.DisableChanges", 0);
+}
 static void CheckMenuTheme(PaperboatGui::PaperboatMenu& menu) {
     const auto page = menu.NativePage("menu/Settings/General");
     const auto row = Find(page, "Menu Theme");
@@ -495,6 +521,7 @@ int main() {
         PaperboatGui::SetupGuiElements();
         auto& menu = *PaperboatGui::mPaperboatMenu;
         N::Frame(menu);
+        CheckSettingHelp(menu);
         CheckMenuTheme(menu);
         CheckConsole();
         CheckValueViewer(menu);

@@ -1500,8 +1500,12 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     }
     if (!row.help.empty()) {
         NSMutableArray<UIView*>* accessories = [NSMutableArray arrayWithObject:PRInformationButton(row, self)];
-        if (cell.accessoryView)
-            [accessories addObject:cell.accessoryView];
+        // Detach UIKit's existing accessory before reparenting it. Replacing
+        // accessoryView afterwards must not remove the switch from our stack.
+        UIView* control = cell.accessoryView;
+        cell.accessoryView = nil;
+        if (control)
+            [accessories addObject:control];
         if (cell.accessoryType == UITableViewCellAccessoryDisclosureIndicator) {
             UIImageView* chevron = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"chevron.right"]];
             chevron.tintColor = UIColor.tertiaryLabelColor;

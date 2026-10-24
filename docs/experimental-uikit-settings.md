@@ -38,6 +38,9 @@ retained. Returning to an app that is still running keeps its current page open.
   The audio API selector remains available when multiple backends are supported.
 - Native Input Viewer controls, shader settings supplied by loaded packs, mod
   enable/order controls and Files import.
+- Upstream **Mute ISpy Sound** and **Always Chuck Quizmo** are available under
+  Enhancements → Gameplay, with inline descriptions and controller support.
+  Both default to off and use the existing saved gameplay settings and race lock.
 - Graphics includes the original **Pixel Count Presets**: Custom, Native N64
   (240p), 2x (480p), 3x (720p), 4x (960p), 5x (1200p), 6x (1440p), Full HD
   (1080p), and 4K (2160p). Enable advanced settings and Fixed Vertical Resolution

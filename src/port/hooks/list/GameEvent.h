@@ -110,3 +110,11 @@ DEFINE_EVENT(OnMapReady,
 DEFINE_EVENT(OnHiddenBlockAlphaChange,
     int32_t* alpha;
     );
+
+DEFINE_EVENT(OnISpySoundPlay,
+    bool* SoundPlay;
+);
+
+DEFINE_EVENT(OnQuizmoShouldAppear,
+    bool* forceAppear;
+);

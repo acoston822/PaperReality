@@ -7,6 +7,8 @@
 #include "port/ui/devtools/valueviewer/ValueViewer.h"
 #include "port/FilePicker.h"
 #include "port/enhancements/gameplay/ActorBlueprints.h"
+#include "port/enhancements/PortEnhancements.h"
+#include "port/hooks/Events.h"
 #include <fast/resource/ResourceType.h>
 #include <fast/resource/factory/TextureFactory.h>
 #include <fast/resource/factory/VertexFactory.h>
@@ -58,6 +60,50 @@ static N::Row Find(const N::Page& page, const std::string& title) {
             if (row.title == title)
                 return row;
     throw std::runtime_error("Missing row: " + title);
+}
+static void CheckUpstreamGameplay(PaperboatGui::PaperboatMenu& menu) {
+    extern void RegisterMuteISpySound_Init();
+    extern void RegisterAlwaysChuckQuizmo_Init();
+    PortEnhancements_Register();
+    RegisterMuteISpySound_Init();
+    RegisterAlwaysChuckQuizmo_Init();
+    const auto page = menu.NativePage("menu/Enhancements/Gameplay");
+    auto mute = Find(page, "Mute ISpy Sound"), quizmo = Find(page, "Always Chuck Quizmo");
+    Require(
+        mute.kind == N::Kind::Toggle && quizmo.kind == N::Kind::Toggle && mute.enabled && quizmo.enabled,
+        "New upstream gameplay settings are not usable in UIKit"
+    );
+    Require(mute.value == 0 && quizmo.value == 0, "New upstream enhancements must default to off");
+    auto checkEvents = [](bool expectedSound, bool expectedQuizmo) {
+        bool playSound = false, forceAppear = false;
+        CALL_EVENT(OnISpySoundPlay, &playSound);
+        CALL_EVENT(OnQuizmoShouldAppear, &forceAppear);
+        Require(playSound == expectedSound, "Native ISpy setting did not reach the gameplay sound hook");
+        Require(forceAppear == expectedQuizmo, "Native Quizmo setting did not reach the appearance hook");
+    };
+    checkEvents(true, false);
+    mute.change(1);
+    checkEvents(false, false);
+    quizmo.change(1);
+    checkEvents(false, true);
+    const auto restored = menu.NativePage("menu/Enhancements/Gameplay");
+    Require(
+        Find(restored, "Mute ISpy Sound").value == 1 && Find(restored, "Always Chuck Quizmo").value == 1,
+        "New gameplay settings did not preserve their saved values"
+    );
+    CVarSetInteger("gSettings.DisableChanges", 1);
+    Require(
+        !Find(menu.NativePage("menu/Enhancements/Gameplay"), "Mute ISpy Sound").enabled
+            && !Find(menu.NativePage("menu/Enhancements/Gameplay"), "Always Chuck Quizmo").enabled,
+        "New gameplay settings bypass the race lock"
+    );
+    mute.change(0);
+    quizmo.change(0);
+    checkEvents(false, true);
+    CVarSetInteger("gSettings.DisableChanges", 0);
+    mute.change(0);
+    quizmo.change(0);
+    checkEvents(true, false);
 }
 class TestRumbleMapping final : public Ship::ControllerRumbleMapping {
 public:
@@ -546,6 +592,7 @@ int main() {
         PaperboatGui::SetupGuiElements();
         auto& menu = *PaperboatGui::mPaperboatMenu;
         N::Frame(menu);
+        CheckUpstreamGameplay(menu);
         CheckMenuTheme(menu);
         CheckConsole();
         CheckValueViewer(menu);
@@ -708,7 +755,8 @@ int main() {
         }
         CheckTextureSelection();
         std::cout << "PASS: " << visited.size() << " native pages, " << rows
-                  << " rows; queued callbacks, race lock, navigation, save guards, resolution persistence, blank "
+                  << " rows; upstream gameplay hooks, queued callbacks, race lock, navigation, save guards, resolution "
+                     "persistence, blank "
                      "portraits, HD texture selection, console, iOS file routing, controller capture and persistence\n";
         N::Stop();
         PaperboatGui::Destroy();

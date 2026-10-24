@@ -296,6 +296,13 @@ N::Page PaperboatMenu::NativePage(const std::string& key) {
             row.detail = w.options->tooltip ? w.options->tooltip : "";
             if (w.name == "Menu Theme")
                 row.detail = "Changes the settings accent color and touch-stick cursor color.";
+            else if (w.name == "Mute ISpy Sound")
+                row.detail =
+                    "Silences I Spy's hidden Star Piece notification sound. The visual notification still appears.";
+            else if (w.name == "Always Chuck Quizmo")
+                row.detail = "Makes Chuck Quizmo appear in eligible locations without the random appearance check. "
+                             "Story progress must still unlock unanswered questions. Re-enter the area after changing "
+                             "this setting.";
             else if (w.name == "DX Debug Menu")
                 row.detail =
                     "Uses the game's mapped N64 buttons:\n"

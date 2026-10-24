@@ -1,6 +1,25 @@
 # PaperReality changes from HarbourMasters/PaperBoat
 
-Base: HarbourMasters/PaperBoat `develop` at d98b4b63 (merged on branch `merge/upstream-2026-10-18`: #262, #263, #264, #266; originally 7f038b85). 35 files changed, 1263 insertions, 151 deletions. These changes have not all been tested on a device.
+Base: HarbourMasters/PaperBoat `develop` at 781d164cf, merged into
+`experimental/uikit-settings` on 2026-10-24. Previously synced through d98b4b63
+(#262, #263, #264, #266; originally 7f038b85). These changes have not all been
+tested on a device.
+
+## Upstream sync — 2026-10-24
+
+- `befe89c37` (#269): fixes an animator buffer use-after-free reported during
+  Munchlesia by retiring display-list and vertex copies once per drawn frame,
+  rather than once per animator update; increases the temporary vertex buffer
+  pool to accommodate the retained copies.
+- `abac004a3` (#270): adds **Mute ISpy Sound**, keeping I Spy's visual notification
+  while optionally silencing its sound.
+- `781d164cf` (#272): adds **Always Chuck Quizmo** in eligible locations, while
+  retaining story-progress and unanswered-question requirements.
+- Both settings appear under **Enhancements → Gameplay** in UIKit, reuse the
+  upstream CVars and callbacks, default to off, and respect the existing race
+  lock. Their native controls are checked against the actual gameplay event
+  listeners. The libultraship pin and the iOS interface, AirPlay, touch and pacing
+  changes are retained.
 
 ## Since 1.0.0 (branch `feat/airplay-second-screen`)
 - **AirPlay refresh-rate matching**: limit the game's effective interpolation target to the external display's reported refresh rate while connected. A 120 Hz phone no longer requests 120 game frames through a synchronous 60 Hz TV output, which could hold up game progress. Lower configured targets are preserved, disconnect restores the normal phone target automatically, and Settings continues to request the phone's refresh rate independently. Saved preferences, Metal present pacing and the game-only TV output are retained.

@@ -45,6 +45,11 @@ void SetupMenu() {
     auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
     mPaperboatMenu = std::make_shared<PaperboatGui::PaperboatMenu>(CVAR_WINDOW("Menu"), "Port Menu");
     gui->SetMenu(mPaperboatMenu);
+#if defined(__IOS__)
+    // GuiWindow restores its saved visibility. A fresh iOS launch starts in
+    // the game; the selected settings page is remembered independently.
+    mPaperboatMenu->Hide();
+#endif
 
     mModalWindow = std::make_shared<PaperboatModalWindow>(CVAR_WINDOW("ModalWindow"), "Modal Window");
     gui->AddGuiWindow(mModalWindow);

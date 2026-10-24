@@ -29,6 +29,8 @@ retained. Returning to an app that is still running keeps its current page open.
 - Native lists, switches, sliders with precise increment/decrement buttons,
   choice submenus, search, color pickers and confirmation alerts. System colors,
   Dynamic Type, safe areas and light/dark appearance follow iOS.
+  Descriptions are read directly on the page; tapping a description or a slider
+  card does not open a duplicate explanation alert.
 - Existing CVar defaults, callbacks, race locks and disabled reasons are reused.
   Desktop-only window, renderer and ImGui appearance controls are omitted.
   The audio API selector remains available when multiple backends are supported.

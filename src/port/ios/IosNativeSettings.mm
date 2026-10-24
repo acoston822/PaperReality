@@ -1637,6 +1637,8 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     }
     UITableViewCell* cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
     PRStyleCard(cell);
+    if (row.kind == N::Kind::Info)
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
     UIListContentConfiguration* content = cell.defaultContentConfiguration;
     content.textProperties.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody);
     content.textProperties.numberOfLines = 0;
@@ -1787,12 +1789,6 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
                 });
             });
         });
-        [self presentViewController:alert animated:YES completion:nil];
-    } else if (!row.detail.empty()) {
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:PRText(row.title)
-                                                                       message:PRText(row.detail)
-                                                                preferredStyle:UIAlertControllerStyleAlert];
-        PRControllerAddAlertAction(alert, @"OK", UIAlertActionStyleDefault, nil);
         [self presentViewController:alert animated:YES completion:nil];
     }
 }

@@ -5,9 +5,10 @@ Branch: `experimental/uikit-settings`. This is a separate experiment from
 It does not change the desktop settings interface or the selected renderer.
 
 The goal is a clean native iOS interface inspired by the concepts, rather than an
-exact recreation. Opening Settings on iOS uses UIKit by default. Turn off **Use
-Native iOS Settings** in General to return to the classic menu; the same switch
-in the classic General page restores UIKit.
+exact recreation. Opening Settings on iOS always uses UIKit. The switch back to
+the original menu has been removed, and older saved interface preferences are
+ignored. The shared settings definitions and callbacks remain available for
+bringing future upstream settings into the iOS interface.
 
 A fresh iOS launch starts with Settings closed, including after the app was
 terminated with Settings open. Saved preferences and the last-selected page are

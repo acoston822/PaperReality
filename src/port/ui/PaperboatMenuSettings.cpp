@@ -79,12 +79,6 @@ void PaperboatMenu::AddMenuSettings() {
     AddMenuEntry("Settings", CVAR_SETTING("Menu.SettingsSidebarSection"));
     AddSidebarEntry("Settings", "General", 2);
     WidgetPath path = { "Settings", "General", SECTION_COLUMN_1 };
-#if defined(__IOS__)
-    AddWidget(path, "Use Native iOS Settings", WIDGET_CVAR_CHECKBOX)
-        .CVar(CVAR_SETTING("Menu.UseUIKit"))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().DefaultValue(true).Tooltip("Use the experimental UIKit settings interface."));
-#endif
 
     // Settings > General
     AddWidget(path, "Menu Settings", WIDGET_SEPARATOR_TEXT);

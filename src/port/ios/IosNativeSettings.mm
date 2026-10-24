@@ -2369,7 +2369,12 @@ static void PRPresentSettings(
                 PRPresentSettings(groups, initial, generation, attempt + 1);
             });
         } else {
-            N::Enqueue([] { N::OpenClassic("Settings", "General"); });
+            // A busy presenter must not switch to the original settings UI or
+            // leave gameplay input blocked without a settings page to dismiss.
+            N::Enqueue([generation] {
+                if (generation == PRPresentation.load())
+                    N::Close();
+            });
         }
         return;
     }

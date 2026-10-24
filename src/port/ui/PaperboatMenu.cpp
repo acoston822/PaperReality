@@ -158,19 +158,6 @@ void PaperboatMenu::UpdateElement() {
 void PaperboatMenu::Draw() {
 #if defined(__IOS__)
     Paperboat::NativeSettings::Frame(*this);
-    if (CVarGetInteger(CVAR_SETTING("Menu.UseUIKit"), 1) && !Paperboat::NativeSettings::ClassicToolActive()) {
-        return;
-    }
-    Ship::Menu::Draw();
-    if (IsVisible() && Paperboat::NativeSettings::ClassicToolActive()) {
-        ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
-        if (ImGui::Begin("##return-uikit", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize))
-        {
-            if (ImGui::Button("Back to UIKit Settings"))
-                Paperboat::NativeSettings::ReturnToNative();
-        }
-        ImGui::End();
-    }
 #else
     Ship::Menu::Draw();
 #endif

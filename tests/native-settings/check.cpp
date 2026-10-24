@@ -208,7 +208,6 @@ static void CheckControllerBindings(PaperboatGui::PaperboatMenu& menu) {
     devices->HandlePhysicalDeviceDisconnect(instance);
     SDL_JoystickClose(joystick);
     Require(SDL_JoystickDetachVirtual(device) == 0, "Could not remove synthetic controller");
-    Require(!N::ClassicToolActive(), "Native controller editing opened a classic tool");
     controller->ClearAllMappings();
 }
 static void CheckConsole() {
@@ -340,7 +339,6 @@ static void CheckValueViewer(PaperboatGui::PaperboatMenu& menu) {
     );
     change("Show Value Viewer", 0);
     Require(!CVarGetInteger("gWindows.ValueViewer", 0), "Value Viewer toggle did not hide the overlay");
-    Require(!N::ClassicToolActive(), "Editing Value Viewer opened classic settings");
 }
 static void CheckIosPickerBridge(PaperboatGui::PaperboatMenu& menu) {
     namespace fs = std::filesystem;

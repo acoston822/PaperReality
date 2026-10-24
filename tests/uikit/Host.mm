@@ -51,9 +51,6 @@ void Close() {
 }
 void RememberPage(const std::string&) {
 }
-void OpenClassic(const std::string&, const std::string&) {
-    SetPresented(false);
-}
 std::string InitialPage() {
     return "menu/Settings/General";
 }
@@ -150,10 +147,6 @@ Page BuildPage(const std::string& key) {
             volumes.rows.push_back(std::move(api));
             page.sections.push_back(std::move(volumes));
         } else {
-            auto native = row("Use Native iOS Settings", Kind::Toggle);
-            native.value = 1;
-            native.detail = "Use the experimental UIKit settings interface.";
-            page.sections.push_back({ "", "", { native } });
             auto files = row("Open App Files Folder", Kind::Action);
             files.detail = "Opens the folder that contains the save and mods folders, etc.";
             page.sections.push_back({ "General Settings", "", { files } });

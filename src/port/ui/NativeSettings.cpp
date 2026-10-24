@@ -35,7 +35,6 @@ namespace {
     std::mutex queueMutex;
     std::deque<std::function<void()>> actions;
     PaperboatGui::PaperboatMenu* owner = nullptr;
-    bool classic = false;
     constexpr int kInputBlock = 0x50425549;
     bool blocked = false;
     ConsoleSnapshot nativeConsole;
@@ -116,7 +115,7 @@ void Frame(PaperboatGui::PaperboatMenu& menu) {
     for (auto& action : ready)
         action();
 #if defined(__IOS__)
-    const bool wanted = menu.IsVisible() && !classic && CVarGetInteger("gSettings.Menu.UseUIKit", 1);
+    const bool wanted = menu.IsVisible();
     if (wanted) {
         static ThemeColor previous { -1, -1, -1 };
         const auto color = ReadThemeColor();
@@ -135,8 +134,6 @@ void Frame(PaperboatGui::PaperboatMenu& menu) {
         deck->UnblockGameInput(kInputBlock);
         blocked = false;
     }
-    if (!menu.IsVisible())
-        classic = false;
     if (wanted != IsPresented())
         SetPresented(wanted, wanted ? BuildNavigation() : std::vector<Group> { });
 #endif
@@ -178,23 +175,6 @@ void RememberPage(const std::string& key) {
     CVarSetString("gSettings.Menu.ActiveHeader", group.c_str());
     CVarSetString(cvar.c_str(), page.c_str());
     SaveSettings();
-}
-
-void OpenClassic(const std::string& group, const std::string& page) {
-    classic = true;
-    CVarSetString("gSettings.Menu.ActiveHeader", group.c_str());
-    const char* key = group == "Settings" ? "gSettings.Menu.SettingsSidebarSection"
-        : group == "Shaders"              ? "gSettings.Menu.ShadersSidebarSection"
-                                          : "gSettings.Menu.DevToolsSidebarSection";
-    CVarSetString(key, page.c_str());
-    SetPresented(false);
-}
-void ReturnToNative() {
-    classic = false;
-    CVarSetInteger("gSettings.Menu.UseUIKit", 1);
-}
-bool ClassicToolActive() {
-    return classic;
 }
 
 Page BuildPage(const std::string& key) {

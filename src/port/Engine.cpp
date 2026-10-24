@@ -15,6 +15,7 @@
 #include "port/TextureCache.h"
 #include "port/ios/IosFilePicker.h"
 #include "port/ios/IosExternalDisplay.h"
+#include "port/ios/IosDisplayTiming.h"
 #include "port/ios/IosControllerNavigation.h"
 #include <spdlog/spdlog.h>
 #include <chrono>
@@ -1157,19 +1158,28 @@ void GameEngine::StartFrame() const {
 }
 
 uint32_t GameEngine::GetInterpolationFPS() {
+    const auto presentationRate = [](uint32_t requested) {
+#if defined(__IOS__)
+        return Paperboat::IosPresentationFrameRate(requested, Paperboat::IosExternalDisplayRefreshRate());
+#else
+        return requested;
+#endif
+    };
     if (CVarGetInteger(CVAR_SETTING("MatchRefreshRate"), 0)) {
-        return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
+        return presentationRate(Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate());
     }
 
     if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1)
         || !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync())
     {
-        return std::min<uint32_t>(
-            Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
-            CVarGetInteger(CVAR_SETTING("InterpolationFPS"), 30)
+        return presentationRate(
+            std::min<uint32_t>(
+                Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
+                CVarGetInteger(CVAR_SETTING("InterpolationFPS"), 30)
+            )
         );
     }
-    return CVarGetInteger(CVAR_SETTING("InterpolationFPS"), 30);
+    return presentationRate(CVarGetInteger(CVAR_SETTING("InterpolationFPS"), 30));
 }
 
 // Audio

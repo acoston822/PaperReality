@@ -154,7 +154,7 @@ jobs:
           for DIAGNOSTICS in 0 1; do
             if ! xcrun --sdk iphoneos clang++ -std=c++20 -fobjc-arc -fsyntax-only \
               -target arm64-apple-ios16.3 -D__IOS__ -DPAPERREALITY_UI_DIAGNOSTICS=$DIAGNOSTICS -Isrc -Iexternal/libultraship/include \
-              src/port/ios/IosNativeSettings.mm src/port/ios/IosControllerNavigation.mm src/port/ios/IosFilePicker.mm tests/uikit/Host.mm > "$RUNNER_TEMP/uikit-syntax.log" 2>&1; then
+              src/port/ios/IosNativeSettings.mm src/port/ios/IosControllerNavigation.mm src/port/ios/IosFilePicker.mm src/port/ios/IosExternalDisplay.mm tests/uikit/Host.mm > "$RUNNER_TEMP/uikit-syntax.log" 2>&1; then
               python3 - "$RUNNER_TEMP/uikit-syntax.log" <<'PYERROR'
           from pathlib import Path
           import sys
@@ -170,6 +170,8 @@ jobs:
           "$RUNNER_TEMP/ui-timing-check"
           c++ -std=c++20 -Iexternal/libultraship/include tests/native-settings/frame-pacer.cpp -o "$RUNNER_TEMP/frame-pacer-check"
           "$RUNNER_TEMP/frame-pacer-check"
+          c++ -std=c++20 -Wall -Wextra -Werror -Isrc -Iexternal/libultraship/include tests/native-settings/display-timing.cpp -o "$RUNNER_TEMP/display-timing-check"
+          "$RUNNER_TEMP/display-timing-check"
           c++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/native-settings/model-portraits.cpp -o "$RUNNER_TEMP/model-portrait-check"
           "$RUNNER_TEMP/model-portrait-check"
           c++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/native-settings/controller-navigation.cpp -o "$RUNNER_TEMP/controller-navigation-check"

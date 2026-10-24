@@ -5,6 +5,7 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #include <cmath>
+#include <atomic>
 
 // In libultraship's Metal backend. Passing nullptr stops the second screen.
 extern "C" void LUS_SetExternalDisplayLayer(void* layer);
@@ -48,8 +49,10 @@ namespace {
 
 bool sObserving = false;
 UIWindow* sWindow = nil;
+std::atomic<uint32_t> sRefreshRate { 0 };
 
 void Detach() {
+    sRefreshRate.store(0, std::memory_order_relaxed);
     if (sWindow == nil) {
         return;
     }
@@ -59,11 +62,14 @@ void Detach() {
 }
 
 void Attach(UIScreen* screen) {
+    const uint32_t refreshRate =
+        screen.maximumFramesPerSecond > 0 ? static_cast<uint32_t>(screen.maximumFramesPerSecond) : 60;
     if (sWindow != nil && sWindow.screen == screen) {
         if (!CGRectEqualToRect(sWindow.frame, screen.bounds)) {
             sWindow.frame = screen.bounds;
         }
         [sWindow.rootViewController.view setNeedsLayout];
+        sRefreshRate.store(refreshRate, std::memory_order_relaxed);
         return;
     }
     Detach();
@@ -85,6 +91,7 @@ void Attach(UIScreen* screen) {
     sWindow = window;
 
     LUS_SetExternalDisplayLayer((__bridge void*) layer);
+    sRefreshRate.store(refreshRate, std::memory_order_relaxed);
 }
 
 // Main thread only.
@@ -99,6 +106,10 @@ void Refresh() {
 }
 
 } // namespace
+
+uint32_t IosExternalDisplayRefreshRate() {
+    return sRefreshRate.load(std::memory_order_relaxed);
+}
 
 void IosExternalDisplayInit() {
     dispatch_async(dispatch_get_main_queue(), ^{

@@ -214,6 +214,13 @@ texture-pack files are rewritten. Synthetic portrait checks live in
 `tests/native-settings/portraits.cpp`; the UIKit harness also verifies Retina
 dimensions and that enlarging a checkerboard introduces no blurred colors.
 
+The native Save Editor places Auto Jump, Super Jump, Auto Smash, Berserker,
+Kaiden, Right On, Healthy Healthy and Earthquake Jump in an **Unused** section
+below the regular badges. Battle Items puts Insecticide Herb and Please Come
+Back in the same section below its regular items. Their portraits and editing
+controls still work; the section identifies entries unavailable through normal
+gameplay.
+
 ## Validation
 
 Build the normal Linux Ninja debug target first with

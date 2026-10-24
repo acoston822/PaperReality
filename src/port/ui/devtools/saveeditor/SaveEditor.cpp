@@ -1594,6 +1594,23 @@ namespace {
             );
         };
     }
+    bool IsUnusedEditorItem(int item) {
+        switch (item) {
+            case ITEM_AUTO_JUMP:
+            case ITEM_SUPER_JUMP:
+            case ITEM_AUTO_SMASH:
+            case ITEM_BERSERKER:
+            case ITEM_KAIDEN:
+            case ITEM_RIGHT_ON:
+            case ITEM_HEALTHY_HEALTHY:
+            case ITEM_EARTHQUAKE_JUMP:
+            case ITEM_INSECTICIDE_HERB:
+            case ITEM_PLEASE_COME_BACK:
+                return true;
+            default:
+                return false;
+        }
+    }
 }
 void AppendSaveEditorTextureCoverage(std::ostream& report) {
     std::set<std::pair<std::string, std::string>> references;
@@ -1724,6 +1741,7 @@ Page SaveEditorPage(const std::string& key) {
                         badges ? "Switch a badge on to add it to your collection. This does not equip it."
                                : "Tap an item to add it to the current inventory.",
                         { } };
+        Section unused { "Unused", "Not obtainable through normal gameplay.", {} };
         bool full = true;
         for (const int item : gPlayerData.invItems)
             if (!item)
@@ -1748,9 +1766,12 @@ Page SaveEditorPage(const std::string& key) {
                 row.enabled = !full;
                 row.activate = EditSave([id] { AddRemove_Item(id, false); });
             }
-            items.rows.push_back(std::move(row));
+            auto& section = IsUnusedEditorItem(id) ? unused : items;
+            section.rows.push_back(std::move(row));
         }
         page.sections.push_back(std::move(items));
+        if (!unused.rows.empty())
+            page.sections.push_back(std::move(unused));
     } else if (key == "save/items") {
         page.title = "Items";
         Section inventory { "Inventory", "Tap a held item to remove it. Inventory holds ten items.", { } };

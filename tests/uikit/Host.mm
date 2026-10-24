@@ -1,6 +1,7 @@
 // Asset-free runtime harness for the production UIKit controllers.
 // The actual view/controller implementation is compiled unchanged below.
 #include "../../src/port/ios/IosNativeSettings.mm"
+#include <fast/backends/FramePacer.h>
 #import <QuartzCore/QuartzCore.h>
 #include <cstdio>
 #include <execinfo.h>
@@ -720,8 +721,11 @@ static void CheckIndependentUiPacing() {
     [NSThread sleepForTimeInterval:.04];
     Require(normalTicks == 0 && trackingTicks == 0, @"Blocking-wait comparison unexpectedly serviced the run loop.");
     const double started = CACurrentMediaTime();
-    Require(N::WaitForUi(.04), @"Native settings did not service a frame-limiter wait.");
-    Require(CACurrentMediaTime() - started >= .04, @"Servicing UIKit shortened the game-frame wait.");
+    Fast::FramePacer pacer;
+    pacer.NextDeadline(started, 30);
+    const double deadline = pacer.NextDeadline(started, 30);
+    Require(N::WaitForUi(deadline - CACurrentMediaTime()), @"Native settings did not service a frame-limiter wait.");
+    Require(CACurrentMediaTime() >= deadline, @"Servicing UIKit shortened the game-frame wait.");
     Require(normalTicks >= 3 && trackingTicks >= 3, @"Frame wait starved normal or scrolling run-loop callbacks.");
     CFRunLoopTimerInvalidate(normal);
     CFRunLoopTimerInvalidate(tracking);
@@ -757,7 +761,9 @@ static void CheckIndependentUiPacing() {
         @"Backgrounding did not reset development render diagnostics."
     );
 #endif
-    Progress("Independent UI pacing passed: frame deadline, normal/tracking callbacks, refresh request and lifecycle");
+    Progress(
+        "Independent UI pacing passed: absolute game deadline, normal/tracking callbacks, refresh request and lifecycle"
+    );
 }
 
 @interface SmokeDelegate : UIResponder <UIApplicationDelegate>

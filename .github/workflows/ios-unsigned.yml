@@ -153,11 +153,13 @@ jobs:
         run: |
           for DIAGNOSTICS in 0 1; do
             xcrun --sdk iphoneos clang++ -std=c++20 -fobjc-arc -fsyntax-only \
-              -target arm64-apple-ios16.3 -D__IOS__ -DPAPERREALITY_UI_DIAGNOSTICS=$DIAGNOSTICS -Isrc \
+              -target arm64-apple-ios16.3 -D__IOS__ -DPAPERREALITY_UI_DIAGNOSTICS=$DIAGNOSTICS -Isrc -Iexternal/libultraship/include \
               src/port/ios/IosNativeSettings.mm src/port/ios/IosFilePicker.mm tests/uikit/Host.mm
           done
           c++ -std=c++20 -Isrc tests/native-settings/frame-timing.cpp -o "$RUNNER_TEMP/ui-timing-check"
           "$RUNNER_TEMP/ui-timing-check"
+          c++ -std=c++20 -Iexternal/libultraship/include tests/native-settings/frame-pacer.cpp -o "$RUNNER_TEMP/frame-pacer-check"
+          "$RUNNER_TEMP/frame-pacer-check"
 
       - name: Install dependencies
         run: brew install cmake ninja

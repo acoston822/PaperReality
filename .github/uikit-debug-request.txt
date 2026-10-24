@@ -1,3 +1,3 @@
-Requested check: Development render/drawable timing readings while preserving the existing pacing.
-Check normal and development variants, timing overlay bounds, target/pacing metadata, and background reset.
+Requested check: iOS steady frame deadlines with cooperative UIKit updates.
+Check the pinned backend pacer, wake jitter and stall recovery, and real UIKit callbacks during a planned 30 FPS frame wait in normal/development variants.
 Synthetic UI data only; no game files, texture packs or capture uploads.

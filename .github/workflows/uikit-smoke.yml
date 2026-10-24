@@ -32,7 +32,25 @@ jobs:
             /src/port/ui/NativeTheme.h
             /src/port/ui/NativePortrait.h
             /tests/native-settings/portraits.cpp
+            /tests/native-settings/frame-pacer.cpp
             /tests/uikit/
+
+      - name: Read the pinned backend revision
+        id: backend
+        run: echo "sha=$(git rev-parse HEAD:external/libultraship)" >> "$GITHUB_OUTPUT"
+
+      # Check the same small clock model that the production iOS backend uses.
+      # No backend binaries, rendering resources or game assets are fetched.
+      - uses: actions/checkout@v6
+        with:
+          repository: acoston822/libultraship
+          ref: ${{ steps.backend.outputs.sha }}
+          path: build-uikit-backend
+          submodules: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /include/fast/backends/FramePacer.h
 
       - name: Check native UI and overscroll on iPhone Simulator
         run: |

@@ -22,13 +22,17 @@ app.mkdir(parents=True, exist_ok=True)
 def run(*args, **kwargs):
     return subprocess.check_output(args, text=True, **kwargs).strip()
 sdk = run('xcrun', '--sdk', 'iphonesimulator', '--show-sdk-path')
+backend_includes = ['-I'+str(root/'external/libultraship/include'), '-I'+str(root/'build-uikit-backend/include')]
+subprocess.run(['c++','-std=c++20',*backend_includes,str(root/'tests/native-settings/frame-pacer.cpp'),
+                '-o',str(out/'frame-pacer-check')],check=True)
+subprocess.run([str(out/'frame-pacer-check')],check=True)
 subprocess.run(['c++','-std=c++20','-I'+str(root/'src'),str(root/'tests/native-settings/portraits.cpp'),
                 '-o',str(out/'portrait-check')],check=True)
 subprocess.run([str(out/'portrait-check')],check=True)
 subprocess.run(['xcrun','--sdk','iphonesimulator','clang++','-std=c++20','-fobjc-arc',
                 '-target',platform.machine()+'-apple-ios16.3-simulator','-isysroot',sdk,
                 '-D__IOS__','-DPAPERREALITY_UI_DIAGNOSTICS='+str(int(args.ui_diagnostics)),
-                '-I'+str(root/'src'),str(root/'tests/uikit/Host.mm'),
+                '-I'+str(root/'src'),*backend_includes,str(root/'tests/uikit/Host.mm'),
                 '-framework','UIKit','-framework','Foundation','-framework','CoreGraphics',
                 '-framework','QuartzCore','-o',str(app/'UIKitSmoke')],check=True)
 with (app/'Info.plist').open('wb') as f:

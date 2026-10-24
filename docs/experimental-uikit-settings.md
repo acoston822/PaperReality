@@ -154,14 +154,25 @@ excluding an AirPlay display. The full-screen overlay keeps SDL rendering alive.
 Settings owns a display-link request for the screen's maximum refresh rate while
 visible, independently of Current FPS and Match Refresh Rate. The iOS SDL frame
 limiter has an optional application wait callback: while native settings is open,
-the existing wait services default/tracking run-loop callbacks until its original
-deadline. It does not render extra game frames or change the FPS CVars. Outside
-the active native menu it falls back to the existing sleep. UI actions continue
+the wait services default/tracking run-loop callbacks until its planned deadline.
+It does not render extra game frames or change the FPS CVars. Outside
+the active native menu it sleeps until the same deadline. UI actions continue
 to enqueue engine work for the next game frame; the wait does not reenter SDL or
 the engine. Rendering work itself can still delay UIKit on the shared main thread.
 The refresh request stops on dismissal/backgrounding; iOS retains control over
 adaptive refresh, Low Power Mode and thermal limits. Only development IPAs display
 callback timing; those readings do not measure GPU presentation.
+
+The iOS frame limiter plans deadlines from a fixed epoch and integer frame index,
+including fractional intervals at 30/60/120 FPS and arbitrary selected rates.
+It waits for the full deadline rather than applying the macOS 1 ms early-wake
+allowance, and rechecks after interrupted sleeps. Small wake-up errors do not
+accumulate into subsequent deadlines. Missed deadlines, clock discontinuities,
+FPS changes and Metal pacing-mode changes restart the cadence, avoiding bursts
+of catch-up frames. Metal's existing minimum presentation spacing remains in
+place. Desktop limiter code is unchanged. Simulator checks use the pinned
+backend clock header to service actual UIKit callbacks during a 30 FPS wait;
+they do not establish physical-device presentation smoothness.
 
 Development timing also shows the game target (not measured game FPS), the Metal
 pacing switch, and peak render-work/drawable-acquisition wall times for the recent

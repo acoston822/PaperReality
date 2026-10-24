@@ -1810,7 +1810,8 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     __weak PRNativePage* weak = self;
     for (size_t section = 0; section < _rows.size(); ++section)
         for (size_t display = 0; display < _rows[section].size(); ++display) {
-            const auto [index, columns] = _rows[section][display];
+            const auto layout = _rows[section][display];
+            const size_t index = layout.first, columns = layout.second;
             NSIndexPath* path = [NSIndexPath indexPathForRow:display inSection:section];
             for (size_t column = 0; column < columns; ++column) {
                 const N::Row row = _sections[section].rows[index + column];

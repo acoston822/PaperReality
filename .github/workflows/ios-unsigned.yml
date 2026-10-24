@@ -152,9 +152,19 @@ jobs:
       - name: Check UIKit sources
         run: |
           for DIAGNOSTICS in 0 1; do
-            xcrun --sdk iphoneos clang++ -std=c++20 -fobjc-arc -fsyntax-only \
+            if ! xcrun --sdk iphoneos clang++ -std=c++20 -fobjc-arc -fsyntax-only \
               -target arm64-apple-ios16.3 -D__IOS__ -DPAPERREALITY_UI_DIAGNOSTICS=$DIAGNOSTICS -Isrc -Iexternal/libultraship/include \
-              src/port/ios/IosNativeSettings.mm src/port/ios/IosControllerNavigation.mm src/port/ios/IosFilePicker.mm tests/uikit/Host.mm
+              src/port/ios/IosNativeSettings.mm src/port/ios/IosControllerNavigation.mm src/port/ios/IosFilePicker.mm tests/uikit/Host.mm > "$RUNNER_TEMP/uikit-syntax.log" 2>&1; then
+              python3 - "$RUNNER_TEMP/uikit-syntax.log" <<'PYERROR'
+          from pathlib import Path
+          import sys
+          log = Path(sys.argv[1]).read_text()
+          print(log)
+          print('::error::' + log[-14000:].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYERROR
+              exit 1
+            fi
+            cat "$RUNNER_TEMP/uikit-syntax.log"
           done
           c++ -std=c++20 -Isrc tests/native-settings/frame-timing.cpp -o "$RUNNER_TEMP/ui-timing-check"
           "$RUNNER_TEMP/ui-timing-check"

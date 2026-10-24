@@ -191,6 +191,7 @@ static UIScrollView* PNFindScroll(UIView* view) {
     config.contentInsets = NSDirectionalEdgeInsetsMake(5, 4, 5, 4);
     button.configuration = config;
     button.accessibilityIdentifier = identifier;
+    button.accessibilityLabel = title;
     [button.heightAnchor constraintGreaterThanOrEqualToConstant:32].active = YES;
     [button addAction:[UIAction actionWithHandler:^(UIAction*) {
                 action();
@@ -389,7 +390,9 @@ static void PNCollect(UIView* view, UIViewController* page, NSMutableArray<PRCon
                                   table,
                                   path,
                                   [NSString stringWithFormat:@"%p/row/%ld/%ld", table, (long) section, (long) row],
-                                  cell.textLabel.text ?: @"Row",
+                                  [cell.contentConfiguration isKindOfClass:UIListContentConfiguration.class]
+                                      ? ((UIListContentConfiguration*)cell.contentConfiguration).text ?: @"Row"
+                                      : cell.textLabel.text ?: @"Row",
                                   ^{
                                       UITableView* owner = weak;
                                       id<UITableViewDelegate> delegate = owner.delegate;

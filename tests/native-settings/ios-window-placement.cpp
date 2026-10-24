@@ -53,7 +53,7 @@ static void CheckWindow(int phoneWidth, int phoneHeight, SDL_Rect saved, bool ai
 }
 
 int main() {
-    SDL_SetHint(SDL_HINT_VIDEODRIVER, "dummy");
+    assert(SDL_SetHintWithPriority(SDL_HINT_VIDEODRIVER, "dummy", SDL_HINT_OVERRIDE) == SDL_TRUE);
     assert(SDL_Init(SDL_INIT_VIDEO) == 0);
     ResetDisplays(852, 393, true);
     const SDL_Rect savedPixels { 100, 100, 2556, 1179 };

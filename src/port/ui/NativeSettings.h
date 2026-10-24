@@ -164,6 +164,11 @@ bool IsPresented();
 // Main/render thread only. Services UIKit during an existing game-frame wait;
 // returns false when the native menu is inactive so normal pacing is retained.
 bool WaitForUi(double seconds);
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+void BeginRenderTiming(int targetFps, bool metalPacing);
+void EndRenderTiming();
+void RecordDrawableWait(double seconds);
+#endif
 bool Alert(
     std::string title,
     std::string message,

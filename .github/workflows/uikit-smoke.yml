@@ -28,6 +28,7 @@ jobs:
             /src/port/ios/IosNativeSettings.mm
             /src/port/ui/NativeSettings.h
             /src/port/ui/NativeFrameTiming.h
+            /src/port/ui/NativeRenderTiming.h
             /src/port/ui/NativeTheme.h
             /src/port/ui/NativePortrait.h
             /tests/native-settings/portraits.cpp

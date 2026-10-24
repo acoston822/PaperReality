@@ -1,3 +1,3 @@
-Requested check: Independent UIKit refresh while servicing the existing game-frame wait.
-Check normal and development variants: preserve frame deadlines, service normal/tracking callbacks, and stop/resume the menu refresh request with its lifecycle.
+Requested check: Development render/drawable timing readings while preserving the existing pacing.
+Check normal and development variants, timing overlay bounds, target/pacing metadata, and background reset.
 Synthetic UI data only; no game files, texture packs or capture uploads.

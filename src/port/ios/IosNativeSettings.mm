@@ -11,9 +11,13 @@
 #include <set>
 #if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
 #include "port/ui/NativeFrameTiming.h"
+#include "port/ui/NativeRenderTiming.h"
 #endif
 
 namespace N = Paperboat::NativeSettings;
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+static N::RenderTiming PRRenderTiming;
+#endif
 // Main-queue copy only; CVars and the shared game palette stay on the frame queue.
 static N::ThemeColor PRTheme;
 static UIColor* PRColor(N::ThemeColor color) {
@@ -276,7 +280,7 @@ static UIImage* PRBlankPortrait() {
     _label = [[UILabel alloc] init];
     _label.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
     _label.textColor = UIColor.whiteColor;
-    _label.numberOfLines = 4;
+    _label.numberOfLines = 7;
     [self addSubview:_label];
     [self resetTiming];
 #endif
@@ -297,6 +301,7 @@ static UIImage* PRBlankPortrait() {
 - (void)resetTiming {
 #if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
     _timing.Reset();
+    PRRenderTiming.Reset();
     _label.text = @"UI timing · DEVELOPMENT\nCollecting callback timing…\n\nTiming estimate; not GPU FPS";
 #endif
 }
@@ -341,10 +346,15 @@ static UIImage* PRBlankPortrait() {
     const auto sample = _timing.Sample(CACurrentMediaTime(), link.targetTimestamp - link.timestamp);
     if (!sample)
         return;
-    _label.text = [NSString stringWithFormat:@"UI timing · DEVELOPMENT\nUpdates %.1f/s · target %.0f Hz\nAvg %.1f ms · "
-                                             @"peak %.1f ms\nLate callbacks %llu · timing estimate",
-                                             sample->updatesPerSecond, sample->targetHz, sample->averageMs,
-                                             sample->longestMs, (unsigned long long) sample->lateCallbacks];
+    const auto render = PRRenderTiming.Take();
+    _label.text =
+        [NSString stringWithFormat:@"UI timing · DEVELOPMENT\nUpdates %.1f/s · target %.0f Hz\nAvg %.1f ms · "
+                                   @"peak %.1f ms\nLate callbacks %llu · timing estimate\n"
+                                   @"Game target %d FPS · pacing %@\nRender work peak %.1f ms\n"
+                                   @"Drawable wait peak %.1f ms",
+                                   sample->updatesPerSecond, sample->targetHz, sample->averageMs, sample->longestMs,
+                                   (unsigned long long) sample->lateCallbacks, render.gameTargetFps,
+                                   render.metalPacing ? @"on" : @"off", render.renderPeakMs, render.drawablePeakMs];
 #endif
 }
 - (void)dealloc {
@@ -1931,7 +1941,7 @@ static void PRRefreshTheme(UIViewController* controller) {
     _frameClock.frame = PRPixelAlignedRect(
         CGRectMake(
             CGRectGetWidth(self.view.bounds) - safe.right - hudWidth - 12,
-            CGRectGetHeight(self.view.bounds) - safe.bottom - 82, hudWidth, 74
+            CGRectGetHeight(self.view.bounds) - safe.bottom - 108, hudWidth, 100
         ),
         scale
     );
@@ -2067,11 +2077,26 @@ void SetThemeColor(ThemeColor color) {
 bool IsPresented() {
     return PRWanted.load();
 }
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+void BeginRenderTiming(int targetFps, bool metalPacing) {
+    if (NSThread.isMainThread && IsPresented())
+        PRRenderTiming.Begin(CACurrentMediaTime(), targetFps, metalPacing);
+}
+void EndRenderTiming() {
+    if (NSThread.isMainThread)
+        PRRenderTiming.End(CACurrentMediaTime());
+}
+void RecordDrawableWait(double seconds) {
+    if (NSThread.isMainThread && IsPresented())
+        PRRenderTiming.RecordDrawableWait(seconds);
+}
+#endif
 bool WaitForUi(double seconds) {
     if (!std::isfinite(seconds) || seconds <= 0 || !NSThread.isMainThread || !IsPresented()
         || !PRRoot.viewIfLoaded.window || UIApplication.sharedApplication.applicationState != UIApplicationStateActive)
         return false;
-    const double deadline = CACurrentMediaTime() + seconds;
+    const double started = CACurrentMediaTime();
+    const double deadline = started + seconds;
     // SDL's main loop normally services UIKit only between game frames. Spend
     // the existing limiter wait in the run loop instead of sleeping through UI
     // refreshes. UI callbacks still enqueue engine work for the next game frame.
@@ -2090,6 +2115,9 @@ bool WaitForUi(double seconds) {
                 CFRunLoopRunInMode((__bridge CFStringRef) UITrackingRunLoopMode, 0, true);
         }
     }
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    PRRenderTiming.RecordUiWait(CACurrentMediaTime() - started);
+#endif
     return true;
 }
 void SetPresented(bool presented, std::vector<Group> navigation) {

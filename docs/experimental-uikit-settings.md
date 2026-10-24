@@ -163,6 +163,16 @@ The refresh request stops on dismissal/backgrounding; iOS retains control over
 adaptive refresh, Low Power Mode and thermal limits. Only development IPAs display
 callback timing; those readings do not measure GPU presentation.
 
+Development timing also shows the game target (not measured game FPS), the Metal
+pacing switch, and peak render-work/drawable-acquisition wall times for the recent
+sample window. Render work covers graphics preparation and individual draws,
+excludes the cooperative UIKit wait, but includes
+drawable acquisition, so these two peaks are not additive. They do not measure
+CPU or GPU execution time. The optional Metal observer is installed only by the
+development app; normal builds collect no drawable timestamps. These readings
+help distinguish rendering delays from drawable waits without disabling Metal's
+presentation pacing or changing the game FPS. They reset with the menu clock.
+
 No ROM, save, texture pack or extracted game artwork is included in this branch
 or its tests. Runtime portraits are not checked-in screenshots or bundled art.
 The implementation does not upload user assets. Blueprint exports contain the

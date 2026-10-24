@@ -970,6 +970,9 @@ void GameEngine::Create(int argc, char* argv[]) {
     Paperboat::IosExternalDisplayInit();
 #if defined(__IOS__)
     Fast::SetIosFrameWaitCallback(Paperboat::NativeSettings::WaitForUi);
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    Fast::SetIosDrawableWaitCallback(Paperboat::NativeSettings::RecordDrawableWait);
+#endif
     // Write the log to disk every second, so it is complete even if the app is swiped away instead of quit.
     spdlog::flush_every(std::chrono::seconds(1));
 #endif
@@ -1225,7 +1228,18 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
             interpreter->mInterpolationIndex++;
             continue;
         }
+#if defined(__IOS__) && defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+        const bool traceRender = Paperboat::NativeSettings::IsPresented();
+        if (traceRender)
+            Paperboat::NativeSettings::BeginRenderTiming(
+                wnd->GetTargetFps(), CVarGetInteger("gMetalPresentPacing", 1) != 0
+            );
+#endif
         wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements[i], {});
+#if defined(__IOS__) && defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+        if (traceRender)
+            Paperboat::NativeSettings::EndRenderTiming();
+#endif
         OS_ViNotifyPresent();
         interpreter->mInterpolationIndex++;
     }
@@ -1243,6 +1257,11 @@ void GameEngine::ProcessGfxCommands(Gfx* commands) {
     std::vector<std::unordered_map<Mtx*, MtxF>> mtx_replacements;
 
     int target_fps = GetInterpolationFPS();
+#if defined(__IOS__) && defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    const bool tracePreparation = Paperboat::NativeSettings::IsPresented();
+    if (tracePreparation)
+        Paperboat::NativeSettings::BeginRenderTiming(target_fps, CVarGetInteger("gMetalPresentPacing", 1) != 0);
+#endif
     static int last_fps;
     static int time;
     int fps = target_fps;
@@ -1272,6 +1291,10 @@ void GameEngine::ProcessGfxCommands(Gfx* commands) {
         wnd->SetTargetFps(GetInterpolationFPS());
         wnd->SetMaximumFrameLatency(1);
     }
+#if defined(__IOS__) && defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    if (tracePreparation)
+        Paperboat::NativeSettings::EndRenderTiming();
+#endif
     RunCommands(commands, mtx_replacements);
 
     last_fps = fps;

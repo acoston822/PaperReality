@@ -728,12 +728,35 @@ static void CheckIndependentUiPacing() {
     CFRelease(normal);
     CFRelease(tracking);
     Require(!N::WaitForUi(0) && !N::WaitForUi(-1), @"Invalid frame waits must fall back to normal pacing.");
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    N::BeginRenderTiming(60, true);
+    N::RecordDrawableWait(.004);
+    Require(N::WaitForUi(.01), @"Timing diagnostics disabled the cooperative UI wait.");
+    N::EndRenderTiming();
+    const auto render = PRRenderTiming.Take();
+    Require(
+        render.gameTargetFps == 60 && render.metalPacing && std::abs(render.drawablePeakMs - 4) < .001,
+        @"Development diagnostics lost game target, pacing state or drawable timing."
+    );
+    UILabel* label = [clock valueForKey:@"label"];
+    Require(
+        label.numberOfLines == 7 && label.font.lineHeight * 7 <= CGRectGetHeight(label.bounds),
+        @"Expanded timing readings do not fit in the development overlay."
+    );
+#endif
     [clock applicationChanged:[NSNotification notificationWithName:UIApplicationWillResignActiveNotification
                                                             object:nil]];
     Require(![clock valueForKey:@"link"], @"Backgrounding did not stop the settings refresh request.");
     [clock applicationChanged:[NSNotification notificationWithName:UIApplicationDidBecomeActiveNotification
                                                             object:nil]];
     Require([clock valueForKey:@"link"], @"Foregrounding did not restore the settings refresh request.");
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    const auto reset = PRRenderTiming.Take();
+    Require(
+        reset.renderPeakMs == 0 && reset.drawablePeakMs == 0 && reset.gameTargetFps == 0,
+        @"Backgrounding did not reset development render diagnostics."
+    );
+#endif
     Progress("Independent UI pacing passed: frame deadline, normal/tracking callbacks, refresh request and lifecycle");
 }
 

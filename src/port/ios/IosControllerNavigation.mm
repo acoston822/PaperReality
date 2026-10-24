@@ -29,6 +29,14 @@ PRControllerViewTarget(UIView* view, NSString* identifier, NSString* label, void
                 rect = CGRectIntersection(rect, [ancestor convertRect:ancestor.bounds toView:overlay]);
         return rect;
     };
+    target.reveal = ^{
+        UIView* control = weak;
+        for (UIView* ancestor = control.superview; ancestor; ancestor = ancestor.superview)
+            if ([ancestor isKindOfClass:UIScrollView.class]) {
+                UIScrollView* scroll = (UIScrollView*) ancestor;
+                [scroll scrollRectToVisible:[control convertRect:control.bounds toView:scroll] animated:NO];
+            }
+    };
     return target;
 }
 PRControllerTarget* PRControllerRowTarget(
@@ -43,8 +51,13 @@ PRControllerTarget* PRControllerRowTarget(
     target.reveal = ^{
         if (!PNValidRow(weak, path))
             return;
-        if (![weak.indexPathsForVisibleRows containsObject:path])
-            [weak scrollToRowAtIndexPath:path atScrollPosition:UITableViewScrollPositionMiddle animated:NO];
+        CGRect row = [weak rectForRowAtIndexPath:path];
+        CGRect visible = UIEdgeInsetsInsetRect(weak.bounds, weak.adjustedContentInset);
+        if (!CGRectContainsRect(visible, row))
+            [weak scrollToRowAtIndexPath:path
+                        atScrollPosition:row.size.height > visible.size.height ? UITableViewScrollPositionTop
+                                                                               : UITableViewScrollPositionMiddle
+                                animated:NO];
         [weak layoutIfNeeded];
     };
     return target;
@@ -314,9 +327,9 @@ static UIScrollView* PNFindScroll(UIView* view) {
 @end
 void PRControllerEditText(UIViewController* presenter, NSString* title, NSString* value, void (^save)(NSString*)) {
     [presenter.view endEditing:YES];
-    [presenter presentViewController:[[PNTextEditor alloc] initWithTitle:title value:value save:save]
-                            animated:YES
-                          completion:nil];
+    PNTextEditor* editor = [[PNTextEditor alloc] initWithTitle:title value:value save:save];
+    editor.view.tintColor = presenter.view.tintColor;
+    [presenter presentViewController:editor animated:YES completion:nil];
 }
 
 @interface PNActionList : UITableViewController <PRControllerNavigable> {
@@ -368,9 +381,9 @@ void PRControllerEditText(UIViewController* presenter, NSString* title, NSString
 void PRControllerChoose(
     UIViewController* presenter, NSString* title, NSArray<NSString*>* choices, void (^choose)(NSInteger)
 ) {
-    [presenter presentViewController:[[PNActionList alloc] initWithTitle:title choices:choices choose:choose]
-                            animated:YES
-                          completion:nil];
+    PNActionList* page = [[PNActionList alloc] initWithTitle:title choices:choices choose:choose];
+    page.view.tintColor = presenter.view.tintColor;
+    [presenter presentViewController:page animated:YES completion:nil];
 }
 
 static void PNCollect(UIView* view, UIViewController* page, NSMutableArray<PRControllerTarget*>* targets) {
@@ -818,8 +831,10 @@ static PNControllerNavigator* PNNavigator;
         _repeat.Reset();
         return;
     }
-    if (movement && target.reveal)
+    if (movement && target.reveal) {
         target.reveal();
+        _focused = nil; // Refresh labels for rows that have just become visible.
+    }
     [self draw:target controller:top];
 }
 - (void)draw:(PRControllerTarget*)target controller:(UIViewController*)top {
@@ -861,7 +876,9 @@ static PNControllerNavigator* PNNavigator;
         ? @"A Select · B Back · L/R Panels · X Search"
         : [top isKindOfClass:PNTextEditor.class] ? @"A Type · B Cancel · Y Delete"
                                                  : @"A Select · B Back";
-    _hint.text = [NSString stringWithFormat:@"%@  ·  %@", target.label ?: @"", controls];
+    NSString* hint = [NSString stringWithFormat:@"%@  ·  %@", target.label ?: @"", controls];
+    if (![_hint.text isEqualToString:hint])
+        _hint.text = hint;
     _hint.frame = CGRectMake(
         CGRectGetMinX(window.safeAreaLayoutGuide.layoutFrame) + 8,
         CGRectGetMaxY(window.safeAreaLayoutGuide.layoutFrame) - 19,
@@ -869,8 +886,12 @@ static PNControllerNavigator* PNNavigator;
         18
     );
     _hint.hidden = NO;
-    [window addSubview:_outline];
-    [window addSubview:_hint];
+    // Reorder only after a presentation adds content above the focus layer.
+    // Ordinary polling must not reinsert views or relayout the hint every tick.
+    if (_hint.superview != window || window.subviews.lastObject != _hint) {
+        [window addSubview:_outline];
+        [window addSubview:_hint];
+    }
 }
 @end
 namespace Paperboat {

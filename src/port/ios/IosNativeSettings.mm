@@ -74,6 +74,7 @@ static void PRIsolatePage(UIViewController* page) {
     page.edgesForExtendedLayout = UIRectEdgeNone;
     page.extendedLayoutIncludesOpaqueBars = NO;
     page.view.backgroundColor = PRPageCanvas();
+    page.view.tintColor = PRAccent();
     page.view.clipsToBounds = YES;
 }
 static UIFont* PRFont(CGFloat size, UIFontWeight weight, UIFontTextStyle style) {

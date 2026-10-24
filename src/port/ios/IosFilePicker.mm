@@ -393,6 +393,7 @@ struct PickerRequest {
 std::deque<std::shared_ptr<PickerRequest>> pending;
 std::shared_ptr<PickerRequest> active;
 PaperboatPickerDelegate* pickerDelegate = nil;
+__weak UIViewController* activeController = nil;
 
 void StartNextPicker();
 void FinishPicker(const std::shared_ptr<PickerRequest>& request, std::vector<std::string> paths) {
@@ -400,11 +401,28 @@ void FinishPicker(const std::shared_ptr<PickerRequest>& request, std::vector<std
         return;
     auto completion = request->completion;
     active.reset();
+    activeController = nil;
     pickerDelegate = nil;
     if (completion)
         completion(std::move(paths));
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         StartNextPicker();
+    });
+}
+// A menu shortcut can dismiss the presenting Settings controller while Files
+// is open. Programmatic dismissal does not call the picker's cancel delegate.
+// Release the pending request so a later import/export can still open.
+void WatchPicker(const std::shared_ptr<PickerRequest>& request) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (active != request)
+            return;
+        UIViewController* controller = activeController;
+        if (!controller
+            || (!controller.presentingViewController && !controller.isBeingPresented && !controller.isBeingDismissed
+                && !controller.viewIfLoaded.window))
+            FinishPicker(request, {});
+        else
+            WatchPicker(request);
     });
 }
 void PickerMessage(NSString* message) {
@@ -458,8 +476,11 @@ void PresentPicker(std::shared_ptr<PickerRequest> request, int attempts = 0) {
                 PresentPicker(request);
             }];
         PaperboatFilesNavigation* navigation = [[PaperboatFilesNavigation alloc] initWithRootViewController:browser];
+        navigation.view.tintColor = top.view.tintColor;
         navigation.modalPresentationStyle = UIModalPresentationFullScreen;
+        activeController = navigation;
         [top presentViewController:navigation animated:YES completion:nil];
+        WatchPicker(request);
         return;
     }
     UIDocumentPickerViewController* picker;
@@ -486,8 +507,10 @@ void PresentPicker(std::shared_ptr<PickerRequest> request, int attempts = 0) {
         FinishPicker(request, std::move(result));
     };
     picker.delegate = pickerDelegate;
+    activeController = picker;
     [top presentViewController:picker animated:YES completion:nil];
     picker.presentationController.delegate = pickerDelegate;
+    WatchPicker(request);
 }
 void StartNextPicker() {
     if (active || pending.empty())

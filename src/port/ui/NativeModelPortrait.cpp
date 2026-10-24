@@ -49,9 +49,12 @@ namespace {
             }
         return result;
     }
-    ModelPortrait::Material LoadMaterial(const ModelSpec& spec, const std::string& name) {
-        if (name.empty())
+    ModelPortrait::Material LoadMaterial(const ModelSpec& spec, const std::string& name, std::ostream* report) {
+        if (name.empty()) {
+            if (report)
+                *report << "  Untextured vertex-color material.\n";
             return { { 1, 1, { 255, 255, 255, 255 } }, 1, 1, 0, 0 };
+        }
         for (const auto& archive : gMapTexArchives) {
             if (std::string_view(archive.archive) != spec.archive)
                 continue;
@@ -60,22 +63,32 @@ namespace {
                 if (name != meta.name)
                     continue;
                 const std::string palette = std::string(meta.otrPath) + "_tlut";
-                auto image = LoadImage(meta.otrPath, meta.mainFmt == G_IM_FMT_CI ? palette.c_str() : "");
+                const char* colors = meta.mainFmt == G_IM_FMT_CI ? palette.c_str() : "";
+                if (report) {
+                    *report << "  Model material: " << meta.name << '\n';
+                    InspectImagePresence(meta.otrPath, colors, *report);
+                }
+                auto image = report ? InspectImage(meta.otrPath, colors, *report) : LoadImage(meta.otrPath, colors);
                 return { ThumbnailMaterial(std::move(image)), meta.mainW, meta.mainH, meta.mainWrapW, meta.mainWrapH };
             }
         }
-        // Keep the placeholder when a material is unavailable, rather than
-        // presenting an untextured or partially reconstructed actor.
-        throw std::runtime_error("Missing thumbnail material");
+        // The game sets textureID=0 when a name is absent from the stage's
+        // metadata, and draws the node with its baked vertex colors.
+        if (report)
+            *report << "  Material is not in stage metadata; using vertex colors.\n";
+        return { { 1, 1, { 255, 255, 255, 255 } }, 1, 1, 0, 0 };
     }
 }
 
-Image LoadModelPortrait(int actorType) {
+Image LoadModelPortrait(int actorType, std::ostream* report) {
     const auto* context = Ship::Context::GetRawInstance();
     auto manager = context ? context->GetResourceManager() : nullptr;
     auto archives = manager ? manager->GetArchiveManager() : nullptr;
-    if (!archives)
+    if (!archives) {
+        if (report)
+            *report << "  Model resource manager unavailable.\n";
         return {};
+    }
     for (size_t index = 0; index < std::size(models); ++index) {
         const auto& spec = models[index];
         if (spec.actor != actorType)
@@ -87,17 +100,33 @@ Image LoadModelPortrait(int actorType) {
         if (same)
             for (size_t i = 0; i < mounted->size(); ++i)
                 same = same && cached.archives[i].lock() == (*mounted)[i];
-        if (same && !cached.image.rgba.empty())
+        if (same && !cached.image.rgba.empty() && !report)
             return cached.image;
         cached = {};
         const std::string shapePath = std::string("shapes/") + spec.shape;
-        if (!archives->HasFile(shapePath) || !archives->HasFile(shapePath + "/vtx"))
+        const auto exists = [&](const std::string& path) {
+            return archives->HasFile(path) || archives->HasFile(path + ".meta");
+        };
+        if (report)
+            *report << "  Model thumbnail: " << shapePath << "; model " << spec.model << "; alternate assets "
+                    << (manager->IsAltAssetsEnabled() ? "enabled" : "disabled") << '\n';
+        if (!exists(shapePath) || !exists(shapePath + "/vtx")) {
+            if (report)
+                *report << "  Missing shape: " << !exists(shapePath)
+                        << "; missing vertices: " << !exists(shapePath + "/vtx") << '\n';
             return {};
+        }
         try {
             auto blob = std::dynamic_pointer_cast<Ship::Blob>(manager->LoadResource(shapePath, true));
             auto vertices = std::dynamic_pointer_cast<Fast::Vertex>(manager->LoadResource(shapePath + "/vtx", true));
-            if (!blob || !vertices || blob->Data.size() > 1024 * 1024 || vertices->VertexList.size() > 16384)
+            if (!blob || !vertices || blob->Data.size() > 1024 * 1024 || vertices->VertexList.size() > 16384) {
+                if (report)
+                    *report << "  Unreadable or oversized shape/vertex resource.\n";
                 return {};
+            }
+            if (report)
+                *report << "  Shape bytes: " << blob->Data.size() << "; vertices: " << vertices->VertexList.size()
+                        << '\n';
             std::vector<ModelPortrait::Vertex> converted;
             converted.reserve(vertices->VertexList.size());
             for (const auto& vertex : vertices->VertexList)
@@ -112,10 +141,15 @@ Image LoadModelPortrait(int actorType) {
 #else
             constexpr bool floats = false;
 #endif
-            ModelPortrait::ShapeReader reader(blob->Data, converted, sizeof(Vtx), floats);
-            const auto mesh =
-                reader.Read(spec.model, spec.excluded, [&](const auto& name) { return LoadMaterial(spec, name); });
+            ModelPortrait::ShapeReader reader(blob->Data, converted, sizeof(Vtx), floats, report);
+            const auto mesh = reader.Read(spec.model, spec.excluded, [&](const auto& name) {
+                return LoadMaterial(spec, name, report);
+            });
+            if (report)
+                *report << "  Triangles: " << mesh.triangles.size() << "; materials: " << mesh.materials.size() << '\n';
             auto image = ModelPortrait::Render(mesh);
+            if (report)
+                *report << "  Model thumbnail result: " << (image.rgba.empty() ? "empty" : "rendered") << '\n';
             if (!image.rgba.empty()) {
                 cached.manager = manager;
                 cached.alternate = manager->IsAltAssetsEnabled();
@@ -124,7 +158,13 @@ Image LoadModelPortrait(int actorType) {
                 cached.image = image;
             }
             return image;
+        } catch (const ModelPortrait::ReadError& error) {
+            if (report)
+                *report << "  Model thumbnail rejected: " << error.what() << '\n';
+            return {};
         } catch (const std::exception&) {
+            if (report)
+                *report << "  Model thumbnail resource could not be decoded.\n";
             return {};
         }
     }

@@ -86,7 +86,7 @@ def write_archive(path):
             while len(blob) % 4:
                 blob.append(0)
             props = words(0x5e, 2, text)
-            dlist = words(0x01003006, 0, 0x05000204, 0, 0xdf000000, 0)
+            dlist = words(0x01003006, 0, 0x02140000, 0, 0x05000204, 0, 0xdf000000, 0)
             display = words(dlist, 0)
             for index in range(count):
                 node = words(2, display, 1, props, 0)
@@ -96,7 +96,7 @@ def write_archive(path):
             struct.pack_into('<I', blob, group + 16, children)
             path = 'shapes/' + shape
             resource(path, 0x4F424C42, struct.pack('<I', len(blob)) + blob)
-            vertices = b''.join(struct.pack('<hhhHhhBBBB', x, y, 0, 0, 0, 0, 255, 255, 255, 255)
+            vertices = b''.join(struct.pack('<hhhHhhBBBB', x, y, 0, 0, 0, 0, 255, 255, 255, 0)
                                 for x, y in ((-8, -8), (8, -8), (0, 8)))
             resource(path + '/vtx', 0x4F565458, struct.pack('<I', 3) + vertices)
 

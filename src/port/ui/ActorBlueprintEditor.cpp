@@ -953,12 +953,12 @@ Image LoadBlueprintPortrait(const ActorBlueprint* blueprint) {
 }
 void AppendBlueprintTextureCoverage(std::ostream& report) {
     const auto catalog = GetCatalog();
-    report << "\nBlueprint portrait coverage (component presence only; no HD pixels decoded):\n"
+    report << "\nBlueprint portrait coverage (sprite presence and model thumbnail diagnostics):\n"
            << "Blueprint characters: " << catalog.size() << '\n';
     for (const auto& entry : catalog) {
         report << '\n' << GetActorName(entry.actorType) << '\n';
         if (ModelPortraitSymbol(entry.actorType))
-            report << "  Model actor; no NPC sprite portrait.\n";
+            LoadModelPortrait(entry.actorType, &report);
         else
             LoadPortrait(entry.blueprint, "", nullptr, &report);
     }

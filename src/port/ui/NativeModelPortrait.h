@@ -6,16 +6,21 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <ostream>
 #include <span>
 #include <stdexcept>
 #include <string_view>
 
 namespace Paperboat::NativeSettings {
-Image LoadModelPortrait(int actorType);
+Image LoadModelPortrait(int actorType, std::ostream* report = nullptr);
 
 // A small, isolated renderer for static editor thumbnails. It never submits
 // commands to Fast3D or touches the currently loaded map/model animator.
 namespace ModelPortrait {
+    class ReadError : public std::runtime_error {
+    public:
+        using std::runtime_error::runtime_error;
+    };
     struct Vertex {
         std::array<float, 3> position {};
         float u = 0, v = 0;
@@ -25,9 +30,15 @@ namespace ModelPortrait {
         Image image;
         int width = 1, height = 1, wrapS = 0, wrapT = 0;
     };
+    enum class AlphaMode {
+        Vertex,
+        Opaque,
+        Cutout
+    };
     struct Triangle {
         std::array<Vertex, 3> vertices;
         size_t material = 0;
+        AlphaMode alpha = AlphaMode::Vertex;
     };
     struct Mesh {
         std::vector<Triangle> triangles;
@@ -51,17 +62,26 @@ namespace ModelPortrait {
 
     class ShapeReader {
     public:
-        ShapeReader(std::span<const uint8_t> blob, std::span<const Vertex> vertices, size_t vertexStride, bool floats)
+        ShapeReader(
+            std::span<const uint8_t> blob,
+            std::span<const Vertex> vertices,
+            size_t vertexStride,
+            bool floats,
+            std::ostream* report = nullptr
+        )
             : blob(blob)
             , vertices(vertices)
             , vertexStride(vertexStride)
-            , floats(floats) {
+            , floats(floats)
+            , report(report) {
         }
         Mesh Read(int model, int excluded, const std::function<Material(const std::string&)>& loadMaterial) {
             // Imported shapes retain native-endian N64-sized records. Vertex
             // commands use the port's exported Vtx stride; the vertex resource has
             // already converted positions and texture coordinates to native types.
             Walk(Word(0), Identity(), 0, model);
+            if (report)
+                *report << "  Shape tree nodes: " << index << "; selected range: " << first << ".." << model << '\n';
             if (first < 0)
                 return {};
             Mesh mesh;
@@ -70,6 +90,9 @@ namespace ModelPortrait {
             for (const auto& part : parts) {
                 if (part.id < first || part.id > model || part.id == excluded)
                     continue;
+                if (report)
+                    *report << "  Model part " << part.id << "; display list offset " << part.displayList
+                            << "; render mode " << part.renderMode << '\n';
                 auto found = std::find(names.begin(), names.end(), part.texture);
                 const size_t material = size_t(found - names.begin());
                 if (found == names.end()) {
@@ -81,7 +104,7 @@ namespace ModelPortrait {
                 }
                 std::array<Vertex, 32> cache {};
                 std::array<bool, 32> valid {};
-                ReadList(part.displayList, part.world, cache, valid, mesh, material, 0);
+                ReadList(part.displayList, part.world, cache, valid, mesh, material, part.renderMode, 0);
             }
             return mesh;
         }
@@ -92,20 +115,22 @@ namespace ModelPortrait {
             uint32_t displayList;
             Matrix world;
             std::string texture;
+            uint32_t renderMode;
         };
         std::span<const uint8_t> blob;
         std::span<const Vertex> vertices;
         size_t vertexStride;
         bool floats;
+        std::ostream* report;
         std::vector<Part> parts;
         int index = 0, first = -1;
         size_t commands = 0;
-        [[noreturn]] static void Invalid() {
-            throw std::runtime_error("Invalid thumbnail model");
+        [[noreturn]] static void Invalid(const std::string& reason = "Invalid thumbnail model") {
+            throw ReadError(reason);
         }
         void Bounds(size_t offset, size_t size) const {
             if (offset > blob.size() || size > blob.size() - offset)
-                Invalid();
+                Invalid("Model record outside shape buffer");
         }
         uint32_t Word(size_t offset) const {
             Bounds(offset, 4);
@@ -114,6 +139,8 @@ namespace ModelPortrait {
             return word;
         }
         std::string Text(uint32_t offset) const {
+            if (!offset)
+                return {};
             std::string result;
             for (size_t i = 0; i < 128; ++i) {
                 Bounds(size_t(offset) + i, 1);
@@ -172,11 +199,15 @@ namespace ModelPortrait {
                 Invalid();
             Bounds(properties, size_t(count) * 12);
             std::string texture;
-            for (uint32_t i = 0; i < count; ++i)
+            uint32_t renderMode = 1;
+            for (uint32_t i = 0; i < count; ++i) {
                 if (Word(properties + i * 12) == 0x5e)
                     texture = Text(Word(properties + i * 12 + 8));
-            if (display)
-                parts.push_back({ id, Word(display), world, std::move(texture) });
+                else if (Word(properties + i * 12) == 0x5c)
+                    renderMode = Word(properties + i * 12 + 8);
+            }
+            if (display && Word(display))
+                parts.push_back({ id, Word(display), world, std::move(texture), renderMode });
         }
         void ReadList(
             uint32_t offset,
@@ -185,6 +216,7 @@ namespace ModelPortrait {
             std::array<bool, 32>& valid,
             Mesh& mesh,
             size_t material,
+            uint32_t renderMode,
             int depth
         ) {
             if (!offset || depth > 16 || vertexStride == 0)
@@ -192,6 +224,13 @@ namespace ModelPortrait {
             const auto triangle = [&](uint32_t word) {
                 Triangle t;
                 t.material = material;
+                // Solid render modes ignore vertex alpha in the game's blender.
+                // Cutout surfaces use texture coverage; translucent surfaces
+                // retain the interpolated vertex opacity.
+                if (renderMode <= 0x0c || renderMode == 0x2a)
+                    t.alpha = AlphaMode::Opaque;
+                else if (renderMode == 0x0d || renderMode == 0x0f || renderMode == 0x10 || renderMode == 0x2b)
+                    t.alpha = AlphaMode::Cutout;
                 for (int i = 0; i < 3; ++i) {
                     const int slot = ((word >> (16 - i * 8)) & 0xff) / 2;
                     if (slot >= 32 || !valid[slot])
@@ -209,7 +248,7 @@ namespace ModelPortrait {
                 if (op == 0xdf)
                     return;
                 if (op == 0xde) {
-                    ReadList(w1, world, cache, valid, mesh, material, depth + 1);
+                    ReadList(w1, world, cache, valid, mesh, material, renderMode, depth + 1);
                     if ((w0 >> 16) & 1)
                         return;
                 } else if (op == 1) {
@@ -231,10 +270,22 @@ namespace ModelPortrait {
                     triangle(w0);
                     if (op != 5)
                         triangle(w1);
-                } else if (op == 2 || op == 4 || op == 0xda) {
-                    // These require additional vertex/matrix state; leave the
-                    // placeholder instead of silently drawing an incorrect model.
-                    Invalid();
+                } else if (op == 2) {
+                    const uint32_t slot = (w0 & 0xffff) / 2, field = (w0 >> 16) & 0xff;
+                    if (slot >= cache.size() || !valid[slot])
+                        Invalid("ModifyVertex refers to an unloaded vertex");
+                    if (field == 0x10) {
+                        for (int channel = 0; channel < 4; ++channel)
+                            cache[slot].color[channel] = (w1 >> (24 - channel * 8)) & 0xff;
+                    } else if (field == 0x14) {
+                        cache[slot].u = int16_t(w1 >> 16) / 32.f;
+                        cache[slot].v = int16_t(w1 & 0xffff) / 32.f;
+                    } else
+                        Invalid("Unsupported ModifyVertex field " + std::to_string(field));
+                } else if (op == 4 || op == 0xda) {
+                    Invalid(
+                        "Unsupported geometry opcode " + std::to_string(op) + " at offset " + std::to_string(cursor)
+                    );
                 }
             }
         }
@@ -353,6 +404,10 @@ namespace ModelPortrait {
                         color[channel] = tex.rgba[source + channel]
                             * std::clamp((wa * a.color[channel] + wb * b.color[channel] + wc * c.color[channel]) / 255,
                                          0.f, 1.f);
+                    if (triangle.alpha == AlphaMode::Opaque)
+                        color[3] = 255;
+                    else if (triangle.alpha == AlphaMode::Cutout)
+                        color[3] = tex.rgba[source + 3] >= 128 ? 255 : 0;
                     const float alpha = color[3] / 255;
                     if (alpha <= 0)
                         continue;

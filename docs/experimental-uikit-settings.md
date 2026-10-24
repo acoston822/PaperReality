@@ -55,6 +55,11 @@ in the classic General page restores UIKit.
   are outside the thumbnail preview. Material copies are bounded to 512px per
   side; source resources are unchanged. Three cached portraits use at most
   768 KiB of RGBA storage, separate from the existing UIKit image cache.
+  The preview respects solid/cutout/translucent surface opacity and RGBA/ST
+  vertex-edit commands. The exported Sprite Texture Report includes each model's
+  geometry-loading result, parser failures, and actual material replacement
+  selection/dimensions, so an unchanged thumbnail can be diagnosed without
+  transferring game models or textures.
 - Pages and navigation bars use opaque, appearance-aware backgrounds, keeping
   controls below their page title and hiding outgoing pages during navigation.
   Sidebar category and submenu labels share a smaller size fitted to the longest

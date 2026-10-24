@@ -76,6 +76,19 @@ int main() {
     auto excluded = M::ShapeReader(bytes, vertices, 24, true).Read(2, 0, material);
     Require(excluded.triangles.size() == 1, "Hidden model part was included");
     Require(bytes == original, "Thumbnail reader modified imported model data");
+    auto untextured = bytes;
+    Word(untextured, 168, 0);
+    bool nullName = false;
+    M::ShapeReader(untextured, vertices, 24, true).Read(0, -1, [&](const auto& name) {
+        nullName = name.empty();
+        return material(name);
+    });
+    Require(nullName, "Null texture pointer was interpreted as shape header text");
+    Word(untextured, 128, 0);
+    Require(
+        M::ShapeReader(untextured, vertices, 24, true).Read(0, -1, material).triangles.empty(),
+        "Null display list should be skipped, as in the game loader"
+    );
     auto image = M::Render(single);
     Require(image.width == 256 && image.height == 256 && image.rgba[3] == 0, "Thumbnail size/transparency incorrect");
     Require(Center(image) == std::array<uint8_t, 4> { 255, 0, 0, 255 }, "Vertex color or texture sampling incorrect");
@@ -84,6 +97,7 @@ int main() {
     Require(M::Render(reversed).rgba == image.rgba, "Back-facing geometry disappeared");
     auto front = single.triangles[0];
     front.material = 1;
+    front.alpha = M::AlphaMode::Vertex;
     for (auto& v : front.vertices)
         v.position[2] += .01f;
     single.materials.push_back({ { 1, 1, { 0, 0, 255, 255 } }, 2, 2, 0, 0 });
@@ -113,6 +127,29 @@ int main() {
     Word(fixed, 376, 0x00020001);
     const auto fixedMesh = M::ShapeReader(fixed, vertices, 24, false).Read(0, -1, material);
     Require(fixedMesh.triangles[0].vertices[0].position[0] == -6, "Fixed-point model matrix was misread");
+    auto modified = bytes;
+    Word(modified, 192, 0x01003006);
+    Word(modified, 200, 0x02100000);
+    Word(modified, 204, 0xff000000);
+    Word(modified, 208, 0x02140000);
+    Word(modified, 212, 0x0040ffe0);
+    Word(modified, 216, 0x05000204);
+    Word(modified, 220, 0);
+    Word(modified, 224, 0xdf000000);
+    auto modifiedMesh = M::ShapeReader(modified, vertices, 24, true).Read(0, -1, material);
+    const auto& changed = modifiedMesh.triangles[0].vertices[0];
+    Require(
+        changed.u == 2 && changed.v == -1 && changed.color[3] == 0 && changed.color[0] == 255,
+        "ModifyVertex lost signed texture coordinates or RGBA bytes"
+    );
+    for (auto& triangle : modifiedMesh.triangles)
+        for (auto& v : triangle.vertices)
+            v.color[3] = 0;
+    Require(Center(M::Render(modifiedMesh))[3] == 255, "Solid model disappeared because vertex alpha was zero");
+    modifiedMesh.triangles[0].alpha = M::AlphaMode::Cutout;
+    Require(Center(M::Render(modifiedMesh))[3] == 255, "Cutout coverage incorrectly used vertex alpha");
+    modifiedMesh.materials[0].image.rgba[3] = 0;
+    Require(M::Render(modifiedMesh).rgba.empty(), "Cutout material lost its transparent holes");
     Require(
         M::Wrap(-.25f, 0) == .75f && M::Wrap(1.25f, 1) == .75f && M::Wrap(-.25f, 2) == 0,
         "Clamp/mirror/wrap texture modes changed"

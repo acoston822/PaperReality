@@ -525,6 +525,17 @@ static void CheckTextureSelection() {
         manager->SetAltAssetsEnabled(false);
         modelColor(N::LoadModelPortrait(actor), false);
     }
+    manager->SetAltAssetsEnabled(true);
+    std::ostringstream modelReport;
+    modelColor(N::LoadModelPortrait(ACTOR_TYPE_FAKE_BOWSER, &modelReport), true);
+    Require(
+        modelReport.str().find("Selected replacement: alt/textures/trd_tex/trd_komatif") != std::string::npos
+            && modelReport.str().find("8x8") != std::string::npos
+            && modelReport.str().find("Model thumbnail result: rendered") != std::string::npos
+            && modelReport.str().find("/tmp/") == std::string::npos,
+        "Model report did not record the actual replacement selection or leaked a device path"
+    );
+    manager->SetAltAssetsEnabled(false);
 }
 int main() {
     try {

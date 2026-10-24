@@ -140,6 +140,8 @@ Row Select(std::string title, std::string cvar, int defaultValue, std::vector<Ch
 Row Link(std::string title, std::string target, std::string symbol = "chevron.right");
 void SaveSettings(const std::string& cvar = "");
 Image LoadImage(const char* raster, const char* palette = "");
+// Uses the same decoder as thumbnails, recording resolution/selection metadata only.
+Image InspectImage(const char* raster, const char* palette, std::ostream& report);
 // Presence checks do not decode or cache HD texture pixels.
 void InspectImagePresence(const char* raster, const char* palette, std::ostream& report);
 void AppendBlueprintTextureCoverage(std::ostream& report);

@@ -479,6 +479,9 @@ static Image LoadImageImpl(const char* raster, const char* palette, std::ostream
 Image LoadImage(const char* raster, const char* palette) {
     return LoadImageImpl(raster, palette, nullptr);
 }
+Image InspectImage(const char* raster, const char* palette, std::ostream& report) {
+    return LoadImageImpl(raster, palette, &report);
+}
 
 void InspectImagePresence(const char* raster, const char* palette, std::ostream& report) {
     const auto normalize = [](const char* name) {

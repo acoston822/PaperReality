@@ -34,6 +34,12 @@ retained. Returning to an app that is still running keeps its current page open.
   The audio API selector remains available when multiple backends are supported.
 - Native Input Viewer controls, shader settings supplied by loaded packs, mod
   enable/order controls and Files import.
+- Graphics includes the original **Pixel Count Presets**: Custom, Native N64
+  (240p), 2x (480p), 3x (720p), 4x (960p), 5x (1200p), 6x (1440p), Full HD
+  (1080p), and 4K (2160p). Enable advanced settings and Fixed Vertical Resolution
+  to use them. Selecting Custom preserves the current pixel count; editing
+  Vertical Pixels switches the preset to Custom. The selection and resolution
+  use the existing saved settings and leave the aspect ratio unchanged.
 - Save Editor pages for player status, badges, items, party, letters, recipes,
   Star Pieces and tattles. A loaded save is required; changes persist when the
   player saves in game. Merely opening a page does not normalize save values.

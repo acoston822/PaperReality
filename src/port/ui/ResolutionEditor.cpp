@@ -9,6 +9,8 @@
 #include <fast/interpreter.h>
 #include <imgui.h>
 #include <libultraship/libultraship.h>
+#include <cmath>
+#include <iterator>
 
 /*  Console Variables are grouped under gAdvancedResolution. (e.g.
    CVAR_PREFIX_ADVANCED_RESOLUTION
@@ -744,6 +746,25 @@ void AppendResolutionRows(Page& page) {
     page.sections.push_back(std::move(aspect));
     auto fixed = Toggle("Fixed Vertical Resolution", "gSettings.AdvancedResolution.VerticalResolutionToggle", false);
     fixed.enabled = !disabled_everything;
+    std::vector<Choice> pixelChoices;
+    for (size_t i = 0; i < std::size(pixelCountPresets); ++i)
+        pixelChoices.push_back({ int(i), pixelCountPresetLabels[i] });
+    auto preset = Select(
+        "Pixel Count Presets", "gSettings.AdvancedResolution.UIComboItem.PixelCount", default_pixelCount,
+        std::move(pixelChoices)
+    );
+    preset.value = item_pixelCount;
+    preset.enabled = !disabled_everything && !disabled_pixelCount;
+    preset.detail = "Sets the game's vertical rendering resolution. Choose Custom to enter a pixel count below.";
+    preset.change = [](double value) {
+        if (!std::isfinite(value) || value < 0 || value >= std::size(pixelCountPresets) || std::floor(value) != value)
+            return;
+        item_pixelCount = int(value);
+        if (item_pixelCount != default_pixelCount)
+            verticalPixelCount = pixelCountPresets[item_pixelCount];
+        update[UPDATE_verticalPixelCount] = true;
+        UpdateResolutionVars();
+    };
     auto count = Number(
         "Vertical Pixels", "gSettings.AdvancedResolution.VerticalPixelCount", true, minVerticalPixelCount,
         maxVerticalPixelCount, 8, 480
@@ -756,7 +777,7 @@ void AppendResolutionRows(Page& page) {
         update[UPDATE_verticalPixelCount] = true;
         UpdateResolutionVars();
     };
-    page.sections.push_back({ "Resolution", "", { fixed, count } });
+    page.sections.push_back({ "Resolution", "", { fixed, preset, count } });
     auto pixel = Toggle("Pixel Perfect Mode", "gSettings.AdvancedResolution.PixelPerfectMode", false);
     pixel.enabled = !disabled_everything && !disabled_pixelCount;
     auto fit = Toggle("Fit Automatically", "gSettings.AdvancedResolution.IntegerScale.FitAutomatically", true);

@@ -19,6 +19,7 @@
 #include "common_structs.h"
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <fstream>
 #include <queue>
 #include <set>
@@ -605,10 +606,57 @@ int main() {
         sprint.change(0);
         auto graphics = menu.NativePage("menu/Settings/Graphics");
         CVarSetInteger("gSettings.AdvancedResolution.Enabled", 1);
+        CVarSetInteger("gSettings.AdvancedResolution.VerticalResolutionToggle", 0);
         graphics = menu.NativePage("menu/Settings/Graphics");
         auto width = Find(graphics, "Width");
         width.change(16);
         Require(CVarGetFloat("gSettings.AdvancedResolution.AspectRatioX", 0) == 16, "Custom aspect ratio not saved");
+        Require(!Find(graphics, "Pixel Count Presets").enabled, "Pixel presets enabled without fixed resolution");
+        Find(graphics, "Fixed Vertical Resolution").change(1);
+        graphics = menu.NativePage("menu/Settings/Graphics");
+        auto presets = Find(graphics, "Pixel Count Presets");
+        Require(presets.enabled && presets.kind == N::Kind::Choice, "Pixel presets missing or disabled");
+        const std::vector<int> presetPixels { 480, 240, 480, 720, 960, 1200, 1440, 1080, 2160 };
+        Require(presets.choices.size() == presetPixels.size(), "Original pixel presets are missing");
+        for (size_t i = 1; i < presetPixels.size(); ++i) {
+            presets.change(presets.choices[i].value);
+            graphics = menu.NativePage("menu/Settings/Graphics");
+            Require(Find(graphics, "Vertical Pixels").value == presetPixels[i], "Preset did not update pixel count");
+            Require(Find(graphics, "Pixel Count Presets").value == int(i), "Selected pixel preset was not restored");
+            Require(
+                CVarGetInteger("gSettings.AdvancedResolution.VerticalPixelCount", 0) == presetPixels[i],
+                "Preset pixel count was not saved"
+            );
+        }
+        presets.change(0);
+        graphics = menu.NativePage("menu/Settings/Graphics");
+        Require(Find(graphics, "Vertical Pixels").value == 2160, "Custom selection reset the current pixel count");
+        Require(
+            CVarGetInteger("gSettings.AdvancedResolution.UIComboItem.PixelCount", -1) == 0,
+            "Custom preset selection was not saved"
+        );
+        presets.change(3);
+        Find(menu.NativePage("menu/Settings/Graphics"), "Vertical Pixels").change(888);
+        graphics = menu.NativePage("menu/Settings/Graphics");
+        Require(Find(graphics, "Vertical Pixels").value == 888, "Custom pixel count was not preserved");
+        Require(Find(graphics, "Pixel Count Presets").value == 0, "Manual pixel edit did not select Custom");
+        for (double invalid :
+             { -1., 9., .5, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity() })
+            presets.change(invalid);
+        graphics = menu.NativePage("menu/Settings/Graphics");
+        Require(
+            Find(graphics, "Vertical Pixels").value == 888 && Find(graphics, "Pixel Count Presets").value == 0,
+            "Invalid pixel preset changed the resolution"
+        );
+        Require(
+            CVarGetFloat("gSettings.AdvancedResolution.AspectRatioX", 0) == 16, "Pixel presets changed the aspect ratio"
+        );
+        CVarSetInteger("gSettings.AdvancedResolution.Enabled", 0);
+        Require(
+            !Find(menu.NativePage("menu/Settings/Graphics"), "Pixel Count Presets").enabled,
+            "Pixel presets enabled with advanced settings off"
+        );
+        CVarSetInteger("gSettings.AdvancedResolution.Enabled", 1);
         std::queue<std::string> pending;
         std::set<std::string> visited;
         for (const auto& group : navigation)

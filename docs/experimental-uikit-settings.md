@@ -44,9 +44,17 @@ in the classic General page restores UIKit.
   replacements fall back to the original sprite; turning alternate assets off
   restores the originals. Blueprint parts are assembled in their original
   bounds, so a pack's higher-resolution components keep the sprite alignment.
-- Fake Bowser, Toy Tank and Light Bulb use labeled system icons because their
-  bodies are map models, not NPC sprites. Fake Bowser's hidden Koopa Bros idle
-  placeholder is excluded. Rendering actual model thumbnails is not implemented.
+- Fake Bowser, Toy Tank and Light Bulb use cached 256px thumbnails rendered from
+  their imported map-model geometry and materials. Only the selected model
+  subtree is included; the battle stage and Fake Bowser's hidden Koopa Bros
+  sprite are excluded. Thumbnails use the enabled HD replacements and are
+  invalidated when alternate assets or mounted archives change. Missing assets
+  retain the blank placeholder. This static CPU preview preserves baked vertex
+  colors and texture alpha, without advancing game animations or submitting work
+  to the gameplay renderer. Animated effects and auxiliary texture combiners
+  are outside the thumbnail preview. Material copies are bounded to 512px per
+  side; source resources are unchanged. Three cached portraits use at most
+  768 KiB of RGBA storage, separate from the existing UIKit image cache.
 - Pages and navigation bars use opaque, appearance-aware backgrounds, keeping
   controls below their page title and hiding outgoing pages during navigation.
   Sidebar category and submenu labels share a smaller size fitted to the longest

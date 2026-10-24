@@ -38,7 +38,13 @@ def write_archive(path):
         alias('alt/' + prefix + 'alias-only', prefix + 'aliases/target')
         alias('alt/' + prefix + 'variant-alias@colors', prefix + 'aliases/target')
         alias(prefix + 'base-alias', prefix + 'aliases/target')
-        texture('alt/' + prefix + 'unsupported', 4, 2, b'\xff' * 8, kind=6)
+        texture('alt/' + prefix + 'unsupported', 4, 2, b'\xff' * 8, kind=0)
+        texture(prefix + 'i4', 2, 1, b'\xf0', kind=5)
+        texture(prefix + 'i8', 1, 1, b'\x80', kind=6)
+        texture(prefix + 'ia4', 2, 1, b'\xf6', kind=7)
+        texture(prefix + 'ia8', 1, 1, b'\xc8', kind=8)
+        texture(prefix + 'ia16', 1, 1, b'\x40\x80', kind=9)
+        texture(prefix + 'ia16-short', 2, 1, b'\xff', kind=9)
         texture('alt/' + prefix + 'short', 4, 2, b'\xff', flags=1)
         texture('alt/' + prefix + 'claimed', 4, 2, b'\xff', flags=1, claimed_size=32)
         texture('alt/' + prefix + 'zero', 0, 2, b'\xff', flags=1)
@@ -57,3 +63,47 @@ def write_archive(path):
         # Not part of the detailed sample: the complete UI listing must find it.
         rgba('ui/input/report-test', 2, 2, (255, 255, 255, 255))
         rgba('alt/ui/input/report-test', 4, 4, (255, 255, 255, 255))
+
+        # Synthetic shape trees at the production model paths. Every record,
+        # triangle and material below is generated; no game bytes are included.
+        def resource(name, resource_type, body):
+            header = struct.pack('<4BIIQ', 0, 1, 0, 0, resource_type, 0, 0).ljust(64, b'\0')
+            archive.writestr(name, header + body)
+
+        def model(shape, count, material):
+            blob = bytearray(32)
+
+            def words(*values):
+                offset = len(blob)
+                blob.extend(struct.pack('<' + 'I' * len(values), *values))
+                return offset
+
+            root = words(7, 0, 0, 0, 0)
+            group = words(0, 0, 0, count, 0)
+            children = words(*([0] * count))
+            text = len(blob)
+            blob.extend(material.encode() + b'\0')
+            while len(blob) % 4:
+                blob.append(0)
+            props = words(0x5e, 2, text)
+            dlist = words(0x01003006, 0, 0x05000204, 0, 0xdf000000, 0)
+            display = words(dlist, 0)
+            for index in range(count):
+                node = words(2, display, 1, props, 0)
+                struct.pack_into('<I', blob, children + index * 4, node)
+            struct.pack_into('<I', blob, 0, root)
+            struct.pack_into('<I', blob, root + 16, group)
+            struct.pack_into('<I', blob, group + 16, children)
+            path = 'shapes/' + shape
+            resource(path, 0x4F424C42, struct.pack('<I', len(blob)) + blob)
+            vertices = b''.join(struct.pack('<hhhHhhBBBB', x, y, 0, 0, 0, 0, 255, 255, 255, 255)
+                                for x, y in ((-8, -8), (8, -8), (0, 8)))
+            resource(path + '/vtx', 0x4F565458, struct.pack('<I', 3) + vertices)
+
+        model('omo_bt07_shape', 65, 'omo_denkitif')
+        # Use an actual texture metadata key, with generated pixels only.
+        model('trd_bt00_shape', 48, 'trd_komatif')
+        for archive_name, name in (('omo_tex', 'omo_denkitif'), ('trd_tex', 'trd_komatif')):
+            path = 'textures/' + archive_name + '/' + name
+            rgba(path, 2, 2, (255, 0, 0, 255))
+            rgba('alt/' + path, 8, 8, (0, 0, 255, 255))

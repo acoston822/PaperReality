@@ -160,6 +160,8 @@ jobs:
           "$RUNNER_TEMP/ui-timing-check"
           c++ -std=c++20 -Iexternal/libultraship/include tests/native-settings/frame-pacer.cpp -o "$RUNNER_TEMP/frame-pacer-check"
           "$RUNNER_TEMP/frame-pacer-check"
+          c++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/native-settings/model-portraits.cpp -o "$RUNNER_TEMP/model-portrait-check"
+          "$RUNNER_TEMP/model-portrait-check"
 
       - name: Install dependencies
         run: brew install cmake ninja

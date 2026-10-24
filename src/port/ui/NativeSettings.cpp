@@ -332,6 +332,34 @@ namespace {
             std::copy_n(texture->ImageData, count * 4, image.rgba.data());
             return image;
         }
+        using Type = Fast::TextureType;
+        const Type type = texture->Type;
+        const bool four = type == Type::Grayscale4bpp || type == Type::GrayscaleAlpha4bpp;
+        if (four || type == Type::Grayscale8bpp || type == Type::GrayscaleAlpha8bpp
+            || type == Type::GrayscaleAlpha16bpp)
+        {
+            const size_t bytes = four ? (count + 1) / 2 : count * (type == Type::GrayscaleAlpha16bpp ? 2 : 1);
+            if (texture->ImageDataSize < bytes)
+                return {};
+            for (size_t i = 0; i < count; ++i) {
+                const uint8_t value = four ? ((i & 1) ? texture->ImageData[i / 2] & 15 : texture->ImageData[i / 2] >> 4)
+                                           : texture->ImageData[i * (type == Type::GrayscaleAlpha16bpp ? 2 : 1)];
+                uint8_t intensity = value, alpha = value;
+                if (type == Type::Grayscale4bpp)
+                    intensity = alpha = value * 17;
+                else if (type == Type::GrayscaleAlpha4bpp) {
+                    intensity = (value >> 1) * 255 / 7;
+                    alpha = (value & 1) * 255;
+                } else if (type == Type::GrayscaleAlpha8bpp) {
+                    intensity = (value >> 4) * 17;
+                    alpha = (value & 15) * 17;
+                } else if (type == Type::GrayscaleAlpha16bpp)
+                    alpha = texture->ImageData[i * 2 + 1];
+                image.rgba[i * 4] = image.rgba[i * 4 + 1] = image.rgba[i * 4 + 2] = intensity;
+                image.rgba[i * 4 + 3] = alpha;
+            }
+            return image;
+        }
         const bool indexed =
             texture->Type == Fast::TextureType::Palette4bpp || texture->Type == Fast::TextureType::Palette8bpp;
         if (texture->Type != Fast::TextureType::RGBA16bpp && !indexed)

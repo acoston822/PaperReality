@@ -3,11 +3,15 @@
 #include "port/ui/PaperboatGui.hpp"
 #include "port/ui/NativeSettings.h"
 #include "port/ui/NativeTheme.h"
+#include "port/ui/NativeModelPortrait.h"
 #include "port/ui/devtools/valueviewer/ValueViewer.h"
 #include "port/FilePicker.h"
 #include "port/enhancements/gameplay/ActorBlueprints.h"
 #include <fast/resource/ResourceType.h>
 #include <fast/resource/factory/TextureFactory.h>
+#include <fast/resource/factory/VertexFactory.h>
+#include <ship/resource/factory/BlobFactory.h>
+#include <ship/resource/ResourceType.h>
 #include <ship/resource/ResourceManager.h>
 #include <ship/resource/archive/ArchiveManager.h>
 #include <ship/controller/controldevice/controller/mapping/keyboard/KeyboardKeyToButtonMapping.h>
@@ -382,6 +386,14 @@ static void CheckIosPickerBridge(PaperboatGui::PaperboatMenu& menu) {
 static void CheckTextureSelection() {
     auto manager = Ship::Context::GetRawInstance()->GetResourceManager();
     manager->GetResourceLoader()->RegisterResourceFactory(
+        std::make_shared<Ship::ResourceFactoryBinaryBlobV0>(), RESOURCE_FORMAT_BINARY, "Blob",
+        static_cast<uint32_t>(Ship::ResourceType::Blob), 0
+    );
+    manager->GetResourceLoader()->RegisterResourceFactory(
+        std::make_shared<Fast::ResourceFactoryBinaryVertexV0>(), RESOURCE_FORMAT_BINARY, "Vertex",
+        static_cast<uint32_t>(Fast::ResourceType::Vertex), 0
+    );
+    manager->GetResourceLoader()->RegisterResourceFactory(
         std::make_shared<Fast::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY, "Texture",
         static_cast<uint32_t>(Fast::ResourceType::Texture), 1
     );
@@ -404,6 +416,16 @@ static void CheckTextureSelection() {
             Require(image.rgba[i] == color[i % 4], "HD sprite pixels changed");
     };
     manager->SetAltAssetsEnabled(false);
+    for (const auto& [name, pixels] : std::vector<std::pair<std::string, std::vector<uint8_t>>> {
+             { "i4", { 255, 255, 255, 255, 0, 0, 0, 0 } },
+             { "i8", { 128, 128, 128, 128 } },
+             { "ia4", { 255, 255, 255, 255, 109, 109, 109, 0 } },
+             { "ia8", { 204, 204, 204, 136 } },
+             { "ia16", { 64, 64, 64, 128 } } })
+        Require(
+            N::LoadImage(("test-native/" + name).c_str()).rgba == pixels, "Map intensity/alpha texture decode incorrect"
+        );
+    Require(N::LoadImage("test-native/ia16-short").rgba.empty(), "Truncated map intensity texture accepted");
     expectBase("cached"); // Warm the base cache before enabling HD.
     manager->SetAltAssetsEnabled(true);
     expectHD("cached", 4, 2, { 0, 0, 255, 255 });
@@ -486,6 +508,23 @@ static void CheckTextureSelection() {
             && disabled.find("Selected replacement:") == std::string::npos,
         "Coverage report did not respect disabled alternate assets"
     );
+    const auto modelColor = [](const N::Image& image, bool hd) {
+        Require(image.width == 256 && image.height == 256, "Imported model thumbnail dimensions incorrect");
+        const auto center = (size_t(image.height / 2) * image.width + image.width / 2) * 4;
+        Require(
+            image.rgba[center] == (hd ? 0 : 255) && image.rgba[center + 2] == (hd ? 255 : 0)
+                && image.rgba[center + 3] == 255 && image.rgba[3] == 0,
+            "Model material, transparency or HD cache invalidation incorrect"
+        );
+    };
+    for (int actor : { ACTOR_TYPE_LIGHT_BULB, ACTOR_TYPE_TOY_TANK, ACTOR_TYPE_FAKE_BOWSER }) {
+        manager->SetAltAssetsEnabled(false);
+        modelColor(N::LoadModelPortrait(actor), false);
+        manager->SetAltAssetsEnabled(true);
+        modelColor(N::LoadModelPortrait(actor), true);
+        manager->SetAltAssetsEnabled(false);
+        modelColor(N::LoadModelPortrait(actor), false);
+    }
 }
 int main() {
     try {
@@ -600,12 +639,13 @@ int main() {
         for (const auto* name : { "Fake Bowser", "Toy Tank", "Light Bulb" }) {
             const auto model = Find(characters, name);
             Require(
-                !model.portrait && !model.symbol.empty() && model.detail.ends_with(" · Model"),
-                "Model actors must have labeled icons, never an unrelated NPC sprite or blank portrait"
+                bool(model.portrait) && !model.symbol.empty() && model.detail.ends_with(" · Model"),
+                "Model actors need a model thumbnail loader and labeled fallback"
             );
             const auto detail = N::BuildPage(model.target);
             const auto info = Find(detail, name);
-            Require(info.symbol == model.symbol && !info.portrait, "Model icon differs between list and detail");
+            Require(info.symbol == model.symbol && bool(info.portrait), "Model loader differs between list and detail");
+            Require(model.portrait().rgba.empty(), "Model thumbnails must remain empty without imported assets");
         }
         CheckTextureSelection();
         std::cout << "PASS: " << visited.size() << " native pages, " << rows

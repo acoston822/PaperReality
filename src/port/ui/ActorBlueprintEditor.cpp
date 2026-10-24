@@ -1,6 +1,7 @@
 #include "ActorBlueprintEditor.h"
 #include "NativeSettings.h"
 #include "NativePortrait.h"
+#include "NativeModelPortrait.h"
 #include "port/ui/PaperboatGui.hpp"
 #include "port/ios/IosFilePicker.h"
 #include <cmath>
@@ -935,6 +936,7 @@ namespace {
             // table is a hidden Koopa Bros placeholder, not its visible body.
             row.symbol = symbol;
             row.detail += " · Model";
+            row.portrait = [actor = blueprint->type] { return LoadModelPortrait(actor); };
         } else {
             row.portrait = [blueprint] { return LoadBlueprintPortrait(blueprint); };
         }
@@ -942,8 +944,11 @@ namespace {
 }
 Image LoadBlueprintPortrait(const ActorBlueprint* blueprint) {
     Image image;
-    if (blueprint && !ModelPortraitSymbol(blueprint->type))
+    if (blueprint) {
+        if (ModelPortraitSymbol(blueprint->type))
+            return LoadModelPortrait(blueprint->type);
         LoadPortrait(blueprint, "", &image);
+    }
     return image;
 }
 void AppendBlueprintTextureCoverage(std::ostream& report) {

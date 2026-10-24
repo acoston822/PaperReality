@@ -125,15 +125,16 @@ including Start/Menu, remain available during binding capture; navigation resume
 when capture succeeds, is cancelled, or times out. The existing Select/Back menu
 shortcut remains available. Physical controller navigation needs device testing.
 
-With a controller attached, imports/exports start in a native App Files browser.
-It supports subfolders, multiple selection, refresh, cancellation, export-folder
-selection and overwrite confirmation. Imports copy selected files to private
-temporary folders on a background queue; original files are retained. Other
-Locations opens the standard iOS provider browser; provider authentication and
-system permission sheets may still require touch. This does not grant access
-outside the app sandbox. First-run ImGui prompts enable controller navigation by
-default without overriding an existing saved preference. Touch-layout editing
-also supports L/R selection, D-pad nudging, A/B Done and X Reset; editing inputs
+Imports and exports always use the standard iOS Files picker, including when a
+controller is connected. File selection is a touch-only exception to controller
+navigation; controller polling does not inspect, highlight, activate or dismiss
+its controls. The app's import/export buttons remain controller-accessible, and
+Open App Files Folder continues to open the Files app. Existing private-copy,
+multiple-selection, export and cancellation behavior is retained. Picker request
+cleanup also handles programmatic dismissal of its presenting Settings screen.
+
+First-run ImGui prompts enable controller navigation by default without overriding
+an existing saved preference. Touch-layout editing also supports L/R selection, D-pad nudging, A/B Done and X Reset; editing inputs
 are withheld from gameplay, including the held confirmation button on exit.
 
 The controller poller reads GameController state without replacing SDL handlers

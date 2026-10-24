@@ -420,43 +420,6 @@ static void PNCollect(UIView* view, UIViewController* page, NSMutableArray<PRCon
             }
         return;
     }
-    if ([view isKindOfClass:UICollectionView.class]) {
-        UICollectionView* collection = (UICollectionView*) view;
-        __weak UICollectionView* weak = collection;
-        for (NSInteger section = 0; section < collection.numberOfSections; ++section)
-            for (NSInteger item = 0; item < [collection numberOfItemsInSection:section]; ++item) {
-                NSIndexPath* path = [NSIndexPath indexPathForItem:item inSection:section];
-                PRControllerTarget* target = PRControllerViewTarget(
-                    collection,
-                    [NSString stringWithFormat:@"%p/item/%ld/%ld", collection, (long) section, (long) item],
-                    @"Item",
-                    ^{
-                        UICollectionView* owner = weak;
-                        id<UICollectionViewDelegate> delegate = owner.delegate;
-                        if ([delegate respondsToSelector:@selector(collectionView:shouldSelectItemAtIndexPath:)]
-                            && ![delegate collectionView:owner shouldSelectItemAtIndexPath:path])
-                            return;
-                        [owner selectItemAtIndexPath:path
-                                            animated:NO
-                                      scrollPosition:UICollectionViewScrollPositionNone];
-                        if ([delegate respondsToSelector:@selector(collectionView:didSelectItemAtIndexPath:)])
-                            [delegate collectionView:owner didSelectItemAtIndexPath:path];
-                    }
-                );
-                target.frame = ^CGRect(UIView* overlay) {
-                    return [weak convertRect:[weak layoutAttributesForItemAtIndexPath:path].frame toView:overlay];
-                };
-                target.reveal = ^{
-                    if (![weak.indexPathsForVisibleItems containsObject:path])
-                        [weak scrollToItemAtIndexPath:path
-                                     atScrollPosition:UICollectionViewScrollPositionCenteredVertically
-                                             animated:NO];
-                    [weak layoutIfNeeded];
-                };
-                [targets addObject:target];
-            }
-        return;
-    }
     if ([view isKindOfClass:UIControl.class]) {
         UIControl* control = (UIControl*) view;
         if (!control.enabled)
@@ -591,8 +554,9 @@ static PNControllerNavigator* PNNavigator;
 }
 - (void)poll {
     UIViewController* top = PNTop();
-    BOOL usable = [top conformsToProtocol:@protocol(PRControllerNavigable)] ||
-        [top isKindOfClass:UIDocumentPickerViewController.class]
+    // The system Files picker keeps its own touch navigation, even when a
+    // controller is connected. Never collect or activate its internal views.
+    BOOL usable = [top conformsToProtocol:@protocol(PRControllerNavigable)]
         || ([top isKindOfClass:UIAlertController.class] && objc_getAssociatedObject(top, &PNAlertActionsKey));
     if (!usable || UIApplication.sharedApplication.applicationState != UIApplicationStateActive
         || GCController.controllers.count == 0)
@@ -712,9 +676,7 @@ static PNControllerNavigator* PNNavigator;
         }
         return targets;
     }
-    // Files uses public table/collection selection and control actions. Provider
-    // authentication remains owned by iOS, outside the app's navigation layer.
-    return PRControllerDefaultTargets(top);
+    return @[];
 }
 - (void)back:(UIViewController*)top {
     if ([top respondsToSelector:@selector(controllerBack)] && [(id<PRControllerNavigable>) top controllerBack])
@@ -726,12 +688,6 @@ static PNControllerNavigator* PNNavigator;
                 return;
             }
         return; // Never confirm a destructive or mandatory action with B.
-    }
-    if ([top isKindOfClass:UIDocumentPickerViewController.class]) {
-        UIDocumentPickerViewController* picker = (UIDocumentPickerViewController*) top;
-        if ([picker.delegate respondsToSelector:@selector(documentPickerWasCancelled:)])
-            [picker.delegate documentPickerWasCancelled:picker];
-        [picker dismissViewControllerAnimated:YES completion:nil];
     }
 }
 - (void)handle:(uint32_t)keys controller:(UIViewController*)top {

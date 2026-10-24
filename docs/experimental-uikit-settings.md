@@ -107,6 +107,43 @@ icons. Port choices survive a manual device refresh. Defaults and clearing a
 port use native confirmation dialogs; rumble tests stop after half a second or
 when settings closes.
 
+The UIKit menus have their own controller navigation, independent of N64
+bindings and ImGui navigation. D-pad/left stick moves focus, A selects/toggles,
+B returns to the parent (then the sidebar, then closes Settings), Left/Right
+adjusts a numeric setting, and L/R switches sidebar/detail panes. Vertical
+traversal visits both controls in paired slider rows. X opens search or console
+command entry; the right stick scrolls long descriptions, output and inspectors.
+A theme-colored outline identifies the current control; touching the interface
+hides the controller outline. Selection is remembered per live page. Holding an
+opening button cannot select the first action of a new screen or dialog.
+
+Controller text entry includes case, digits, spaces, punctuation, deletion,
+clear, Done and Cancel. Color editing uses exact RGB/RGBA channel values with
+Done/Cancel. Registered app dialogs expose their existing actions without private
+UIKit selectors; B cancels and cannot confirm a destructive action. All buttons,
+including Start/Menu, remain available during binding capture; navigation resumes
+when capture succeeds, is cancelled, or times out. The existing Select/Back menu
+shortcut remains available. Physical controller navigation needs device testing.
+
+With a controller attached, imports/exports start in a native App Files browser.
+It supports subfolders, multiple selection, refresh, cancellation, export-folder
+selection and overwrite confirmation. Imports copy selected files to private
+temporary folders on a background queue; original files are retained. Other
+Locations opens the standard iOS provider browser; provider authentication and
+system permission sheets may still require touch. This does not grant access
+outside the app sandbox. First-run ImGui prompts enable controller navigation by
+default without overriding an existing saved preference. Touch-layout editing
+also supports L/R selection, D-pad nudging, A/B Done and X Reset; editing inputs
+are withheld from gameplay, including the held confirmation button on exit.
+
+The controller poller reads GameController state without replacing SDL handlers
+or changing mappings. It runs only with a connected controller while the app is
+active, and acts only on native menus/sheets. It does not change game frame
+pacing or reintroduce the development timing HUD. Pure repeat/held-input checks
+run with the IPA SDK checks. The UIKit harness additionally covers target
+identities, paired controls, pane switching, color channels and text entry when
+an explicit simulator debugging check is requested.
+
 The sidebar uses its own opaque, clipped canvas with automatic content insets,
 sticky section-header space, and scroll-edge decoration disabled. Its navigation
 bar stays hidden when scrolling, avoiding a strip above the category selections.

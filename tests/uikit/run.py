@@ -34,7 +34,7 @@ subprocess.run(['xcrun','--sdk','iphonesimulator','clang++','-std=c++20','-fobjc
                 '-D__IOS__','-DPAPERREALITY_UI_DIAGNOSTICS='+str(int(args.ui_diagnostics)),
                 '-I'+str(root/'src'),*backend_includes,str(root/'tests/uikit/Host.mm'),
                 '-framework','UIKit','-framework','Foundation','-framework','CoreGraphics',
-                '-framework','QuartzCore','-o',str(app/'UIKitSmoke')],check=True)
+                '-framework','QuartzCore','-framework','GameController','-o',str(app/'UIKitSmoke')],check=True)
 with (app/'Info.plist').open('wb') as f:
     plistlib.dump({'CFBundleExecutable':'UIKitSmoke','CFBundleIdentifier':'org.paperreality.uikit-smoke',
                   'CFBundleName':'UIKitSmoke','CFBundlePackageType':'APPL','CFBundleVersion':'1',

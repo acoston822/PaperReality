@@ -1,6 +1,7 @@
 // Asset-free runtime harness for the production UIKit controllers.
 // The actual view/controller implementation is compiled unchanged below.
 #include "../../src/port/ios/IosNativeSettings.mm"
+#include "../../src/port/ios/IosControllerNavigation.mm"
 #include <fast/backends/FramePacer.h>
 #import <QuartzCore/QuartzCore.h>
 #include <cstdio>
@@ -694,6 +695,73 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
     [NSException raise:@"UIKitMissingControl" format:@"%@ is missing", title];
     return nil;
 }
+static void CheckControllerTargets(PRNativePage* page) {
+    NSArray<PRControllerTarget*>* targets = [page controllerTargets];
+    Require(targets.count == 9, @"Every native row, including both paired sliders, needs a controller target.");
+    NSMutableSet* ids = [NSMutableSet set];
+    NSUInteger adjustable = 0;
+    for (PRControllerTarget* target in targets) {
+        Require(
+            target.identifier.length > 0 && ![ids containsObject:target.identifier],
+            @"Controller targets must have stable unique identities."
+        );
+        [ids addObject:target.identifier];
+        if (target.adjust)
+            ++adjustable;
+        Require(
+            target.frame != nil && target.viewport != nil, @"Controller focus must have an explicit clipped frame."
+        );
+    }
+    Require(adjustable == 2, @"Both numeric controls must support Left/Right adjustment.");
+    [PRRoot controllerPanel:-1];
+    Require([PRRoot controllerContext] == PRRoot.primary.topViewController, @"L must focus the sidebar.");
+    [PRRoot controllerPanel:1];
+    Require([PRRoot controllerContext] == page, @"R must return to the current page.");
+    Require(![PRRoot controllerCapturing], @"Ordinary pages must not consume controller binding input.");
+    N::Row color;
+    color.kind = N::Kind::Color;
+    color.title = "Color";
+    color.value = 0x10203040;
+    PRNativeColor* editor = [[PRNativeColor alloc] initWithRow:color owner:page];
+    [editor loadViewIfNeeded];
+    NSArray<PRControllerTarget*>* channels = [editor controllerTargets];
+    Require(channels.count == 6, @"RGBA and Done/Cancel must all be controller accessible.");
+    channels[0].adjust(1);
+    Require([editor rgba] == 0x11203040, @"Controller color adjustment must change only the selected channel.");
+    channels[0].adjust(-1);
+    Require([editor rgba] == 0x10203040, @"Controller color changes must preserve byte precision.");
+    color.alpha = false;
+    PRNativeColor* rgb = [[PRNativeColor alloc] initWithRow:color owner:page];
+    [rgb loadViewIfNeeded];
+    Require(
+        [rgb controllerTargets].count == 5 && ([rgb rgba] & 255) == 255, @"RGB-only settings must keep alpha opaque."
+    );
+    PNTextEditor* keyboard = [[PNTextEditor alloc] initWithTitle:@"Command" value:@"help " save:nil];
+    [keyboard loadViewIfNeeded];
+    PRControllerTarget* q = nil;
+    PRControllerTarget* symbols = nil;
+    for (PRControllerTarget* target in [keyboard controllerTargets]) {
+        if ([target.identifier isEqualToString:@"key/1/0"])
+            q = target;
+        if ([target.identifier isEqualToString:@"symbols"])
+            symbols = target;
+    }
+    Require(q != nil && symbols != nil, @"Controller keyboard needs letter and symbol targets.");
+    q.activate();
+    Require(
+        [[keyboard valueForKey:@"text"] isEqualToString:@"help q"], @"Controller keyboard must append to existing text."
+    );
+    [keyboard erase];
+    symbols.activate();
+    Require([[keyboard valueForKey:@"text"] isEqualToString:@"help "], @"Changing keyboard pages must preserve text.");
+    BOOL punctuation = NO;
+    for (PRControllerTarget* target in [keyboard controllerTargets])
+        if ([target.label isEqualToString:@"\\"])
+            punctuation = YES;
+    Require(punctuation, @"Controller text entry must support console/path punctuation.");
+    Progress("Controller targets passed: all control types, paired sliders, panes, RGBA and text entry");
+}
+
 static void CheckIndependentUiPacing() {
     PRNativeFrameClock* clock = [PRRoot valueForKey:@"frameClock"];
     CADisplayLink* link = [clock valueForKey:@"link"];
@@ -907,6 +975,7 @@ static void CheckIndependentUiPacing() {
                                              [PRRoot.view setNeedsLayout];
                                              [PRRoot.view layoutIfNeeded];
                                              CheckSidebarLabels();
+                                             CheckControllerTargets(page);
                                              bleedProbe = [[UIView alloc] initWithFrame:page.view.bounds];
                                              bleedProbe.backgroundColor = UIColor.magentaColor;
                                              bleedProbe.autoresizingMask =

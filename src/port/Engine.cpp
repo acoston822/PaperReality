@@ -15,6 +15,7 @@
 #include "port/TextureCache.h"
 #include "port/ios/IosFilePicker.h"
 #include "port/ios/IosExternalDisplay.h"
+#include "port/ios/IosControllerNavigation.h"
 #include <spdlog/spdlog.h>
 #include <chrono>
 #include "src/Companion.h"
@@ -224,6 +225,10 @@ GameEngine::GameEngine() {
     this->context->InitLogging();
     this->context->InitConfiguration();
     this->context->InitConsoleVariables();
+#if defined(__IOS__)
+    // First-run prompts need navigation before the first N64 input read.
+    CVarRegisterInteger("gControlNav", 1);
+#endif
 
     this->context->InitControlDeck(std::make_shared<LUS::ControlDeck>());
     this->context->InitResourceManager(
@@ -964,6 +969,9 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 
 void GameEngine::Create(int argc, char* argv[]) {
     const auto instance = Instance = new GameEngine();
+#if defined(__IOS__)
+    Paperboat::IosStartControllerNavigation();
+#endif
     instance->RunExtract(argc, argv);
     instance->FinishInit();
     PaperboatGui::SetupGuiElements();

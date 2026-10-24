@@ -26,6 +26,9 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /src/port/ios/IosNativeSettings.mm
+            /src/port/ios/IosControllerNavigation.h
+            /src/port/ios/IosControllerNavigation.mm
+            /src/port/ui/NativeControllerNavigation.h
             /src/port/ui/NativeSettings.h
             /src/port/ui/NativeFrameTiming.h
             /src/port/ui/NativeRenderTiming.h

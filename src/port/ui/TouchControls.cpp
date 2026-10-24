@@ -1,4 +1,6 @@
 #include "TouchControls.h"
+#include "NativeControllerNavigation.h"
+#include <cstring>
 
 #include <SDL2/SDL.h>
 #include <imgui.h>
@@ -349,6 +351,95 @@ bool InRect(const ImVec2& p, const ImVec2& center, const ImVec2& half) {
     return std::fabs(p.x - center.x) <= half.x && std::fabs(p.y - center.y) <= half.y;
 }
 
+// Read the physical controller directly so N64 remappings cannot change the
+// editor's controls. A held opening button is ignored until everything releases.
+Paperboat::NativeSettings::ControllerRepeat sLayoutRepeat;
+bool sControllerLayoutActive = false;
+int sControllerLayoutTarget = 0;
+bool sLayoutReleasePending = false;
+uint32_t LayoutControllerHeld() {
+    using namespace Paperboat::NativeSettings;
+    uint32_t held = 0;
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (!SDL_IsGameController(i))
+            continue;
+        SDL_GameController* pad = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
+        if (!pad)
+            continue;
+        auto pressed = [pad](SDL_GameControllerButton button) { return SDL_GameControllerGetButton(pad, button) != 0; };
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_UP))
+            held |= PadUp;
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_DOWN))
+            held |= PadDown;
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_LEFT))
+            held |= PadLeft;
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_RIGHT))
+            held |= PadRight;
+        if (pressed(SDL_CONTROLLER_BUTTON_A))
+            held |= PadAccept;
+        if (pressed(SDL_CONTROLLER_BUTTON_B))
+            held |= PadBack;
+        if (pressed(SDL_CONTROLLER_BUTTON_X))
+            held |= PadSearch;
+        if (pressed(SDL_CONTROLLER_BUTTON_LEFTSHOULDER))
+            held |= PadPrevious;
+        if (pressed(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER))
+            held |= PadNext;
+    }
+    return held;
+}
+void HandleControllerLayout(OverlayState& state, float w, float h) {
+    using namespace Paperboat::NativeSettings;
+    if (!sControllerLayoutActive) {
+        sLayoutRepeat.Reset();
+        sControllerLayoutTarget = 0;
+        sControllerLayoutActive = true;
+    }
+    const uint32_t pressed = sLayoutRepeat.Update(LayoutControllerHeld(), ImGui::GetTime());
+    const int count = int(state.gameButtons.size()) + 2;
+    if (pressed & PadPrevious)
+        sControllerLayoutTarget = (sControllerLayoutTarget + count - 1) % count;
+    if (pressed & PadNext)
+        sControllerLayoutTarget = (sControllerLayoutTarget + 1) % count;
+    if (pressed & (PadAccept | PadBack)) {
+        CVarSetInteger(CVAR_TOUCH("EditMode"), 0);
+        CVarSave();
+        sLayoutReleasePending = true;
+        sDragFinger = sDragTarget = -1;
+        sControllerLayoutActive = false;
+        return;
+    }
+    if (pressed & PadSearch) {
+        for (const auto& button : state.gameButtons)
+            ClearPos(button.id);
+        ClearPos("Stick");
+        ClearPos("Menu");
+        CVarSave();
+        return;
+    }
+    const bool button = sControllerLayoutTarget < int(state.gameButtons.size());
+    const bool stick = sControllerLayoutTarget == int(state.gameButtons.size());
+    const char* id = button ? state.gameButtons[sControllerLayoutTarget].id : stick ? "Stick" : "Menu";
+    ImVec2* position = button ? &state.gameButtons[sControllerLayoutTarget].center
+        : stick               ? &state.stickRest
+                              : &state.menuCenter;
+    sDragTarget = button ? sControllerLayoutTarget : stick ? -2 : -3;
+    if (pressed & (PadUp | PadDown | PadLeft | PadRight)) {
+        const float delta = std::min(w, h) * .005f;
+        if (pressed & PadUp)
+            position->y -= delta;
+        if (pressed & PadDown)
+            position->y += delta;
+        if (pressed & PadLeft)
+            position->x -= delta;
+        if (pressed & PadRight)
+            position->x += delta;
+        position->x = std::clamp(position->x, 0.f, w);
+        position->y = std::clamp(position->y, 0.f, h);
+        SavePos(id, *position, w, h);
+    }
+}
+
 // Layout-edit mode: one finger drags a widget; positions commit on release.
 // Done exits the mode (saving the config), Reset restores the default layout.
 void HandleEditMode(OverlayState& state, const std::vector<Finger>& fingers, float w, float h) {
@@ -571,6 +662,10 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
     if (!backDown && sBackWasDown && sBackOpenOnRelease) {
         sBackOpenOnRelease = false;
         if (menu != nullptr && !menu->IsVisible()) {
+            if (CVarGetInteger(CVAR_TOUCH("EditMode"), 0)) {
+                CVarSetInteger(CVAR_TOUCH("EditMode"), 0);
+                CVarSave();
+            }
             menu->ToggleVisibility();
         }
     }
@@ -592,6 +687,14 @@ extern "C" void TouchControls_ApplyPad(void* pads) {
         button.pressed = false;
     }
 
+    if (sLayoutReleasePending) {
+        std::memset(pads, 0, sizeof(OSContPad) * MAXCONTROLLERS);
+        if (LayoutControllerHeld() == 0)
+            sLayoutReleasePending = false;
+        return;
+    }
+    if (CVarGetInteger(CVAR_TOUCH("EditMode"), 0) == 0)
+        sControllerLayoutActive = false;
     if (ImGui::GetCurrentContext() == nullptr || !Enabled() || HiddenByController()) {
         sStickFinger = -1;
         return;
@@ -614,7 +717,13 @@ extern "C" void TouchControls_ApplyPad(void* pads) {
     // Layout-edit mode: fingers drag widgets instead of driving the game.
     if (sState.editMode && !sState.menuOpen) {
         const ImVec2 display = ImGui::GetIO().DisplaySize;
-        HandleEditMode(sState, fingers, display.x, display.y);
+        std::memset(pads, 0, sizeof(OSContPad) * MAXCONTROLLERS);
+        if (sControllerPresent && fingers.empty())
+            HandleControllerLayout(sState, display.x, display.y);
+        else {
+            sControllerLayoutActive = false;
+            HandleEditMode(sState, fingers, display.x, display.y);
+        }
         return;
     }
 
@@ -928,7 +1037,8 @@ void TouchControlsOverlay::Draw() {
 
         const ImVec2 display = ImGui::GetIO().DisplaySize;
         text(
-            ImVec2(display.x * 0.5f, 3.6f * u), u * 0.9f, "Drag controls to reposition them",
+            ImVec2(display.x * 0.5f, 3.6f * u), u * 0.9f,
+            sControllerPresent ? "L/R Select   D-pad Move   A/B Done   X Reset" : "Drag controls to reposition them",
             IM_COL32(255, 255, 255, 200)
         );
     }

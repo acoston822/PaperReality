@@ -120,6 +120,7 @@ static void CheckControllerBindings(PaperboatGui::PaperboatMenu& menu) {
     const auto buttonKey = "bindings/3/button/" + std::to_string(BTN_A);
     auto add = Find(N::BuildPage(buttonKey), "Add Binding");
     add.activate();
+    Require(N::BuildPage(add.target).capturesControllerInput, "Binding capture does not suspend menu navigation");
     SDL_JoystickSetVirtualButton(joystick, 0, 1);
     SDL_Delay(260);
     N::UpdateControllerBindings(true);
@@ -133,6 +134,7 @@ static void CheckControllerBindings(PaperboatGui::PaperboatMenu& menu) {
         "Capturing a gamepad input discarded another binding"
     );
     Require(N::BuildPage(add.target).returnToParent, "Successful capture did not return to the native editor");
+    Require(!N::BuildPage(add.target).capturesControllerInput, "Completed capture still consumes menu input");
     controller->ReloadAllMappingsFromConfig();
     Require(button->GetAllButtonMappings().size() == 2, "Captured binding was not persisted");
     std::string gamepadId;

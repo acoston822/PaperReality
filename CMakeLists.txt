@@ -491,7 +491,7 @@ add_dependencies(${PROJECT_NAME} GeneratePortO2R)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship torch yaml-cpp)
 if(IOS)
-    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers" "-framework QuartzCore" "-framework Metal")
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers" "-framework QuartzCore" "-framework Metal" "-framework GameController")
 endif()
 
 if(ANDROID)

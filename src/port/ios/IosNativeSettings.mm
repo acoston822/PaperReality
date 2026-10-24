@@ -1,5 +1,6 @@
 #include "port/ui/NativeSettings.h"
 #include "port/ui/NativeTheme.h"
+#include "IosControllerNavigation.h"
 #if defined(__IOS__)
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -364,7 +365,8 @@ static UIImage* PRBlankPortrait() {
 @end
 
 @class PRNativeRoot;
-@interface PRNativePage : UITableViewController <UISearchResultsUpdating, UIColorPickerViewControllerDelegate> {
+@interface PRNativePage
+    : UITableViewController <UISearchResultsUpdating, UIColorPickerViewControllerDelegate, PRControllerNavigable> {
     std::string _key;
     N::Page _page;
     std::vector<N::Section> _sections;
@@ -382,7 +384,7 @@ static UIImage* PRBlankPortrait() {
 - (void)apply:(const N::Row&)row value:(double)value;
 @end
 
-@interface PRNativeChoices : UITableViewController <UISearchResultsUpdating> {
+@interface PRNativeChoices : UITableViewController <UISearchResultsUpdating, PRControllerNavigable> {
     N::Row _row;
     std::vector<N::Choice> _choices;
     __weak PRNativePage* _owner;
@@ -390,7 +392,7 @@ static UIImage* PRBlankPortrait() {
 - (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner;
 @end
 
-@interface PRNativeSidebar : UITableViewController {
+@interface PRNativeSidebar : UITableViewController <PRControllerNavigable> {
     std::vector<N::Group> _groups;
     NSInteger _expanded;
     NSString* _selected;
@@ -401,7 +403,7 @@ static UIImage* PRBlankPortrait() {
 - (void)selectPage:(const std::string&)key;
 @end
 
-@interface PRNativeRoot : UIViewController {
+@interface PRNativeRoot : UIViewController <PRControllerNavigable> {
     UIView* _header;
     UIView* _primaryPanel;
     UIView* _detailPanel;
@@ -412,6 +414,7 @@ static UIImage* PRBlankPortrait() {
     BOOL _showPrimary;
     BOOL _wide;
     BOOL _consoleTyping;
+    BOOL _controllerSidebar;
 }
 @property (nonatomic, strong) UINavigationController* primary;
 @property (nonatomic, strong) UINavigationController* detail;
@@ -569,7 +572,146 @@ static PRNativeRoot* PRRoot = nil;
 }
 @end
 
-@interface PRNativeConsole : UIViewController <UITextFieldDelegate> {
+@interface PRNativeColor : UIViewController <PRControllerNavigable> {
+    N::Row _row;
+    __weak PRNativePage* _owner;
+    NSMutableArray<UISlider*>* _sliders;
+    NSMutableArray<UILabel*>* _labels;
+    UIView* _swatch;
+    UIButton* _save;
+    UIButton* _cancel;
+}
+- (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner;
+@end
+@implementation PRNativeColor
+- (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner {
+    self = [super init];
+    if (self) {
+        _row = row;
+        _owner = owner;
+        self.modalPresentationStyle = UIModalPresentationFullScreen;
+    }
+    return self;
+}
+- (uint32_t)rgba {
+    uint32_t rgba = 0;
+    for (UISlider* slider in _sliders)
+        rgba = (rgba << 8) | uint32_t(std::lround(slider.value));
+    if (!_row.alpha)
+        rgba = (rgba << 8) | 255;
+    return rgba;
+}
+- (void)changed {
+    for (NSUInteger i = 0; i < _sliders.count; ++i)
+        _labels[i].text = [NSString stringWithFormat:@"%@: %d", @[ @"Red", @"Green", @"Blue", @"Alpha" ][i],
+                                                     int(std::lround(_sliders[i].value))];
+    uint32_t c = [self rgba];
+    _swatch.backgroundColor = [UIColor colorWithRed:((c >> 24) & 255) / 255.
+                                              green:((c >> 16) & 255) / 255.
+                                               blue:((c >> 8) & 255) / 255.
+                                              alpha:(c & 255) / 255.];
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRIsolatePage(self);
+    _sliders = [NSMutableArray array];
+    _labels = [NSMutableArray array];
+    UILabel* title = [[UILabel alloc] init];
+    title.text = PRText(_row.title);
+    title.font = PRFont(20, UIFontWeightBold, UIFontTextStyleHeadline);
+    _swatch = [[UIView alloc] init];
+    _swatch.layer.cornerRadius = 8;
+    [_swatch.widthAnchor constraintEqualToConstant:50].active = YES;
+    [_swatch.heightAnchor constraintEqualToConstant:30].active = YES;
+    UIStackView* heading = [[UIStackView alloc] initWithArrangedSubviews:@[ title, _swatch ]];
+    heading.spacing = 12;
+    UIStackView* stack = [[UIStackView alloc] initWithArrangedSubviews:@[ heading ]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 6;
+    for (NSUInteger i = 0; i < (_row.alpha ? 4u : 3u); ++i) {
+        UILabel* label = [[UILabel alloc] init];
+        label.font = PRFont(14, UIFontWeightSemibold, UIFontTextStyleBody);
+        UISlider* slider = [[UISlider alloc] init];
+        slider.minimumValue = 0;
+        slider.maximumValue = 255;
+        slider.value = (uint32_t(_row.value) >> (24 - i * 8)) & 255;
+        slider.accessibilityLabel = @[ @"Red", @"Green", @"Blue", @"Alpha" ][i];
+        [slider addTarget:self action:@selector(changed) forControlEvents:UIControlEventValueChanged];
+        UIStackView* channel = [[UIStackView alloc] initWithArrangedSubviews:@[ label, slider ]];
+        channel.axis = UILayoutConstraintAxisVertical;
+        [stack addArrangedSubview:channel];
+        [_sliders addObject:slider];
+        [_labels addObject:label];
+    }
+    _save = [UIButton buttonWithType:UIButtonTypeSystem];
+    _save.configuration = [UIButtonConfiguration filledButtonConfiguration];
+    [_save setTitle:@"Done" forState:UIControlStateNormal];
+    PRStyleFilledButton(_save);
+    [_save addTarget:self action:@selector(save) forControlEvents:UIControlEventTouchUpInside];
+    _cancel = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_cancel setTitle:@"Cancel" forState:UIControlStateNormal];
+    [_cancel addTarget:self action:@selector(cancel) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView* buttons = [[UIStackView alloc] initWithArrangedSubviews:@[ _cancel, _save ]];
+    buttons.distribution = UIStackViewDistributionFillEqually;
+    buttons.spacing = 12;
+    [stack addArrangedSubview:buttons];
+    UIScrollView* scroll = [[UIScrollView alloc] init];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:scroll];
+    [scroll addSubview:stack];
+    UILayoutGuide* safe = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [scroll.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
+        [scroll.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-20],
+        [scroll.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8],
+        [scroll.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-8],
+        [stack.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor],
+        [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor],
+        [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
+    ]];
+    [self changed];
+}
+- (void)save {
+    [_owner apply:_row value:[self rgba]];
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (void)cancel {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (BOOL)controllerBack {
+    [self cancel];
+    return YES;
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    NSMutableArray* targets = [NSMutableArray array];
+    __weak PRNativeColor* weak = self;
+    for (NSUInteger i = 0; i < _sliders.count; ++i) {
+        UISlider* slider = _sliders[i];
+        PRControllerTarget* target = PRControllerViewTarget(
+            slider, [NSString stringWithFormat:@"channel/%lu", (unsigned long) i], _labels[i].text, nil
+        );
+        __weak UISlider* control = slider;
+        target.adjust = ^(NSInteger direction) {
+            UISlider* value = control;
+            value.value = std::clamp(value.value + direction, 0.f, 255.f);
+            [weak changed];
+        };
+        [targets addObject:target];
+    }
+    [targets addObject:PRControllerViewTarget(_cancel, @"cancel", @"Cancel", ^{
+                 [weak cancel];
+             })];
+    [targets addObject:PRControllerViewTarget(_save, @"save", @"Done", ^{
+                 [weak save];
+             })];
+    return targets;
+}
+@end
+
+@interface PRNativeConsole : UIViewController <UITextFieldDelegate, PRControllerNavigable> {
     UITextView* _output;
     UITextField* _command;
     UILabel* _empty;
@@ -830,6 +972,62 @@ static PRNativeRoot* PRRoot = nil;
     if (self.isViewLoaded)
         [self renderOutput];
 }
+- (void)controllerSearch {
+    __weak PRNativeConsole* weak = self;
+    PRControllerEditText(PRRoot, @"Console command", _command.text, ^(NSString* text) {
+        PRNativeConsole* owner = weak;
+        if (owner) {
+            owner->_command.text = text;
+            [owner editingChanged];
+        }
+    });
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    NSMutableArray<PRControllerTarget*>* targets = [PRControllerDefaultTargets(self) mutableCopy];
+    __weak PRNativeConsole* weak = self;
+    PRControllerTarget* output =
+        PRControllerViewTarget(_output, @"console-output", @"Console output · Left/Right scroll", nil);
+    output.adjust = ^(NSInteger direction) {
+        PRNativeConsole* owner = weak;
+        if (!owner)
+            return;
+        UITextView* view = owner->_output;
+        CGFloat maximum =
+            MAX(-view.adjustedContentInset.top,
+                view.contentSize.height - view.bounds.size.height + view.adjustedContentInset.bottom);
+        [view setContentOffset:CGPointMake(
+                                   view.contentOffset.x,
+                                   std::clamp(
+                                       view.contentOffset.y + direction * 120, -view.adjustedContentInset.top, maximum
+                                   )
+                               )
+                      animated:NO];
+    };
+    [targets insertObject:output atIndex:0];
+    if (!_snapshot.history.empty()) {
+        [targets addObject:PRControllerViewTarget(
+                               self.navigationController.navigationBar, @"console/history", @"Command history", ^{
+                                   PRNativeConsole* owner = weak;
+                                   if (!owner)
+                                       return;
+                                   NSMutableArray<NSString*>* commands = [NSMutableArray array];
+                                   for (auto it = owner->_snapshot.history.rbegin();
+                                        it != owner->_snapshot.history.rend() && commands.count < 20;
+                                        ++it)
+                                       [commands addObject:PRText(*it)];
+                                   PRControllerChoose(PRRoot, @"Recent commands", commands, ^(NSInteger index) {
+                                       PRNativeConsole* page = weak;
+                                       if (page && index < NSInteger(commands.count)) {
+                                           page->_command.text = commands[index];
+                                           [page editingChanged];
+                                       }
+                                   });
+                               }
+                           )];
+    }
+    return targets;
+}
+
 @end
 
 static UIFont* PREventMonoFont(CGFloat size) {
@@ -1059,7 +1257,7 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
 }
 @end
 
-@interface PRNativeEvents : UIViewController <UITableViewDataSource, UITableViewDelegate> {
+@interface PRNativeEvents : UIViewController <UITableViewDataSource, UITableViewDelegate, PRControllerNavigable> {
     UITableView* _table;
     UILabel* _empty;
     UIButton* _expand;
@@ -1247,6 +1445,32 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     _collapse.enabled = NO;
     [_table reloadData];
 }
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    NSMutableArray<PRControllerTarget*>* targets = [NSMutableArray array];
+    __weak PRNativeEvents* weak = self;
+    if (_expand.enabled)
+        [targets addObject:PRControllerViewTarget(_expand, @"events/expand", @"Expand All", ^{
+                     [weak expandAll];
+                 })];
+    if (_collapse.enabled)
+        [targets addObject:PRControllerViewTarget(_collapse, @"events/collapse", @"Collapse All", ^{
+                     [weak collapseAll];
+                 })];
+    for (size_t i = 0; i < _snapshot.events.size(); ++i) {
+        const auto& event = _snapshot.events[i];
+        const int32_t id = event.id;
+        [targets addObject:PRControllerRowTarget(
+                               _table, [NSIndexPath indexPathForRow:i inSection:0],
+                               [NSString stringWithFormat:@"event/%d", id], PRText(event.name), ^{
+                                   UIButton* sender = [UIButton buttonWithType:UIButtonTypeSystem];
+                                   sender.tag = id;
+                                   [weak toggleEvent:sender];
+                               }
+                           )];
+    }
+    return targets;
+}
+
 @end
 
 @implementation PRNativePage
@@ -1525,18 +1749,22 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
             });
         });
     } else if (row.kind == N::Kind::Color) {
-        _colorRow = row;
-        const uint32_t c = uint32_t(row.value);
-        UIColorPickerViewController* picker = [[UIColorPickerViewController alloc] init];
-        picker.delegate = self;
-        picker.supportsAlpha = row.alpha;
-        picker.title = PRText(row.title);
-        picker.selectedColor = [UIColor colorWithRed:((c >> 24) & 255) / 255.
-                                               green:((c >> 16) & 255) / 255.
-                                                blue:((c >> 8) & 255) / 255.
-                                               alpha:(c & 255) / 255.];
-        [self presentViewController:picker animated:YES completion:nil];
+        [self presentViewController:[[PRNativeColor alloc] initWithRow:row owner:self] animated:YES completion:nil];
     } else if (row.kind == N::Kind::Text) {
+        if (PRControllerInUse()) {
+            __weak PRNativePage* weak = self;
+            PRControllerEditText(PRRoot, PRText(row.title), PRText(row.text), ^(NSString* value) {
+                const auto text = PRString(value);
+                N::Enqueue([weak, row, text] {
+                    if (row.submit)
+                        row.submit(text);
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [weak refresh];
+                    });
+                });
+            });
+            return;
+        }
         UIAlertController* alert = [UIAlertController alertControllerWithTitle:PRText(row.title)
                                                                        message:PRText(row.detail)
                                                                 preferredStyle:UIAlertControllerStyleAlert];
@@ -1545,27 +1773,25 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
             field.autocorrectionType = UITextAutocorrectionTypeNo;
             field.text = PRText(row.text);
         }];
-        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        PRControllerAddAlertAction(alert, @"Cancel", UIAlertActionStyleCancel, nil);
         __weak PRNativePage* weak = self;
         __weak UIAlertController* weakAlert = alert;
-        [alert addAction:[UIAlertAction actionWithTitle:@"Run"
-                                                  style:UIAlertActionStyleDefault
-                                                handler:^(UIAlertAction* action) {
-                                                    const auto text = PRString(weakAlert.textFields.firstObject.text);
-                                                    N::Enqueue([weak, row, text] {
-                                                        if (row.submit)
-                                                            row.submit(text);
-                                                        dispatch_async(dispatch_get_main_queue(), ^{
-                                                            [weak refresh];
-                                                        });
-                                                    });
-                                                }]];
+        PRControllerAddAlertAction(alert, @"Run", UIAlertActionStyleDefault, ^(UIAlertAction* action) {
+            const auto text = PRString(weakAlert.textFields.firstObject.text);
+            N::Enqueue([weak, row, text] {
+                if (row.submit)
+                    row.submit(text);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weak refresh];
+                });
+            });
+        });
         [self presentViewController:alert animated:YES completion:nil];
     } else if (!row.detail.empty()) {
         UIAlertController* alert = [UIAlertController alertControllerWithTitle:PRText(row.title)
                                                                        message:PRText(row.detail)
                                                                 preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        PRControllerAddAlertAction(alert, @"OK", UIAlertActionStyleDefault, nil);
         [self presentViewController:alert animated:YES completion:nil];
     }
 }
@@ -1576,6 +1802,51 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
         | (uint32_t(std::lround(b * 255)) << 8) | uint32_t(std::lround(a * 255));
     [self apply:_colorRow value:rgba];
 }
+- (BOOL)controllerCapturing {
+    return _page.capturesControllerInput;
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    NSMutableArray<PRControllerTarget*>* targets = [NSMutableArray array];
+    __weak PRNativePage* weak = self;
+    for (size_t section = 0; section < _rows.size(); ++section)
+        for (size_t display = 0; display < _rows[section].size(); ++display) {
+            const auto [index, columns] = _rows[section][display];
+            NSIndexPath* path = [NSIndexPath indexPathForRow:display inSection:section];
+            for (size_t column = 0; column < columns; ++column) {
+                const N::Row row = _sections[section].rows[index + column];
+                if (!row.enabled)
+                    continue;
+                NSString* identifier = row.id.empty()
+                    ? [NSString stringWithFormat:@"row/%zu/%zu/%zu/%@", section, display, column, PRText(row.title)]
+                    : PRText(row.id);
+                PRControllerTarget* target =
+                    PRControllerRowTarget(self.tableView, path, identifier, PRText(row.title), ^{
+                        PRNativePage* owner = weak;
+                        if (!owner || section >= owner->_rows.size() || display >= owner->_rows[section].size())
+                            return;
+                        if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal)
+                            [owner apply:row value:std::clamp(row.value + row.step, row.minimum, row.maximum)];
+                        else
+                            [owner tableView:owner.tableView didSelectRowAtIndexPath:path];
+                    });
+                if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal) {
+                    target.adjust = ^(NSInteger direction) {
+                        [weak apply:row value:std::clamp(row.value + direction * row.step, row.minimum, row.maximum)];
+                    };
+                    CGRect (^frame)(UIView*) = target.frame;
+                    target.frame = ^CGRect(UIView* overlay) {
+                        CGRect rect = frame(overlay);
+                        rect.size.width /= columns;
+                        rect.origin.x += column * rect.size.width;
+                        return rect;
+                    };
+                }
+                [targets addObject:target];
+            }
+        }
+    return targets;
+}
+
 @end
 
 @implementation PRNativeChoices
@@ -1635,6 +1906,10 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
     [_owner apply:_row value:_choices[indexPath.row].value];
     [self.navigationController popViewControllerAnimated:YES];
 }
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    return PRControllerDefaultTargets(self);
+}
+
 @end
 
 @implementation PRNativeSidebar
@@ -1765,6 +2040,10 @@ static bool PREventStructureMatches(const N::EventSnapshot& left, const N::Event
         [tableView reloadData];
     }
 }
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    return PRControllerDefaultTargets(self);
+}
+
 @end
 
 static UIViewController* PRPageController(std::string key) {
@@ -1953,6 +2232,7 @@ static void PRRefreshTheme(UIViewController* controller) {
     [self.view setNeedsLayout];
 }
 - (void)browse {
+    _controllerSidebar = YES;
     [self showColumn:UISplitViewControllerColumnPrimary];
 }
 - (void)setConsoleTyping:(BOOL)typing {
@@ -1967,6 +2247,7 @@ static void PRRefreshTheme(UIViewController* controller) {
 }
 - (void)openPage:(std::string)key {
     N::Enqueue([key] { N::RememberPage(key); });
+    _controllerSidebar = NO;
     [(PRNativeSidebar*) self.primary.viewControllers.firstObject selectPage:key];
     UIViewController* page = PRPageController(std::move(key));
     [self.detail setViewControllers:@[ page ] animated:NO];
@@ -1978,6 +2259,50 @@ static void PRRefreshTheme(UIViewController* controller) {
 - (NSArray<UIKeyCommand*>*)keyCommands {
     return @[ [UIKeyCommand keyCommandWithInput:UIKeyInputEscape modifierFlags:0 action:@selector(closeSettings)] ];
 }
+- (id)controllerContext {
+    return _controllerSidebar ? self.primary.topViewController : self.detail.topViewController;
+}
+- (BOOL)controllerCapturing {
+    UIViewController* page = self.detail.topViewController;
+    return !_controllerSidebar && [page respondsToSelector:@selector(controllerCapturing)] &&
+        [(id<PRControllerNavigable>) page controllerCapturing];
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    UIViewController* page = [self controllerContext];
+    if ([page conformsToProtocol:@protocol(PRControllerNavigable)])
+        return [(id<PRControllerNavigable>) page controllerTargets];
+    return PRControllerDefaultTargets(page);
+}
+- (void)controllerPanel:(NSInteger)direction {
+    _controllerSidebar = direction < 0;
+    [self showColumn:_controllerSidebar ? UISplitViewControllerColumnPrimary : UISplitViewControllerColumnSecondary];
+}
+- (BOOL)controllerBack {
+    if (!_controllerSidebar && self.detail.viewControllers.count > 1)
+        [self.detail popViewControllerAnimated:YES];
+    else if (!_controllerSidebar)
+        [self controllerPanel:-1];
+    else
+        [self closeSettings];
+    return YES;
+}
+- (void)controllerSearch {
+    UIViewController* page = self.detail.topViewController;
+    if ([page respondsToSelector:@selector(controllerSearch)]) {
+        [(id<PRControllerNavigable>) page controllerSearch];
+        return;
+    }
+    UISearchController* search = page.navigationItem.searchController;
+    if (!search)
+        return;
+    __weak UISearchController* weak = search;
+    PRControllerEditText(self, @"Search", search.searchBar.text, ^(NSString* text) {
+        UISearchController* owner = weak;
+        owner.searchBar.text = text;
+        [owner.searchResultsUpdater updateSearchResultsForSearchController:owner];
+    });
+}
+
 @end
 
 struct PRAlertInfo {
@@ -2019,17 +2344,15 @@ static void PRShowNextAlert() {
             PRShowNextAlert();
         });
     };
-    [alert addAction:[UIAlertAction actionWithTitle:PRText(item.first.empty() ? "OK" : item.first)
-                                              style:UIAlertActionStyleDefault
-                                            handler:^(UIAlertAction*) {
-                                                finish(item.firstAction);
-                                            }]];
+    PRControllerAddAlertAction(
+        alert, PRText(item.first.empty() ? "OK" : item.first), UIAlertActionStyleDefault, ^(UIAlertAction*) {
+            finish(item.firstAction);
+        }
+    );
     if (!item.second.empty())
-        [alert addAction:[UIAlertAction actionWithTitle:PRText(item.second)
-                                                  style:UIAlertActionStyleCancel
-                                                handler:^(UIAlertAction*) {
-                                                    finish(item.secondAction);
-                                                }]];
+        PRControllerAddAlertAction(alert, PRText(item.second), UIAlertActionStyleCancel, ^(UIAlertAction*) {
+            finish(item.secondAction);
+        });
     [top presentViewController:alert animated:YES completion:nil];
 }
 

@@ -58,6 +58,7 @@ struct Page {
     std::vector<Section> sections;
     bool searchable = false;
     bool returnToParent = false;
+    bool capturesControllerInput = false;
 };
 struct Destination {
     std::string key, title, symbol;

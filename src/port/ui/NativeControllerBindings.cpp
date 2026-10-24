@@ -326,6 +326,7 @@ Page ControllerBindingsPage(const std::string& key) {
     if (key.starts_with("bindings/capture/")) {
         page.title = "Capture Input";
         page.returnToParent = capture.key != key || capture.finished;
+        page.capturesControllerInput = capture.active;
         page.sections.push_back(
             { "",
               "Your existing binding stays unchanged until a new input is captured.",

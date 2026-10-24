@@ -313,7 +313,7 @@ endif()
 if(IOS)
     set(IOS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ios)
     set(STORYBOARD_FILE ${IOS_DIR}/Launch.storyboard)
-    set(IMAGE_FILES ${IOS_DIR}/PoweredBy.png)
+    set(IMAGE_FILES ${IOS_DIR}/PoweredBy.png ${IOS_DIR}/PaperReality-Boat.png)
     set(ICON_FILES ${IOS_DIR}/Icon.png)
 
     add_executable(${PROJECT_NAME}

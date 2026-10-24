@@ -25,6 +25,7 @@ jobs:
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
+            /ios/PaperReality-Boat.png
             /src/port/ios/IosNativeSettings.mm
             /src/port/ios/IosControllerNavigation.h
             /src/port/ios/IosControllerNavigation.mm

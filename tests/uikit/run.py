@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import platform
 import plistlib
+import shutil
 import subprocess
 import sys
 import time
@@ -40,6 +41,7 @@ with (app/'Info.plist').open('wb') as f:
                   'CFBundleName':'UIKitSmoke','CFBundlePackageType':'APPL','CFBundleVersion':'1',
                   'CFBundleShortVersionString':'1.0','MinimumOSVersion':'16.3','UIDeviceFamily':[1,2],
                   'UILaunchScreen':{},'CFBundleURLTypes':[{'CFBundleURLSchemes':['uikitsmoke']}],'UISupportedInterfaceOrientations':['UIInterfaceOrientationLandscapeLeft','UIInterfaceOrientationLandscapeRight']},f)
+shutil.copyfile(root/'ios/PaperReality-Boat.png', app/'PaperReality-Boat.png')
 subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
 runtimes=json.loads(run('xcrun','simctl','list','runtimes','-j'))['runtimes']
 runtime=next(r for r in reversed(runtimes) if r.get('isAvailable') and r['identifier'].startswith('com.apple.CoreSimulator.SimRuntime.iOS-'))

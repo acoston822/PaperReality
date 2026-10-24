@@ -2092,10 +2092,15 @@ static void PRRefreshTheme(UIViewController* controller) {
     self.view.opaque = YES;
     _header = [[UIView alloc] init];
     [self.view addSubview:_header];
-    UIImageView* logo = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"paperplane.fill"]];
-    logo.tintColor = UIColor.systemRedColor;
+    NSString* logoPath = [NSBundle.mainBundle pathForResource:@"PaperReality-Boat" ofType:@"png"];
+    UIImage* boat = logoPath ? [UIImage imageWithContentsOfFile:logoPath] : nil;
+    // Retain a small, sharp thumbnail for the header rather than the full artwork.
+    UIImage* thumbnail = [boat imageByPreparingThumbnailOfSize:CGSizeMake(108, 108)] ?: boat;
+    UIImageView* logo =
+        [[UIImageView alloc] initWithImage:[thumbnail imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]];
     logo.contentMode = UIViewContentModeScaleAspectFit;
-    [logo.widthAnchor constraintEqualToConstant:28].active = YES;
+    [logo.widthAnchor constraintEqualToConstant:36].active = YES;
+    [logo.heightAnchor constraintEqualToConstant:28].active = YES;
     UILabel* name = [[UILabel alloc] init];
     name.text = @"PaperReality";
     name.font = PRFont(20, UIFontWeightBold, UIFontTextStyleHeadline);

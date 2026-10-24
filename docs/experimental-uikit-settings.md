@@ -25,6 +25,7 @@ retained. Returning to an app that is still running keeps its current page open.
   and consistent spacing across settings and editor submenus. Materials and colors
   follow the system Light/Dark appearance. The full-screen background is opaque;
   it does not blur/sample the live game surface. No game artwork is bundled for it.
+  The header uses a transparent red origami boat cutout based on the app icon.
 - Consecutive numeric settings share a two-column card layout when there is enough
   space. Narrow widths and accessibility text retain a single column.
 - Native lists, switches, sliders with precise increment/decrement buttons,

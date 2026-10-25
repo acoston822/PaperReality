@@ -131,7 +131,8 @@ adjusts a numeric setting, and L/R switches sidebar/detail panes. Vertical
 traversal visits both controls in paired slider rows. X opens search or console
 command entry; the right stick scrolls long descriptions, output and inspectors.
 A theme-colored outline identifies the current control; touching the interface
-hides the controller outline. Selection is remembered per live page. Holding an
+hides the controller outline. Controller navigation does not add a bottom help
+strip over the page. Selection is remembered per live page. Holding an
 opening button cannot select the first action of a new screen or dialog.
 
 Controller text entry includes case, digits, spaces, punctuation, deletion,

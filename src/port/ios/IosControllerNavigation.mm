@@ -483,7 +483,6 @@ NSArray<PRControllerTarget*>* PRControllerDefaultTargets(UIViewController* page)
 @interface PNControllerNavigator : NSObject {
     NSTimer* _timer;
     UIView* _outline;
-    UILabel* _hint;
     PN::ControllerRepeat _repeat;
     __weak id _context;
     NSMapTable<id, NSString*>* _selection;
@@ -542,11 +541,9 @@ static PNControllerNavigator* PNNavigator;
     _engaged = NO;
     PNUsingController = NO;
     _outline.hidden = YES;
-    _hint.hidden = YES;
 }
 - (void)hide {
     _outline.hidden = YES;
-    _hint.hidden = YES;
     _repeat.Reset();
     _context = nil;
     _focused = nil;
@@ -640,7 +637,6 @@ static PNControllerNavigator* PNNavigator;
         if (pressed & (PN::PadAccept | PN::PadBack | PN::PadMenu | PN::PadPrevious | PN::PadNext | PN::PadSearch)) {
             _focused = nil;
             _outline.hidden = YES;
-            _hint.hidden = YES;
             return;
         }
     }
@@ -694,7 +690,6 @@ static PNControllerNavigator* PNNavigator;
     id<PRControllerNavigable> page = (id) top;
     if ([page respondsToSelector:@selector(controllerCapturing)] && [page controllerCapturing]) {
         _outline.hidden = YES;
-        _hint.hidden = YES;
         _focused = nil;
         return; // Every input belongs to binding capture, including Start/Menu.
     }
@@ -720,7 +715,6 @@ static PNControllerNavigator* PNNavigator;
     NSArray<PRControllerTarget*>* targets = [self targets:top];
     if (!targets.count) {
         _outline.hidden = YES;
-        _hint.hidden = YES;
         return;
     }
     id context = _context ?: top;
@@ -813,14 +807,6 @@ static PNControllerNavigator* PNNavigator;
         _outline.layer.cornerRadius = 10;
         _outline.layer.borderWidth = 3;
         _outline.accessibilityIdentifier = @"controller-focus";
-        _hint = [[UILabel alloc] init];
-        _hint.userInteractionEnabled = NO;
-        _hint.font = [UIFont systemFontOfSize:11 weight:UIFontWeightSemibold];
-        _hint.textAlignment = NSTextAlignmentCenter;
-        _hint.backgroundColor = UIColor.secondarySystemBackgroundColor;
-        _hint.layer.cornerRadius = 6;
-        _hint.clipsToBounds = YES;
-        _hint.accessibilityIdentifier = @"controller-hint";
     }
     CGRect frame = CGRectInset(target.frame(window), 3, 3);
     _outline.layer.borderColor = top.view.tintColor.CGColor;
@@ -828,25 +814,9 @@ static PNControllerNavigator* PNNavigator;
     clipped = CGRectIntersection(clipped, [top.view convertRect:top.view.bounds toView:window]);
     _outline.hidden = CGRectIsEmpty(clipped) || CGRectIsNull(clipped);
     _outline.frame = _outline.hidden ? CGRectZero : clipped;
-    NSString* controls = [top respondsToSelector:@selector(controllerPanel:)]
-        ? @"A Select · B Back · L/R Panels · X Search"
-        : [top isKindOfClass:PNTextEditor.class] ? @"A Type · B Cancel · Y Delete"
-                                                 : @"A Select · B Back";
-    NSString* hint = [NSString stringWithFormat:@"%@  ·  %@", target.label ?: @"", controls];
-    if (![_hint.text isEqualToString:hint])
-        _hint.text = hint;
-    _hint.frame = CGRectMake(
-        CGRectGetMinX(window.safeAreaLayoutGuide.layoutFrame) + 8,
-        CGRectGetMaxY(window.safeAreaLayoutGuide.layoutFrame) - 19,
-        CGRectGetWidth(window.safeAreaLayoutGuide.layoutFrame) - 16,
-        18
-    );
-    _hint.hidden = NO;
     // Reorder only after a presentation adds content above the focus layer.
-    // Ordinary polling must not reinsert views or relayout the hint every tick.
-    if (_hint.superview != window || window.subviews.lastObject != _hint) {
+    if (_outline.superview != window || window.subviews.lastObject != _outline) {
         [window addSubview:_outline];
-        [window addSubview:_hint];
     }
 }
 @end

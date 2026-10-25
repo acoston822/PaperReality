@@ -20,6 +20,7 @@ def run(*args, **kwargs):
 
 
 def logged(name, args, timeout=600, env=None):
+    print('Starting:', name, flush=True)
     path = out / (name + '.log')
     with path.open('w') as log:
         result = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT,
@@ -49,7 +50,7 @@ device = run('xcrun', 'simctl', 'create', 'PaperReality isolated iPad window pro
              device_type['identifier'], runtime['identifier'])
 try:
     run('xcrun', 'simctl', 'boot', device)
-    subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'], check=True, timeout=240)
+    subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'], check=True, timeout=600)
     sdl = out / 'SDL'
     logged('fetch-sdl', ['git', 'clone', '--depth', '1', '--branch', 'release-2.32.10',
                          'https://github.com/libsdl-org/SDL.git', str(sdl)])
@@ -163,5 +164,8 @@ try:
         for observation in observations:
             print('::notice::' + variant + ' ' + observation.replace('%', '%25'), flush=True)
 finally:
-    subprocess.run(['xcrun', 'simctl', 'shutdown', device], check=False)
-    subprocess.run(['xcrun', 'simctl', 'delete', device], check=False)
+    for command in ['shutdown', 'delete']:
+        try:
+            subprocess.run(['xcrun', 'simctl', command, device], check=False, timeout=30)
+        except subprocess.TimeoutExpired:
+            print('Simulator cleanup timed out:', command, flush=True)

@@ -80,7 +80,7 @@ jobs:
 
   ipad-windowing:
     if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ipad-windowing]') }}
-    runs-on: macos-15
+    runs-on: macos-15-arm64
     timeout-minutes: 25
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
@@ -127,7 +127,7 @@ jobs:
             tail -c 18000 build-ipad-windowing/runner.log
             python3 - <<'PYERROR'
           from pathlib import Path
-          text = Path('build-ipad-windowing/runner.log').read_text()[-14000:]
+          text = Path('build-ipad-windowing/runner.log').read_text()[-4000:]
           print('::error::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
           PYERROR
             exit 1

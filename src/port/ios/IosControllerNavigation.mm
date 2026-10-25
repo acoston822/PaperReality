@@ -124,14 +124,20 @@ void PRControllerAddAlertAction(
     [alert addAction:action];
 }
 static UIView* PNFindLabel(UIView* view, NSString* text) {
-    if ([view isKindOfClass:UILabel.class] && [((UILabel*) view).text isEqualToString:text])
-        return view;
+    if (view.hidden || view.alpha < .01)
+        return nil;
+    UIView* result = [view isKindOfClass:UILabel.class] && [((UILabel*) view).text isEqualToString:text] ? view : nil;
     for (UIView* child in view.subviews) {
         UIView* found = PNFindLabel(child, text);
-        if (found)
-            return found;
+        // Native dialog actions are below the heading/message. Identical text
+        // in a heading must not steal focus from its action button.
+        if (found
+            && (!result
+                || CGRectGetMidY([found convertRect:found.bounds toView:view])
+                    > CGRectGetMidY([result convertRect:result.bounds toView:view])))
+            result = found;
     }
-    return nil;
+    return result;
 }
 static UIView* PNFindAccessibleButton(UIView* view, NSString* title) {
     if (view.hidden || view.alpha < .01)

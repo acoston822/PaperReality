@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   simulator:
+    if: ${{ !contains(github.event.head_commit.message, '[ipad-windowing]') }}
     runs-on: macos-14
     timeout-minutes: 15
     steps:
@@ -76,3 +77,62 @@ jobs:
       - name: Remove simulator output
         if: always()
         run: rm -rf build-uikit-smoke
+
+  ipad-windowing:
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ipad-windowing]') }}
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /ios/plist.in
+            /tests/ipad-windowing/
+
+      - name: Read the production window backend revision
+        id: backend
+        run: echo "sha=$(git rev-parse HEAD:external/libultraship)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: acoston822/libultraship
+          ref: ${{ steps.backend.outputs.sha }}
+          path: build-uikit-backend
+          submodules: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /include/fast/backends/IosWindowPlacement.h
+
+      - name: Install isolated reproduction build tools
+        run: brew install cmake xcodegen
+
+      - name: Inspect native iPad window expansion on iPadOS 26.2
+        run: |
+          mkdir -p build-ipad-windowing
+          if python3 tests/ipad-windowing/run.py > build-ipad-windowing/runner.log 2>&1; then
+            cat build-ipad-windowing/runner.log
+            python3 - <<'PYNOTICE'
+          from pathlib import Path
+          for line in Path('build-ipad-windowing/runner.log').read_text().splitlines():
+              if line.startswith('::notice::'):
+                  print(line)
+          PYNOTICE
+          else
+            tail -c 18000 build-ipad-windowing/runner.log
+            python3 - <<'PYERROR'
+          from pathlib import Path
+          text = Path('build-ipad-windowing/runner.log').read_text()[-14000:]
+          print('::error::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYERROR
+            exit 1
+          fi
+
+      - name: Remove temporary iPad reproduction and results
+        if: always()
+        run: rm -rf build-ipad-windowing

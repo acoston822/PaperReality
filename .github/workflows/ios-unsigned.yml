@@ -81,7 +81,7 @@ jobs:
   cleanup-simulator-runs:
     if: github.ref == 'refs/heads/experimental/uikit-settings'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       actions: write
     steps:
@@ -109,7 +109,7 @@ jobs:
               '.github/workflows/uikit-smoke.yml',
               '.github/workflows/uikit-captures.yml',
             ]);
-            const deadline = Date.now() + 15 * 60 * 1000;
+            const deadline = Date.now() + 25 * 60 * 1000;
             let simulatorRuns;
             for (;;) {
               const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
@@ -148,7 +148,9 @@ jobs:
 
   ios:
     needs: pause-other-builds
-    if: ${{ !cancelled() && (needs.pause-other-builds.result == 'success' || needs.pause-other-builds.result == 'skipped') }}
+    # A requested simulator investigation does not need another IPA. Tagged
+    # releases and manually requested IPA builds are never skipped by a marker.
+    if: ${{ !cancelled() && (needs.pause-other-builds.result == 'success' || needs.pause-other-builds.result == 'skipped') && !(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[simulator-only]')) }}
     runs-on: macos-14
     env:
       UI_DIAGNOSTICS: ${{ (github.event_name == 'workflow_dispatch' && inputs.ui_diagnostics) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[ui-diagnostics]')) }}

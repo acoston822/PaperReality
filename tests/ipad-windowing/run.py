@@ -57,6 +57,7 @@ try:
                             '-DCMAKE_OSX_ARCHITECTURES=' + platform.machine(),
                             '-DCMAKE_OSX_DEPLOYMENT_TARGET=16.3',
                             '-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO',
+                            '-DSDL_CMAKE_DEBUG_POSTFIX=',
                             '-DSDL_SHARED=OFF', '-DSDL_STATIC=ON', '-DSDL_TEST=OFF',
                             '-DSDL_TESTS=OFF'])
     logged('build-sdl', ['cmake', '--build', str(out / 'sdl-build'), '--config', 'Debug',
@@ -76,7 +77,7 @@ try:
     (out / 'Info.plist').write_bytes(plistlib.dumps(plist))
     frameworks = ['UIKit', 'Foundation', 'CoreGraphics', 'QuartzCore', 'Metal', 'CoreVideo',
                   'CoreMotion', 'GameController', 'AudioToolbox', 'AVFoundation',
-                  'CoreAudio', 'OpenGLES', 'CoreHaptics']
+                  'CoreAudio', 'OpenGLES', 'CoreHaptics', 'CoreBluetooth']
     project = {
         'name': 'WindowProbe',
         'settings': {'base': {'CODE_SIGNING_ALLOWED': 'NO', 'TARGETED_DEVICE_FAMILY': '1,2',

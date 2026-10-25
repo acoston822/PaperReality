@@ -35,7 +35,7 @@
     observation[@"windowingModeSelected"] = @(modeSelected);
     NSLog(@"IPAD_SETTINGS_TREE %@", settings.debugDescription);
     XCUIApplication* app = [[XCUIApplication alloc] initWithBundleIdentifier:@"org.paperreality.window-probe"];
-    app.launchArguments = NSProcessInfo.processInfo.environment[@"PROBE_ADAPTIVE"] ? @[ @"--adaptive" ] : @[];
+    app.launchArguments = NSProcessInfo.processInfo.environment[@"PROBE_LEGACY"] ? @[ @"--legacy-window" ] : @[];
     [app launch];
     XCUIElement* geometry = app.staticTexts[@"WindowGeometry"];
     XCTAssertTrue([geometry waitForExistenceWithTimeout:20], @"SDL probe did not create its native window");

@@ -7,17 +7,21 @@
 int main(int argc, char** argv) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
         return 1;
-    int x = 100, y = 100, width = 640, height = 480;
-    Fast::ConfigureIosMainWindow(x, y, width, height);
+    int x = 100, y = 100, width = 1280, height = 800;
+    const BOOL legacy = [[NSProcessInfo.processInfo arguments] containsObject:@"--legacy-window"];
+    if (!legacy)
+        Fast::ConfigureIosMainWindow(x, y, width, height);
     Uint32 flags = SDL_WINDOW_BORDERLESS | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_METAL;
-    if ([[NSProcessInfo.processInfo arguments] containsObject:@"--adaptive"])
-        flags |= SDL_WINDOW_RESIZABLE;
     SDL_Window* window = SDL_CreateWindow("iPad window probe", x, y, width, height, flags);
     if (!window)
         return 2;
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer)
         return 3;
+    // Both release versions enable iOS gameMode, which switches fullscreen
+    // after the backend creates its renderer.
+    if (SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN) != 0)
+        return 5;
     SDL_SysWMinfo info;
     SDL_VERSION(&info.version);
     if (!SDL_GetWindowWMInfo(window, &info))
@@ -49,6 +53,9 @@ int main(int argc, char** argv) {
                 @"sdlHeight" : @(height),
                 @"os" : UIDevice.currentDevice.systemVersion,
                 @"scene" : @(native.windowScene != nil),
+                @"idiom" : @(UIDevice.currentDevice.userInterfaceIdiom),
+                @"legacyPlacement" : @(legacy),
+                @"sdlFullscreen" : @((SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0),
                 @"requiresFullscreen" :
                     @([NSBundle.mainBundle objectForInfoDictionaryKey:@"UIRequiresFullScreen"] != nil &&
                       [[NSBundle.mainBundle objectForInfoDictionaryKey:@"UIRequiresFullScreen"] boolValue])

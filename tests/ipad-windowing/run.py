@@ -15,6 +15,7 @@ out.mkdir(exist_ok=True)
 
 
 def run(*args, **kwargs):
+    kwargs.setdefault('timeout', 90)
     return subprocess.check_output(args, text=True, **kwargs).strip()
 
 
@@ -118,15 +119,17 @@ try:
                   '-scheme', 'WindowProbe', '-configuration', 'Debug',
                   '-destination', destination, '-derivedDataPath', str(derived),
                   'CODE_SIGNING_ALLOWED=NO']
-    for variant in ['production', 'adaptive']:
+    for variant in ['v1-window-placement', 'current-iphone-only', 'universal-ipad']:
         current = dict(plist)
-        if variant == 'adaptive':
-            current.pop('UIRequiresFullScreen', None)
-            current['UISupportedInterfaceOrientations~ipad'] = [
-                'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight',
-                'UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown']
         (out / 'Info.plist').write_bytes(plistlib.dumps(current))
         logged('build-' + variant, build_args)
+        # Both published IPAs have UIDeviceFamily=[1]. Change only the installed
+        # metadata for the universal comparison; keep the test runner iPad-capable.
+        built_plist = derived / 'Build/Products/Debug-iphonesimulator/WindowProbe.app/Info.plist'
+        built_info = plistlib.loads(built_plist.read_bytes())
+        built_info['UIDeviceFamily'] = [1, 2] if variant == 'universal-ipad' else [1]
+        built_plist.write_bytes(plistlib.dumps(built_info))
+        print('Installed device families:', built_info['UIDeviceFamily'], flush=True)
         xctestrun = next((derived / 'Build/Products').glob('*.xctestrun'))
         test_configuration = plistlib.loads(xctestrun.read_bytes())
         # Xcodegen writes the UI runner environment in each test target.
@@ -134,10 +137,10 @@ try:
             if isinstance(node, dict):
                 if 'TestBundlePath' in node:
                     environment = node.setdefault('EnvironmentVariables', {})
-                    if variant == 'adaptive':
-                        environment['PROBE_ADAPTIVE'] = '1'
+                    if variant == 'v1-window-placement':
+                        environment['PROBE_LEGACY'] = '1'
                     else:
-                        environment.pop('PROBE_ADAPTIVE', None)
+                        environment.pop('PROBE_LEGACY', None)
                 for value in node.values():
                     set_environment(value)
             elif isinstance(node, list):

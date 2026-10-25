@@ -53,6 +53,21 @@ jobs:
                   if (error.status !== 409) throw error;
                 }
               }
+              if (context.payload.head_commit?.message.includes('[uikit-debug]')) {
+                const checks = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                  ...context.repo, workflow_id: 'uikit-smoke.yml', event: 'push', per_page: 100,
+                });
+                for (const check of checks) {
+                  if (check.status === 'completed' || check.head_branch !== refName ||
+                      check.head_sha === context.sha) continue;
+                  try {
+                    await github.rest.actions.cancelWorkflowRun({ ...context.repo, run_id: check.id });
+                    core.notice(`Cancelled superseded simulator check ${check.run_number}.`);
+                  } catch (error) {
+                    if (error.status !== 409) throw error;
+                  }
+                }
+              }
             }
             for (const workflow_id of ['build.yml', 'release.yml']) {
               const { data: workflow } = await github.rest.actions.getWorkflow({ ...context.repo, workflow_id });

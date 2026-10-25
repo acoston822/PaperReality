@@ -1,6 +1,8 @@
 Requested check: iPad native window expansion with Stage Manager / Windowed Apps.
 Use the isolated SDL 2.32.10 reproduction and production window placement/plist.
-Compare production configuration against a temporary adaptive configuration.
+Compare v1/current SDL placement with the actual iPhone-only release metadata,
+then test the same configuration with native iPad device-family support.
+Preserve the iOS gameMode fullscreen switch after renderer creation.
 Use the available iPadOS 26.2 runtime; the reported 27.2 runtime is unavailable.
 Report unavailable system controls as limitations, never as successful expansion.
 No game code, ROMs, saves, texture packs, screenshots or artifact uploads.

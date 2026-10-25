@@ -114,15 +114,10 @@ jobs:
 
       - name: Inspect native iPad window expansion on iPadOS 26.2
         run: |
+          set -o pipefail
           mkdir -p build-ipad-windowing
-          if python3 tests/ipad-windowing/run.py > build-ipad-windowing/runner.log 2>&1; then
-            cat build-ipad-windowing/runner.log
-            python3 - <<'PYNOTICE'
-          from pathlib import Path
-          for line in Path('build-ipad-windowing/runner.log').read_text().splitlines():
-              if line.startswith('::notice::'):
-                  print(line)
-          PYNOTICE
+          if python3 tests/ipad-windowing/run.py 2>&1 | tee build-ipad-windowing/runner.log; then
+            echo 'Completed native iPad window measurements.'
           else
             tail -c 18000 build-ipad-windowing/runner.log
             python3 - <<'PYERROR'

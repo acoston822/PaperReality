@@ -74,6 +74,18 @@
     observation[@"after"] = geometry.value ?: geometry.label;
     NSData* data = [NSJSONSerialization dataWithJSONObject:observation options:NSJSONWritingSortedKeys error:nil];
     NSLog(@"IPAD_WINDOWING_OBSERVATION %@", [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]);
+    NSString* documents = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:documents
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+    NSError* writeError = nil;
+    XCTAssertTrue(
+        [data writeToFile:[documents stringByAppendingPathComponent:@"WindowObservation.json"]
+                  options:NSDataWritingAtomic
+                    error:&writeError],
+        @"Could not export the window measurement: %@", writeError
+    );
     // Lack of simulator windowing support is reported as a limitation, never as
     // a passing fullscreen regression. Geometry is an observation, not a fix.
     [app terminate];

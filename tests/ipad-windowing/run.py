@@ -20,7 +20,7 @@ def run(*args, **kwargs):
 
 
 def logged(name, args, timeout=600, env=None):
-    print('Starting:', name, flush=True)
+    print('::notice::Starting ' + name, flush=True)
     path = out / (name + '.log')
     with path.open('w') as log:
         result = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT,
@@ -49,8 +49,10 @@ device_type = next(d for d in types if d['name'] == 'iPad Pro 13-inch (M4)')
 device = run('xcrun', 'simctl', 'create', 'PaperReality isolated iPad window probe',
              device_type['identifier'], runtime['identifier'])
 try:
+    print('::notice::Starting simulator boot', flush=True)
     run('xcrun', 'simctl', 'boot', device)
     subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'], check=True, timeout=600)
+    print('::notice::Simulator boot finished', flush=True)
     sdl = out / 'SDL'
     logged('fetch-sdl', ['git', 'clone', '--depth', '1', '--branch', 'release-2.32.10',
                          'https://github.com/libsdl-org/SDL.git', str(sdl)])
@@ -155,16 +157,19 @@ try:
         text = logged('test-' + variant, ['xcodebuild', 'test-without-building', '-xctestrun', str(xctestrun),
                         '-destination', destination, '-parallel-testing-enabled', 'NO',
                         '-resultBundlePath', str(out / (variant + '.xcresult'))], timeout=420)
-        observations = [line.split('IPAD_WINDOWING_OBSERVATION ', 1)[1]
-                        for line in text.splitlines() if 'IPAD_WINDOWING_OBSERVATION ' in line]
-        if not observations:
-            # Some XCTest versions only include test stdout in xcresult.
-            result_json = run('xcrun', 'xcresulttool', 'get', 'object', '--legacy',
-                              '--path', str(out / (variant + '.xcresult')), '--format', 'json')
-            print('XCTest finished; extracting activity logs separately if observations are unavailable.', flush=True)
-            (out / (variant + '-result.json')).write_text(result_json)
-        for observation in observations:
-            print('::notice::' + variant + ' ' + observation.replace('%', '%25'), flush=True)
+        # XCTest may keep NSLog output inside xcresult instead of xcodebuild's
+        # stdout. Export through the UI runner's sandbox, not log scraping.
+        runner = next((derived / 'Build/Products/Debug-iphonesimulator').glob('*-Runner.app'))
+        runner_id = plistlib.loads((runner / 'Info.plist').read_bytes())['CFBundleIdentifier']
+        container = Path(run('xcrun', 'simctl', 'get_app_container', device, runner_id, 'data'))
+        observation = json.loads((container / 'Documents/WindowObservation.json').read_text())
+        # Geometry is encoded as JSON by the app's accessible measurement label.
+        for key in ['before', 'after']:
+            observation[key] = json.loads(observation[key])
+        observation['configuration'] = variant
+        (out / (variant + '-observation.json')).write_text(json.dumps(observation, indent=2))
+        summary = json.dumps(observation, sort_keys=True)
+        print('::notice::IPAD_WINDOWING_RESULT ' + summary.replace('%', '%25'), flush=True)
 finally:
     for command in ['shutdown', 'delete']:
         try:

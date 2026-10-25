@@ -27,6 +27,8 @@ These are the files PaperReality changes (full list in [CHANGES.md](CHANGES.md))
 * `src/screen_overlays.c`: the `gsSPEndDisplayList()` at the end of `D_8014EA48`. Without it the display list runs past its end on iOS and crashes on the first frame. If upstream touches that list, resolve the conflict in our favour (or confirm upstream added the terminator).
 
 ## Merge log
+
+* 2026-10-24: merged upstream `develop` at 781d164cf (#269, #270, #272) into `experimental/uikit-settings` with no conflicts. The new gameplay settings use the native UIKit mapping; the iOS libultraship fork and its AirPlay/frame-pacing changes are retained.
 * 2026-10-18: merged upstream `develop` at d98b4b63 (#262, #263, #264, #266) with no conflicts. Upstream's `build.yml` (now with an iOS job) and `pages.yml` come with it; the PaperReality IPA workflow is `ios-unsigned.yml`.
 
 ## Rules that keep merges easy

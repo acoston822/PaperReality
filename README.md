@@ -22,6 +22,11 @@ US SHA1 Hash: `3837f44cda784b466c9a2d99df70d77c322b97a0`
 You can verify you have dumped a supported copy of the game by using the compatibility checker at https://paperboat.equipment/.
 
 ### 2. Install the app
+
+For the packaged release, download `PaperReality-v1.0.3-unsigned.ipa` from
+[PaperReality 1.0.3](https://github.com/acoston822/PaperReality/releases/tag/v1.0.3).
+See the [release notes](docs/release-notes/v1.0.3.md) for the changes since 1.0.0.
+
 Builds are unsigned `.ipa` files produced by this repository's GitHub Actions workflow (`Build unsigned iOS IPA`). Open the workflow run you want and download the `PaperReality-unsigned-ipa-bN` artifact. Sign and install it with the tool of your choice (for example AltStore, Sideloadly or your own developer certificate).
 
 ### 3. Launch the game

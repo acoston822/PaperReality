@@ -5,6 +5,11 @@ Base: HarbourMasters/PaperBoat `develop` at 781d164cf, merged into
 (#262, #263, #264, #266; originally 7f038b85). These changes have not all been
 tested on a device.
 
+PaperReality 1.0.3 collects the changes since the first PaperReality release.
+See the [release notes](release-notes/v1.0.3.md) for the user-facing changes and
+the [source audit](source-changes-v1.0.3.md) for implementation details, source
+inventories, upstream commits, and pinned backend changes.
+
 ## Upstream sync — 2026-10-24
 
 - `befe89c37` (#269): fixes an animator buffer use-after-free reported during

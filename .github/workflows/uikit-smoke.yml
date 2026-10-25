@@ -80,7 +80,7 @@ jobs:
 
   ipad-windowing:
     if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ipad-windowing]') }}
-    runs-on: macos-15-arm64
+    runs-on: macos-15
     timeout-minutes: 25
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer

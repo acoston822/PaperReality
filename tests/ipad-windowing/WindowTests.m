@@ -46,9 +46,10 @@
     XCUIElement* expand = nil;
     for (XCUIApplication* owner in @[ springboard, app ]) {
         XCUIElementQuery* buttons = [[owner descendantsMatchingType:XCUIElementTypeButton]
-            matchingPredicate:[NSPredicate predicateWithFormat:@"label MATCHES[c] %@ OR identifier MATCHES[c] %@",
-                                                               @"(Enter )?Full[ -]?Screen|Maximi[sz]e|Zoom",
-                                                               @"(Enter )?Full[ -]?Screen|Maximi[sz]e|Zoom"]];
+            matchingPredicate:[NSPredicate predicateWithFormat:@"(label MATCHES[c] %@ OR identifier MATCHES[c] %@) AND "
+                                                               @"NOT label BEGINSWITH[c] 'Exit'",
+                                                               @".*(full[ -]?screen|maximi[sz]e|zoom).*",
+                                                               @".*(full[ -]?screen|maximi[sz]e|zoom).*"]];
         for (XCUIElement* button in buttons.allElementsBoundByIndex)
             if (button.hittable) {
                 expand = button;

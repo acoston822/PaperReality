@@ -130,6 +130,8 @@ try:
         built_info = plistlib.loads(built_plist.read_bytes())
         built_info['UIDeviceFamily'] = [1, 2] if variant == 'universal-ipad' else [1]
         built_plist.write_bytes(plistlib.dumps(built_info))
+        for bundle in (derived / 'Build/Products/Debug-iphonesimulator').glob('*.app'):
+            subprocess.run(['codesign', '--force', '--deep', '--sign', '-', str(bundle)], check=True)
         print('Installed device families:', built_info['UIDeviceFamily'], flush=True)
         xctestrun = next((derived / 'Build/Products').glob('*.xctestrun'))
         test_configuration = plistlib.loads(xctestrun.read_bytes())

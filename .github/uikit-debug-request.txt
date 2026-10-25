@@ -7,4 +7,6 @@ Use the available iPadOS 26.2 runtime; the reported 27.2 runtime is unavailable.
 Report unavailable system controls as limitations, never as successful expansion.
 No game code, ROMs, saves, texture packs, screenshots or artifact uploads.
 Use stable static SDL library names for the standalone Xcode test project.
-Use an Apple silicon runner with bounded simulator startup and cleanup.
+Use the available standard Mac runner with bounded simulator startup/cleanup;
+the Apple silicon retry could not start because of hosted-runner capacity.
+Ad-hoc sign the temporary apps after changing their installed device-family metadata.

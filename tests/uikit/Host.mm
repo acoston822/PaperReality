@@ -688,6 +688,18 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
     [NSException raise:@"UIKitMissingControl" format:@"%@ is missing", title];
     return nil;
 }
+static NSString* AlertFocusTree(UIView* view, NSInteger depth = 0) {
+    if (depth > 12)
+        return @"";
+    NSMutableString* text = [NSMutableString
+        stringWithFormat:@"\n%*s%@ %@ traits=%llu label=%@ text=%@ hidden=%d alpha=%.2f", int(depth), "",
+                         NSStringFromClass(view.class), NSStringFromCGRect(view.frame),
+                         (unsigned long long) view.accessibilityTraits, view.accessibilityLabel,
+                         [view isKindOfClass:UILabel.class] ? ((UILabel*) view).text : @"", view.hidden, view.alpha];
+    for (UIView* child in view.subviews)
+        [text appendString:AlertFocusTree(child, depth + 1)];
+    return text;
+}
 static void CheckAlertButtonFocus(UIViewController* presenter, NSInteger variant, void (^finished)(void)) {
     if (variant == 3) {
         Progress("Alert focus passed: full horizontal/stacked/single button bounds and disabled actions");
@@ -729,9 +741,15 @@ static void CheckAlertButtonFocus(UIViewController* presenter, NSInteger variant
                        CGRect messageFrame = [messageLabel convertRect:messageLabel.bounds toView:window];
                        for (PRControllerTarget* target in targets) {
                            CGRect frame = target.frame(window);
+                           UIView* label = PNFindLabel(alert.view, target.label);
                            Require(
-                               frame.size.width >= 40 && frame.size.height >= 40,
-                               @"Alert focus is still limited to the action title label."
+                               !CGRectIsEmpty(frame) && frame.size.width >= label.bounds.size.width
+                                   && frame.size.height >= label.bounds.size.height + 8,
+                               [NSString
+                                   stringWithFormat:
+                                       @"Alert focus variant %ld action %@ frame %@ label %@ is not the full button.%@",
+                                       (long) variant, target.label, NSStringFromCGRect(frame),
+                                       NSStringFromCGRect(label.bounds), AlertFocusTree(alert.view)]
                            );
                            if (messageLabel)
                                Require(

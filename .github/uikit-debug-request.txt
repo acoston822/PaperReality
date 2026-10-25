@@ -1,3 +1,4 @@
 Requested check: controller focus around full native iOS alert action buttons.
 Check horizontal, stacked, and single-action alerts, duplicate heading/action text, disabled actions, and rendered focus bounds in normal/development variants.
+Use native button geometry rather than assuming a minimum control height across iOS versions.
 Synthetic UI data only; no game files, texture packs or capture uploads.

@@ -137,7 +137,7 @@ static UIView* PNFindAccessibleButton(UIView* view, NSString* title) {
     if (view.hidden || view.alpha < .01)
         return nil;
     if (![view isKindOfClass:UILabel.class] && (view.accessibilityTraits & UIAccessibilityTraitButton) &&
-        [view.accessibilityLabel isEqualToString:title] && view.bounds.size.height >= 40)
+        [view.accessibilityLabel isEqualToString:title] && !CGRectIsEmpty(view.bounds))
         return view;
     for (UIView* child in view.subviews)
         if (UIView* button = PNFindAccessibleButton(child, title))
@@ -170,8 +170,8 @@ static UIView* PNAlertActionButton(UIAlertController* alert, NSString* title) {
     for (UIView* view = hit; view && view != alert.view; view = view.superview) {
         if (PNContainsOtherText(view, label))
             break;
-        if (view != label && [label isDescendantOfView:view] && view.bounds.size.width >= 40
-            && view.bounds.size.height >= 40)
+        if (view != label && [label isDescendantOfView:view] && view.bounds.size.width >= label.bounds.size.width
+            && view.bounds.size.height >= label.bounds.size.height + 8)
         {
             button = view;
             if ([view isKindOfClass:UIControl.class] || (view.accessibilityTraits & UIAccessibilityTraitButton))

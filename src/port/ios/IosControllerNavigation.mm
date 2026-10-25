@@ -133,6 +133,53 @@ static UIView* PNFindLabel(UIView* view, NSString* text) {
     }
     return nil;
 }
+static UIView* PNFindAccessibleButton(UIView* view, NSString* title) {
+    if (view.hidden || view.alpha < .01)
+        return nil;
+    if (![view isKindOfClass:UILabel.class] && (view.accessibilityTraits & UIAccessibilityTraitButton) &&
+        [view.accessibilityLabel isEqualToString:title] && view.bounds.size.height >= 40)
+        return view;
+    for (UIView* child in view.subviews)
+        if (UIView* button = PNFindAccessibleButton(child, title))
+            return button;
+    return nil;
+}
+static BOOL PNContainsOtherText(UIView* view, UIView* label) {
+    if (view.hidden || view.alpha < .01)
+        return NO;
+    if (view != label && [view isKindOfClass:UILabel.class] && ((UILabel*) view).text.length)
+        return YES;
+    if ([view isKindOfClass:UITextField.class] || [view isKindOfClass:UITextView.class])
+        return YES;
+    for (UIView* child in view.subviews)
+        if (PNContainsOtherText(child, label))
+            return YES;
+    return NO;
+}
+static UIView* PNAlertActionButton(UIAlertController* alert, NSString* title) {
+    // Use public accessibility and hit-testing APIs; UIAlertAction does not
+    // expose its view. Never focus the title label or the entire alert instead.
+    if (UIView* button = PNFindAccessibleButton(alert.view, title))
+        return button;
+    UIView* label = PNFindLabel(alert.view, title);
+    if (!label)
+        return nil;
+    CGPoint center = CGPointMake(CGRectGetMidX(label.bounds), CGRectGetMidY(label.bounds));
+    UIView* hit = [alert.view hitTest:[label convertPoint:center toView:alert.view] withEvent:nil];
+    UIView* button = nil;
+    for (UIView* view = hit; view && view != alert.view; view = view.superview) {
+        if (PNContainsOtherText(view, label))
+            break;
+        if (view != label && [label isDescendantOfView:view] && view.bounds.size.width >= 40
+            && view.bounds.size.height >= 40)
+        {
+            button = view;
+            if ([view isKindOfClass:UIControl.class] || (view.accessibilityTraits & UIAccessibilityTraitButton))
+                break;
+        }
+    }
+    return button;
+}
 static UIScrollView* PNFindScroll(UIView* view) {
     if (view.hidden || !view.userInteractionEnabled)
         return nil;
@@ -664,11 +711,24 @@ static PNControllerNavigator* PNNavigator;
         for (PNAlertAction* entry in objc_getAssociatedObject(alert, &PNAlertActionsKey)) {
             if (!entry.action.enabled)
                 continue;
-            UIView* label = PNFindLabel(alert.view, entry.action.title) ?: alert.view;
             __weak UIAlertController* weak = alert;
-            [targets addObject:PRControllerViewTarget(label, entry.action.title, entry.action.title, ^{
-                         [weak dismissViewControllerAnimated:YES completion:entry.invoke];
-                     })];
+            PRControllerTarget* target = PRControllerViewTarget(alert.view, entry.action.title, entry.action.title, ^{
+                [weak dismissViewControllerAnimated:YES completion:entry.invoke];
+            });
+            NSString* title = entry.action.title;
+            __block __weak UIView* button = nil;
+            target.frame = ^CGRect(UIView* overlay) {
+                UIAlertController* owner = weak;
+                if (!owner)
+                    return CGRectZero;
+                UIView* current = button;
+                if (!current || ![current isDescendantOfView:owner.view]) {
+                    current = PNAlertActionButton(owner, title);
+                    button = current;
+                }
+                return current ? [current convertRect:current.bounds toView:overlay] : CGRectZero;
+            };
+            [targets addObject:target];
         }
         return targets;
     }

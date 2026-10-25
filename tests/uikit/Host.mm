@@ -688,6 +688,86 @@ static NSIndexPath* PRSmokeIndex(PRNativePage* page, N::Kind kind) {
     [NSException raise:@"UIKitMissingControl" format:@"%@ is missing", title];
     return nil;
 }
+static void CheckAlertButtonFocus(UIViewController* presenter, NSInteger variant, void (^finished)(void)) {
+    if (variant == 3) {
+        Progress("Alert focus passed: full horizontal/stacked/single button bounds and disabled actions");
+        finished();
+        return;
+    }
+    NSString* title = variant == 1 ? @"OK" : @"Import Save";
+    NSString* message = @"This replaces the save slots in the selected file. Choose an action below.";
+    UIAlertController* alert = [UIAlertController alertControllerWithTitle:title
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    NSArray<NSString*>* actions = variant == 0 ? @[ @"Cancel", @"Select Save" ]
+        : variant == 1                         ? @[ @"OK" ]
+                                               : @[ @"Cancel", @"Unavailable", @"Select Save" ];
+    __block BOOL activated = NO;
+    for (NSString* action in actions)
+        PRControllerAddAlertAction(
+            alert, action, [action isEqualToString:@"Cancel"] ? UIAlertActionStyleCancel : UIAlertActionStyleDefault,
+            ^(UIAlertAction*) {
+                activated = YES;
+            }
+        );
+    if (variant == 2)
+        alert.actions[1].enabled = NO;
+    [presenter
+        presentViewController:alert
+                     animated:NO
+                   completion:^{
+                       [alert.view layoutIfNeeded];
+                       UIWindow* window = alert.view.window;
+                       PNControllerNavigator* navigator = [[PNControllerNavigator alloc] init];
+                       NSArray<PRControllerTarget*>* targets = [navigator targets:alert];
+                       Require(
+                           targets.count == (variant == 2 ? 2 : actions.count),
+                           @"Alert focus must include enabled actions only."
+                       );
+                       NSMutableArray<NSValue*>* frames = [NSMutableArray array];
+                       UIView* messageLabel = PNFindLabel(alert.view, message);
+                       CGRect messageFrame = [messageLabel convertRect:messageLabel.bounds toView:window];
+                       for (PRControllerTarget* target in targets) {
+                           CGRect frame = target.frame(window);
+                           Require(
+                               frame.size.width >= 40 && frame.size.height >= 40,
+                               @"Alert focus is still limited to the action title label."
+                           );
+                           if (messageLabel)
+                               Require(
+                                   CGRectGetMinY(frame) >= CGRectGetMaxY(messageFrame),
+                                   @"An alert heading or message was mistaken for an action button."
+                               );
+                           for (NSValue* other in frames) {
+                               CGRect intersection = CGRectIntersection(frame, other.CGRectValue);
+                               Require(
+                                   CGRectIsEmpty(intersection)
+                                       || intersection.size.width * intersection.size.height < 1,
+                                   @"An alert action outline covers another action."
+                               );
+                           }
+                           [frames addObject:[NSValue valueWithCGRect:frame]];
+                           [navigator draw:target controller:alert];
+                           UIView* outline = [navigator valueForKey:@"outline"];
+                           Require(
+                               !outline.hidden && outline.bounds.size.width >= frame.size.width - 8
+                                   && outline.bounds.size.height >= frame.size.height - 8,
+                               @"The rendered focus outline does not surround the full alert button."
+                           );
+                           Require(
+                               CGRectContainsRect(frame, outline.frame), @"The alert outline escapes the button bounds."
+                           );
+                       }
+                       Require(!activated, @"Resolving or drawing alert focus invoked an action.");
+                       [navigator hide];
+                       [[navigator valueForKey:@"outline"] removeFromSuperview];
+                       [window removeGestureRecognizer:[navigator valueForKey:@"touch"]];
+                       [alert dismissViewControllerAnimated:NO
+                                                 completion:^{
+                                                     CheckAlertButtonFocus(presenter, variant + 1, finished);
+                                                 }];
+                   }];
+}
 static void CheckControllerTargets(PRNativePage* page) {
     NSArray<PRControllerTarget*>* targets = [page controllerTargets];
     Require(targets.count == 9, @"Every native row, including both paired sliders, needs a controller target.");
@@ -969,14 +1049,17 @@ static void CheckIndependentUiPacing() {
                                              [PRRoot.view layoutIfNeeded];
                                              CheckSidebarLabels();
                                              CheckControllerTargets(page);
-                                             bleedProbe = [[UIView alloc] initWithFrame:page.view.bounds];
-                                             bleedProbe.backgroundColor = UIColor.magentaColor;
-                                             bleedProbe.autoresizingMask =
-                                                 UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-                                             [page.view addSubview:bleedProbe];
-                                             [page tableView:page.tableView
-                                                 didSelectRowAtIndexPath:PRSmokeIndex(page, N::Kind::Link)];
-                                             phase = 7;
+                                             phase = 20;
+                                             CheckAlertButtonFocus(PRRoot, 0, ^{
+                                                 bleedProbe = [[UIView alloc] initWithFrame:page.view.bounds];
+                                                 bleedProbe.backgroundColor = UIColor.magentaColor;
+                                                 bleedProbe.autoresizingMask =
+                                                     UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+                                                 [page.view addSubview:bleedProbe];
+                                                 [page tableView:page.tableView
+                                                     didSelectRowAtIndexPath:PRSmokeIndex(page, N::Kind::Link)];
+                                                 phase = 7;
+                                             });
                                              return;
                                          }
                                          if (phase == 6) {

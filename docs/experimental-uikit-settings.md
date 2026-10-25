@@ -134,6 +134,8 @@ A theme-colored outline identifies the current control; touching the interface
 hides the controller outline. Controller navigation does not add a bottom help
 strip over the page. Selection is remembered per live page. Holding an
 opening button cannot select the first action of a new screen or dialog.
+Alert action outlines use the full native button area, resolved through public
+accessibility and hit-testing APIs rather than the button's text-label bounds.
 
 Controller text entry includes case, digits, spaces, punctuation, deletion,
 clear, Done and Cancel. Color editing uses exact RGB/RGBA channel values with

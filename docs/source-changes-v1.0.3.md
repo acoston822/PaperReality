@@ -1,8 +1,10 @@
 # PaperReality 1.0.3 source audit
 
 Audited on 2026-10-25. Application source: `33199eb0f`, the merge used for
-Actions build 99. Release preparation adds documentation to that source without
-changing gameplay or the renderer.
+Actions build 99. Release preparation adds documentation, explicitly sets the
+iOS app's display name to PaperReality, and prevents superseded builds from
+publishing an IPA after a release tag is corrected. Gameplay and the renderer
+are unchanged from the audited application source.
 
 ## Baselines
 
@@ -151,7 +153,9 @@ First-release fixes still present include the missing display-list terminator in
 `D_8014EA48`, integer casts for darkness-stencil texture rectangles, alternate-only
 named-image detection, iOS Game Mode and Files keys, and ARM64/ARC/framework
 configuration. The app keeps its PaperReality bundle identifier and red boat
-icon; the header uses a separate transparent cutout.
+icon; the header uses a separate transparent cutout. The release explicitly sets
+CFBundleDisplayName and CFBundleName to PaperReality while retaining the internal
+Paperboat executable name and the existing bundle identifier.
 
 ## Upstream and validation
 

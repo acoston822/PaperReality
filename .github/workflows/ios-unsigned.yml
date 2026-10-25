@@ -33,6 +33,27 @@ jobs:
         uses: actions/github-script@v9
         with:
           script: |
+            // A corrected, unpublished release tag must retire its previous
+            // build before another IPA can be published for that version.
+            if (context.eventName === 'push') {
+              const refName = context.ref.replace(/^refs\/(heads|tags)\//, '');
+              const builds = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                ...context.repo,
+                workflow_id: 'ios-unsigned.yml',
+                event: 'push',
+                per_page: 100,
+              });
+              for (const build of builds) {
+                if (build.id === context.runId || build.status === 'completed' ||
+                    build.head_branch !== refName || build.head_sha === context.sha) continue;
+                try {
+                  await github.rest.actions.cancelWorkflowRun({ ...context.repo, run_id: build.id });
+                  core.notice(`Cancelled superseded IPA build ${build.run_number} for ${refName}.`);
+                } catch (error) {
+                  if (error.status !== 409) throw error;
+                }
+              }
+            }
             for (const workflow_id of ['build.yml', 'release.yml']) {
               const { data: workflow } = await github.rest.actions.getWorkflow({ ...context.repo, workflow_id });
               if (workflow.state === 'active') {
@@ -126,6 +147,8 @@ jobs:
             core.notice(`Removed ${removed} completed simulator/capture runs. IPA runs were left intact.`);
 
   ios:
+    needs: pause-other-builds
+    if: ${{ !cancelled() && (needs.pause-other-builds.result == 'success' || needs.pause-other-builds.result == 'skipped') }}
     runs-on: macos-14
     env:
       UI_DIAGNOSTICS: ${{ (github.event_name == 'workflow_dispatch' && inputs.ui_diagnostics) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[ui-diagnostics]')) }}
@@ -235,6 +258,12 @@ jobs:
           REL="${{ github.event.inputs.release_version }}"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then REL="${GITHUB_REF_NAME#v}"; fi
           TAG="v${REL}"
+          TAG_COMMIT=$(git ls-remote origin "refs/tags/${TAG}^{}" | cut -f1)
+          if [[ -z "$TAG_COMMIT" ]]; then TAG_COMMIT=$(git ls-remote origin "refs/tags/${TAG}" | cut -f1); fi
+          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "Release tag ${TAG} no longer points at this build; refusing to publish a stale IPA."
+            exit 1
+          fi
           cp out/PaperReality-b${{ github.run_number }}-unsigned.ipa "out/PaperReality-${TAG}-unsigned.ipa"
           NOTES="docs/release-notes/${TAG}.md"
           if [ -f "$NOTES" ]; then

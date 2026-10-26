@@ -10,13 +10,21 @@ See the [release notes](release-notes/v1.0.3.md) for the user-facing changes and
 the [source audit](source-changes-v1.0.3.md) for implementation details, source
 inventories, upstream commits, and pinned backend changes.
 
-## After 1.0.3
+## PaperReality 1.0.4
+
+See the [release notes](release-notes/v1.0.4.md) for changes since 1.0.3 and
+the [source audit](source-changes-v1.0.4.md) for implementation and validation.
 
 - **Native iPad support**: target both iPhone and iPad in the iOS app bundle.
   Earlier IPAs declared iPhone-only support, so iPadOS used iPhone compatibility
   mode. The IPA workflow verifies the packaged device families and existing app
-  name and bundle identifier. Stage Manager fullscreen still needs checking on
-  the reporting user's iPad.
+  name and bundle identifier. Build 117 passed the native iPad window check in
+  the iPadOS 26.2 simulator; the reporting user confirmed it resolved their
+  fullscreen issue on an iPad.
+- **Controller navigation**: remove the bottom controller help strip while
+  retaining navigation and the focus outline. Native dialog action outlines
+  follow the whole button instead of its text, including dialogs whose heading
+  repeats an action title.
 
 ## Upstream sync — 2026-10-24
 

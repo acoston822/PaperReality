@@ -308,11 +308,18 @@ jobs:
           assert metadata.get('CFBundleDisplayName') == 'PaperReality', 'Unexpected app display name'
           assert metadata.get('CFBundleIdentifier') == 'com.damien.paperreality', 'Unexpected bundle identifier'
           assert metadata.get('CFBundleVersion') == os.environ['GITHUB_RUN_NUMBER'], 'Unexpected build number'
+          ref = os.environ.get('GITHUB_REF', '')
+          release_version = (ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/v')
+                             else os.environ.get('RELEASE_VERSION', ''))
+          if release_version:
+              assert metadata.get('CFBundleShortVersionString') == release_version, 'Unexpected release version'
           summary = {key: metadata.get(key) for key in (
               'CFBundleDisplayName', 'CFBundleIdentifier', 'CFBundleShortVersionString',
               'CFBundleVersion', 'UIDeviceFamily', 'MinimumOSVersion')}
           print('::notice::Verified packaged IPA metadata: ' + json.dumps(summary, sort_keys=True))
           PYVERIFY
+        env:
+          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7

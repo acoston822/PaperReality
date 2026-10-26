@@ -20,7 +20,9 @@ def run(*args, **kwargs):
 
 
 def logged(name, args, timeout=600, env=None):
-    print('::notice::Starting ' + name, flush=True)
+    # Keep progress in the log. Actions caps annotations per step; reserve
+    # notices for the runtime limitation and the three actual measurements.
+    print('Starting ' + name, flush=True)
     path = out / (name + '.log')
     with path.open('w') as log:
         result = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT,
@@ -49,10 +51,10 @@ device_type = next(d for d in types if d['name'] == 'iPad Pro 13-inch (M4)')
 device = run('xcrun', 'simctl', 'create', 'PaperReality isolated iPad window probe',
              device_type['identifier'], runtime['identifier'])
 try:
-    print('::notice::Starting simulator boot', flush=True)
+    print('Starting simulator boot', flush=True)
     run('xcrun', 'simctl', 'boot', device)
     subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'], check=True, timeout=600)
-    print('::notice::Simulator boot finished', flush=True)
+    print('Simulator boot finished', flush=True)
     sdl = out / 'SDL'
     logged('fetch-sdl', ['git', 'clone', '--depth', '1', '--branch', 'release-2.32.10',
                          'https://github.com/libsdl-org/SDL.git', str(sdl)])

@@ -160,6 +160,29 @@ jobs:
               }
             }
             core.notice(`Removed ${removed} completed simulator/capture runs. IPA runs were left intact.`);
+            // Simulator-only requests use this workflow for cleanup but skip
+            // its IPA job. Remove those completed coordinators too. Confirm
+            // the actual job was skipped, so real IPA attempts are preserved.
+            const coordinators = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              ...context.repo, workflow_id: 'ios-unsigned.yml', event: 'push', per_page: 100,
+            });
+            let removedCoordinators = 0;
+            for (const run of coordinators) {
+              if (run.id === context.runId || run.status !== 'completed' ||
+                  run.head_branch !== 'experimental/uikit-settings' ||
+                  !run.head_commit?.message.includes('[simulator-only]')) continue;
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                ...context.repo, run_id: run.id, filter: 'latest', per_page: 100,
+              });
+              if (!jobs.some(job => job.name === 'ios' && job.conclusion === 'skipped')) continue;
+              try {
+                await github.rest.actions.deleteWorkflowRun({ ...context.repo, run_id: run.id });
+                ++removedCoordinators;
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+            core.notice(`Removed ${removedCoordinators} completed simulator-only coordinators; actual IPA builds were preserved.`);
 
   ios:
     needs: pause-other-builds

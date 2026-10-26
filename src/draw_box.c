@@ -3,6 +3,7 @@
 #include "assets/ui.h"
 #include "port/Engine.h"
 #include "port/patches/Patches.h"
+#include <string.h>
 
 #define INTEGER_LOG2(x) ((x) <= 1 ? 0 : (x) <= 2 ? 1 : (x) <= 4 ? 2 : (x) <= 8 ? 3 : (x) <= 16 ? 4 : (x) <= 32 ? 5 : (x) <= 64 ? 6 : (x) <= 128 ? 7 : (x) <= 256 ? 8 : (x) <= 512 ? 9 : 10)
 
@@ -13,9 +14,6 @@ typedef struct DefaultWindowStyle {
     /* 0x03 */ Color_RGBA8 color1;
     /* 0x07 */ Color_RGBA8 color2;
 } DefaultWindowStyle; // size = 0x0B
-
-#define BOX_QUAD_BUFFER_NUM 21
-BSS Vtx gBoxQuadBuffer[BOX_QUAD_BUFFER_NUM][16];
 
 DefaultWindowStyle gBoxDefaultStyles[] = {
     {
@@ -314,8 +312,6 @@ void port_box_default_style(WindowStyleCustom* out, s32 styleID) {
     out->color2 = style->color2;
 }
 
-s32 gBoxQuadIndex = 0;
-
 Vp gBoxViewport = {
     .vp = {
         .vscale = { 640, 480, 511, 0 },
@@ -330,10 +326,6 @@ Mtx gBoxMatrix = RDP_MATRIX(
     0.000000, 0.000000, 0.000000,  0.000000
 );
 
-// @bug there's an issue with the way the "quads" temp below is used, sometimes going out of bounds.
-// In vanilla, this results in some data being written to an unused struct field inside gPartnerStatus, which doesn't
-// cause any issues. In shiftable builds, there's no telling where quads might be, so we make some adjustments to
-// prevent the overflow
 s32 draw_box(s32 flags, void* windowStyleArg, s32 posX, s32 posY, s32 posZ, s32 width, s32 height, u8 opacity,
               u8 darkening, f32 scaleX, f32 scaleY, f32 rotX, f32 rotY, f32 rotZ,
               void (*fpDrawContents)(void*, s32, s32, s32, s32, s32, s32), void* drawContentsArg0, Matrix4f rotScaleMtx,
@@ -436,10 +428,13 @@ s32 draw_box(s32 flags, void* windowStyleArg, s32 posX, s32 posY, s32 posZ, s32 
         }
 
         if (flags & DRAW_FLAG_ROTSCALE) {
-            quads = gBoxQuadBuffer[gBoxQuadIndex++];
-            if (gBoxQuadIndex > BOX_QUAD_BUFFER_NUM - 1) {
-                gBoxQuadIndex = 0;
-            }
+            // Keep vertices with the queued display list. The shared 21-box
+            // ring could wrap while an earlier frame was still being replayed.
+            const s32 slots = (16 * sizeof(Vtx) + sizeof(Gfx) - 1) / sizeof(Gfx);
+            quads = (Vtx*) (gMainGfxPos + 1);
+            gSPBranchList(gMainGfxPos, gMainGfxPos + 1 + slots);
+            gMainGfxPos += 1 + slots;
+            memset(quads, 0, 16 * sizeof(Vtx));
         }
 
         gDPPipeSync(gMainGfxPos++);
@@ -640,9 +635,6 @@ s32 draw_box(s32 flags, void* windowStyleArg, s32 posX, s32 posY, s32 posZ, s32 
                             quads[7].v.tc[0] = width * 32;
                             quads[7].v.tc[1] = (height / 2) * 32;
 
-#ifndef SHIFT
-                            quads += 4;
-#endif
                             break;
                         case 2:
                             quads[8].v.ob[0] = -width / 2;
@@ -673,9 +665,6 @@ s32 draw_box(s32 flags, void* windowStyleArg, s32 posX, s32 posY, s32 posZ, s32 
                             quads[11].v.tc[0] = (width / 2) * 32;
                             quads[11].v.tc[1] = height * 32;
 
-#ifndef SHIFT
-                            quads += 8;
-#endif
                             break;
                         case 3:
                             quads[12].v.ob[0] = 0;
@@ -706,16 +695,11 @@ s32 draw_box(s32 flags, void* windowStyleArg, s32 posX, s32 posY, s32 posZ, s32 
                             quads[15].v.tc[0] = width * 32;
                             quads[15].v.tc[1] = height * 32;
 
-#ifndef SHIFT
-                            quads += 12;
-#endif
                             break;
                     }
-#ifdef SHIFT
+                    // Keep the base fixed: each corner owns four of the 16
+                    // vertices. Advancing it as well would write past the end.
                     gSPVertex(gMainGfxPos++, &quads[idx*4], 4, 0);
-#else
-                    gSPVertex(gMainGfxPos++, quads, 4, 0);
-#endif
                     gSP2Triangles(gMainGfxPos++, 0, 3, 1, 0, 0, 2, 3, 0);
                 } else {
                     switch (idx) {

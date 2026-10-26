@@ -10,6 +10,21 @@ See the [release notes](release-notes/v1.0.3.md) for the user-facing changes and
 the [source audit](source-changes-v1.0.3.md) for implementation details, source
 inventories, upstream commits, and pinned backend changes.
 
+## After 1.0.4 — test build
+
+- **Animated window geometry**: keep rotating panel vertices in their own
+  display list instead of a shared 21-slot ring that a newer queued frame can
+  overwrite. Also keep the corner vertex base pointer fixed so all four corners
+  stay within their 16-vertex allocation; the old non-`SHIFT` path advanced it
+  while still indexing from the original base. A local regression verifies corner
+  positions, texture coordinates, initialization and queued-frame stability.
+  This targets the intermittent save-card
+  transition flicker; confirmation of that exact symptom still needs the test
+  IPA on a device, and absence of an intermittent flicker in one test is not proof
+  of a fix. Upstream [#219](https://github.com/HarbourMasters/PaperBoat/issues/219)
+  reports similar file-select flicker on Windows/DirectX 11 at 75 Hz; a shared
+  cause has not been established. The published 1.0.4 release is unchanged.
+
 ## PaperReality 1.0.4
 
 See the [release notes](release-notes/v1.0.4.md) for changes since 1.0.3 and

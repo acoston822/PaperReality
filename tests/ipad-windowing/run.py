@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run an isolated SDL iPad windowing diagnostic, without game code or assets."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,11 @@ import plistlib
 import shutil
 import subprocess
 import time
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--native-ipad-only', action='store_true',
+                    help='Verify native iPad mode and SDL sizing without rerunning the compatibility comparisons.')
+args = parser.parse_args()
 
 root = Path(__file__).resolve().parents[2]
 out = root / 'build-ipad-windowing'
@@ -124,7 +130,9 @@ try:
                   '-scheme', 'WindowProbe', '-configuration', 'Debug',
                   '-destination', destination, '-derivedDataPath', str(derived),
                   'CODE_SIGNING_ALLOWED=NO']
-    for variant in ['v1-window-placement', 'current-iphone-only', 'universal-ipad']:
+    variants = ['universal-ipad'] if args.native_ipad_only else [
+        'v1-window-placement', 'current-iphone-only', 'universal-ipad']
+    for variant in variants:
         current = dict(plist)
         (out / 'Info.plist').write_bytes(plistlib.dumps(current))
         logged('build-' + variant, build_args)
@@ -168,6 +176,18 @@ try:
         # Geometry is encoded as JSON by the app's accessible measurement label.
         for key in ['before', 'after']:
             observation[key] = json.loads(observation[key])
+        initial = observation['before']
+        observation['fillsReportedScreen'] = all(
+            abs(initial['window' + axis] - initial['screen' + axis]) <= 1 for axis in ['Width', 'Height'])
+        if args.native_ipad_only:
+            for key in ['before', 'after']:
+                geometry = observation[key]
+                assert geometry['idiom'] == 1, 'App did not enter native iPad mode'
+                assert geometry['windowWidth'] > 0 and geometry['windowHeight'] > 0, 'Empty iPad window'
+                for axis in ['Width', 'Height']:
+                    assert abs(geometry['window' + axis] - geometry['sdl' + axis]) <= 1, \
+                        'SDL content does not match the native iPad window: ' + axis
+            observation['nativeIpadVerified'] = True
         observation['configuration'] = variant
         (out / (variant + '-observation.json')).write_text(json.dumps(observation, indent=2))
         summary = json.dumps(observation, sort_keys=True)

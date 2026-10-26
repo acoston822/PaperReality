@@ -26,3 +26,9 @@ differences from the release's older linked SDK must also be considered.
 
 The workflow removes its local build/results and uses the existing simulator-run
 cleanup. It never uploads images, app bundles, test results, or logs as artifacts.
+
+For a focused native iPad check, use `run.py --native-ipad-only`. It runs just the
+universal configuration and asserts the iPad interface idiom and SDL content
+matching the native window dimensions. It separately reports whether that
+window fills the reported screen. This does not certify a fullscreen button
+interaction when the system control is unavailable to automation.

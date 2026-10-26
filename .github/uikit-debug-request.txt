@@ -1,14 +1,9 @@
-Requested check: iPad native window expansion with Stage Manager / Windowed Apps.
-Use the isolated SDL 2.32.10 reproduction and production window placement/plist.
-Compare v1/current SDL placement with the actual iPhone-only release metadata,
-then test the same configuration with native iPad device-family support.
-Preserve the iOS gameMode fullscreen switch after renderer creation.
-Use the available iPadOS 26.2 runtime; the reported 27.2 runtime is unavailable.
-Report unavailable system controls as limitations, never as successful expansion.
+Requested check: verify native iPad mode for the universal iPhone/iPad build.
+Run only the universal SDL window configuration on the iPadOS 26.2 simulator.
+Assert iPad interface idiom, nonempty window, and SDL content matching its bounds.
+Report whether the window fills the reported screen, and whether the system
+fullscreen button was available. Do not equate a missing button with success.
+Use the production window placement/plist and iOS gameMode fullscreen switch.
 No game code, ROMs, saves, texture packs, screenshots or artifact uploads.
-Use stable static SDL library names for the standalone Xcode test project.
-Use the available standard Mac runner with bounded simulator startup/cleanup;
-the Apple silicon retry could not start because of hosted-runner capacity.
-Ad-hoc sign the temporary apps after changing their installed device-family metadata.
-Export measurements through the test runner's sandbox and publish text summaries;
-XCTest launch success alone does not establish working fullscreen controls.
+Return text measurements through the test runner's sandbox; keep progress out
+of Actions annotations so the actual results stay within its annotation limit.

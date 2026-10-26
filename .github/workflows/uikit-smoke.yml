@@ -84,6 +84,7 @@ jobs:
     timeout-minutes: 25
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      IPAD_NATIVE_ONLY: ${{ contains(github.event.head_commit.message, '[ipad-native-check]') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -116,7 +117,9 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build-ipad-windowing
-          if python3 tests/ipad-windowing/run.py 2>&1 | tee build-ipad-windowing/runner.log; then
+          PROBE_ARGS=()
+          if [[ "$IPAD_NATIVE_ONLY" == true ]]; then PROBE_ARGS+=(--native-ipad-only); fi
+          if python3 tests/ipad-windowing/run.py "${PROBE_ARGS[@]}" 2>&1 | tee build-ipad-windowing/runner.log; then
             echo 'Completed native iPad window measurements.'
           else
             tail -c 18000 build-ipad-windowing/runner.log

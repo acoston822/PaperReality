@@ -10,6 +10,14 @@ See the [release notes](release-notes/v1.0.3.md) for the user-facing changes and
 the [source audit](source-changes-v1.0.3.md) for implementation details, source
 inventories, upstream commits, and pinned backend changes.
 
+## After 1.0.3
+
+- **Native iPad support**: target both iPhone and iPad in the iOS app bundle.
+  Earlier IPAs declared iPhone-only support, so iPadOS used iPhone compatibility
+  mode. The IPA workflow verifies the packaged device families and existing app
+  name and bundle identifier. Stage Manager fullscreen still needs checking on
+  the reporting user's iPad.
+
 ## Upstream sync — 2026-10-24
 
 - `befe89c37` (#269): fixes an animator buffer use-after-free reported during

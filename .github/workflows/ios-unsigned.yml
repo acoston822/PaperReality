@@ -284,6 +284,31 @@ jobs:
           (cd out && zip -qry PaperReality-unsigned.ipa Payload)
           mv out/PaperReality-unsigned.ipa "out/PaperReality-b${{ github.run_number }}${IPA_FLAVOR}-unsigned.ipa"
 
+      - name: Verify packaged iPhone and iPad support
+        run: |
+          python3 - <<'PYVERIFY'
+          import json
+          import os
+          from pathlib import Path
+          import plistlib
+          import zipfile
+
+          ipa = next(Path('out').glob('*.ipa'))
+          with zipfile.ZipFile(ipa) as archive:
+              assert archive.testzip() is None, 'IPA archive failed its CRC check'
+              path = next(name for name in archive.namelist()
+                          if name.count('/') == 2 and name.endswith('/Info.plist'))
+              metadata = plistlib.loads(archive.read(path))
+          assert metadata.get('UIDeviceFamily') == [1, 2], 'IPA must support native iPhone and iPad'
+          assert metadata.get('CFBundleDisplayName') == 'PaperReality', 'Unexpected app display name'
+          assert metadata.get('CFBundleIdentifier') == 'com.damien.paperreality', 'Unexpected bundle identifier'
+          assert metadata.get('CFBundleVersion') == os.environ['GITHUB_RUN_NUMBER'], 'Unexpected build number'
+          summary = {key: metadata.get(key) for key in (
+              'CFBundleDisplayName', 'CFBundleIdentifier', 'CFBundleShortVersionString',
+              'CFBundleVersion', 'UIDeviceFamily', 'MinimumOSVersion')}
+          print('::notice::Verified packaged IPA metadata: ' + json.dumps(summary, sort_keys=True))
+          PYVERIFY
+
       - name: Upload IPA
         uses: actions/upload-artifact@v7
         with:

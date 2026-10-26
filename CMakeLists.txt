@@ -334,6 +334,9 @@ if(IOS)
         MACOSX_BUNDLE_INFO_PLIST ${IOS_DIR}/plist.in
         RESOURCE "${IMAGE_FILES};${STORYBOARD_FILE};${ICON_FILES}"
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${BUNDLE_ID}"
+        # Advertise both devices so iPadOS uses a native iPad window instead
+        # of running the app in an iPhone compatibility canvas.
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
     )
 
     if(IOS_SIGNING)

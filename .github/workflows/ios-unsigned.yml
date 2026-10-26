@@ -37,6 +37,8 @@ jobs:
             // build before another IPA can be published for that version.
             if (context.eventName === 'push') {
               const refName = context.ref.replace(/^refs\/(heads|tags)\//, '');
+              const simulatorOnly = context.ref.startsWith('refs/heads/') &&
+                context.payload.head_commit?.message.includes('[simulator-only]');
               const builds = await github.paginate(github.rest.actions.listWorkflowRuns, {
                 ...context.repo,
                 workflow_id: 'ios-unsigned.yml',
@@ -46,6 +48,9 @@ jobs:
               for (const build of builds) {
                 if (build.id === context.runId || build.status === 'completed' ||
                     build.head_branch !== refName || build.head_sha === context.sha) continue;
+                // A test-only retry is not a replacement for an actual IPA
+                // already compiling from the same production sources.
+                if (simulatorOnly && !build.head_commit?.message.includes('[simulator-only]')) continue;
                 try {
                   await github.rest.actions.cancelWorkflowRun({ ...context.repo, run_id: build.id });
                   core.notice(`Cancelled superseded IPA build ${build.run_number} for ${refName}.`);

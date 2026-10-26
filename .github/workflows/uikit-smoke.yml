@@ -111,7 +111,7 @@ jobs:
             /include/fast/backends/IosWindowPlacement.h
 
       - name: Install isolated reproduction build tools
-        run: brew install cmake xcodegen
+        run: brew install cmake ninja xcodegen
 
       - name: Inspect native iPad window expansion on iPadOS 26.2
         run: |

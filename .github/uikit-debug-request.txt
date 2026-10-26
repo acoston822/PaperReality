@@ -7,3 +7,5 @@ Use the production window placement/plist and iOS gameMode fullscreen switch.
 No game code, ROMs, saves, texture packs, screenshots or artifact uploads.
 Return text measurements through the test runner's sandbox; keep progress out
 of Actions annotations so the actual results stay within its annotation limit.
+Configure the standalone SDL dependency with Ninja before simulator boot to
+avoid the repeated Xcode compiler-probe timeout seen in the previous attempt.

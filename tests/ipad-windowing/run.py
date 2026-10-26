@@ -57,15 +57,14 @@ device_type = next(d for d in types if d['name'] == 'iPad Pro 13-inch (M4)')
 device = run('xcrun', 'simctl', 'create', 'PaperReality isolated iPad window probe',
              device_type['identifier'], runtime['identifier'])
 try:
-    print('Starting simulator boot', flush=True)
-    run('xcrun', 'simctl', 'boot', device)
-    subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'], check=True, timeout=600)
-    print('Simulator boot finished', flush=True)
     sdl = out / 'SDL'
     logged('fetch-sdl', ['git', 'clone', '--depth', '1', '--branch', 'release-2.32.10',
                          'https://github.com/libsdl-org/SDL.git', str(sdl)])
-    logged('configure-sdl', ['cmake', '-S', str(sdl), '-B', str(out / 'sdl-build'), '-G', 'Xcode',
+    # Compiler probes are much faster with Ninja than repeated xcodebuild
+    # projects. Finish the dependency build before booting the simulator VM.
+    logged('configure-sdl', ['cmake', '-S', str(sdl), '-B', str(out / 'sdl-build'), '-G', 'Ninja',
                             '-DCMAKE_SYSTEM_NAME=iOS', '-DCMAKE_OSX_SYSROOT=iphonesimulator',
+                            '-DCMAKE_BUILD_TYPE=Debug',
                             '-DCMAKE_OSX_ARCHITECTURES=' + platform.machine(),
                             '-DCMAKE_OSX_DEPLOYMENT_TARGET=16.3',
                             '-DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO',
@@ -123,6 +122,10 @@ try:
     (out / 'project.json').write_text(json.dumps(project, indent=2))
     subprocess.run(['xcodegen', 'generate', '--spec', str(out / 'project.json'),
                     '--project', str(out)], check=True)
+    print('Starting simulator boot', flush=True)
+    run('xcrun', 'simctl', 'boot', device)
+    subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'], check=True, timeout=600)
+    print('Simulator boot finished', flush=True)
     destination = 'platform=iOS Simulator,id=' + device
     project_path = str(out / 'WindowProbe.xcodeproj')
     derived = out / 'DerivedData'

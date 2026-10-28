@@ -109,45 +109,6 @@ jobs:
         uses: actions/github-script@v9
         with:
           script: |
-            // One-time cleanup explicitly requested after the shadow test failed
-            // on device. Refuse to remove any other build or commit.
-            const shadowTestRunId = 40611175495;
-            let shadowTest;
-            try {
-              ({ data: shadowTest } = await github.rest.actions.getWorkflowRun({
-                ...context.repo, run_id: shadowTestRunId,
-              }));
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              core.notice('Shadow test Build 122 is already absent.');
-            }
-            if (shadowTest) {
-              if (shadowTest.run_number !== 122 || shadowTest.status !== 'completed' ||
-                  shadowTest.head_sha !== 'd7eafbf025b97daeb45c7c5f2e6802914468a7e9' ||
-                  shadowTest.head_branch !== 'experimental/uikit-settings' ||
-                  (shadowTest.path || '').split('@')[0] !== '.github/workflows/ios-unsigned.yml') {
-                throw new Error('Shadow test identity mismatch; nothing was deleted.');
-              }
-              const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-                ...context.repo, run_id: shadowTestRunId, per_page: 100,
-              });
-              if (artifacts.some(artifact => artifact.name !== 'PaperReality-unsigned-ipa-b122')) {
-                throw new Error('Unexpected artifact on Build 122; nothing was deleted.');
-              }
-              for (const artifact of artifacts) {
-                await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: artifact.id });
-              }
-              await github.rest.actions.deleteWorkflowRun({ ...context.repo, run_id: shadowTestRunId });
-              let absent = false;
-              try {
-                await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: shadowTestRunId });
-              } catch (error) {
-                if (error.status !== 404) throw error;
-                absent = true;
-              }
-              if (!absent) throw new Error('Build 122 deletion could not be verified.');
-              core.notice(`Deleted shadow test Build 122 and ${artifacts.length} IPA artifact(s); verified run is absent.`);
-            }
             // The explicit request file starts the separate debug workflow on
             // this branch. Wait for its registration before normal cleanup.
             if (context.eventName === 'push' && context.payload.head_commit?.message.includes('[uikit-debug]')) {

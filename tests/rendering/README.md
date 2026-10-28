@@ -21,24 +21,3 @@ validation; enabling its `SHIFT` corner path exposes the shared-ring overwrite.
 
 This proves the geometry defects and their regression coverage. Device testing
 is still required to connect the fix to a particular recorded graphical symptom.
-
-## Shadow interpolation regression
-
-```sh
-python3 tests/rendering/run-shadow-interpolation.py build/ninja-debug
-python3 tests/rendering/run-shadow-interpolation.py build/ninja-debug --sanitize
-```
-
-This compiles production `entity_model.c`, `gu.c` and `FrameInterpolation.cpp`.
-Synthetic entity models exercise the actual A/B queued draw callbacks and the
-direct E path. The fixture inspects the matrix addresses in emitted commands
-and their interpolation replacements. Model display lists and render-mode lists
-are empty; no artwork, game data, application context, GPU or simulator is used.
-
-Checks cover reversed object order between frames, normal and reflected shadows,
-reflections appearing/disappearing, retained queued-frame contents, and unchanged
-non-shadow draw behavior. The interpolation target is stubbed to 60/120 FPS and
-replay checks the endpoints and quarter/half/three-quarter fractions. This tests
-matrix ownership and interpolation, not actual display pacing or depth testing.
-The previous code fails because the emitted shadow matrix has no replacement.
-Device testing must still determine whether this resolves the recorded flicker.

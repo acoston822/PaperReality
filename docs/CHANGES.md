@@ -12,15 +12,6 @@ inventories, upstream commits, and pinned backend changes.
 
 ## After 1.0.4 — test build
 
-- **Shadow interpolation**: register the display-context matrix actually loaded
-  by shadow draw commands, including reflected shadows. Previously interpolation
-  targeted persistent matrices whose values were copied to an unregistered draw
-  address, leaving shadow movement at game-update cadence. The CPU regression
-  checks emitted commands at 60/120 FPS interpolation fractions, object sorting,
-  reflection changes and queued-frame stability, and fails on the previous code.
-  This is a candidate fix for the recorded moving-shadow flicker; it does not
-  establish that depth-related flicker is resolved. Non-shadow entity draws and
-  the published 1.0.4 release are unchanged.
 - **Animated window geometry**: keep rotating panel vertices in their own
   display list instead of a shared 21-slot ring that a newer queued frame can
   overwrite. Also keep the corner vertex base pointer fixed so all four corners

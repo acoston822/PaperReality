@@ -197,6 +197,7 @@ jobs:
     runs-on: macos-14
     env:
       UI_DIAGNOSTICS: ${{ (github.event_name == 'workflow_dispatch' && inputs.ui_diagnostics) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[ui-diagnostics]')) }}
+      LEAF_DIAGNOSTICS: ${{ github.ref == 'refs/heads/experimental/leaf-render-diagnostics' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -207,7 +208,13 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.event.inputs.release_version }}
         run: |
-          if [[ "$UI_DIAGNOSTICS" == true ]]; then
+          if [[ "$LEAF_DIAGNOSTICS" == true ]]; then
+            if [[ -n "$RELEASE_VERSION" || "$UI_DIAGNOSTICS" == true ]]; then
+              echo "Leaf diagnostics must be built separately from releases and the UIKit timing overlay."
+              exit 1
+            fi
+            echo 'IPA_FLAVOR=-leaf-diagnostics' >> "$GITHUB_ENV"
+          elif [[ "$UI_DIAGNOSTICS" == true ]]; then
             if [[ -n "$RELEASE_VERSION" || "$GITHUB_REF" == refs/tags/v* ]]; then
               echo "Development UI diagnostics must be built separately from a release."
               exit 1
@@ -259,7 +266,8 @@ jobs:
         run: |
           cmake -S . -B build-ios -G Xcode \
             -DCMAKE_TOOLCHAIN_FILE=cmake/ios.paperboat.toolchain.cmake \
-            -DPLATFORM=OS64 -DIOS_SIGNING=OFF -DPAPERREALITY_UI_DIAGNOSTICS="$UI_DIAGNOSTICS"
+            -DPLATFORM=OS64 -DIOS_SIGNING=OFF -DPAPERREALITY_UI_DIAGNOSTICS="$UI_DIAGNOSTICS" \
+            -DPAPERREALITY_LEAF_DIAGNOSTICS="$LEAF_DIAGNOSTICS"
 
       - name: Build
         run: cmake --build build-ios --config Release --parallel $(sysctl -n hw.logicalcpu)
@@ -304,6 +312,10 @@ jobs:
               path = next(name for name in archive.namelist()
                           if name.count('/') == 2 and name.endswith('/Info.plist'))
               metadata = plistlib.loads(archive.read(path))
+              if os.environ.get('LEAF_DIAGNOSTICS') == 'true':
+                  executable = path.rsplit('/', 1)[0] + '/' + metadata['CFBundleExecutable']
+                  assert b'PaperReality-Leaf-Diagnostics.txt' in archive.read(executable), 'Leaf capture code is missing from the IPA'
+                  assert metadata.get('CFBundleShortVersionString', '').endswith('-leaf-diagnostics'), 'Unexpected diagnostic version'
           assert metadata.get('UIDeviceFamily') == [1, 2], 'IPA must support native iPhone and iPad'
           assert metadata.get('CFBundleDisplayName') == 'PaperReality', 'Unexpected app display name'
           assert metadata.get('CFBundleIdentifier') == 'com.damien.paperreality', 'Unexpected bundle identifier'
@@ -316,6 +328,8 @@ jobs:
           summary = {key: metadata.get(key) for key in (
               'CFBundleDisplayName', 'CFBundleIdentifier', 'CFBundleShortVersionString',
               'CFBundleVersion', 'UIDeviceFamily', 'MinimumOSVersion')}
+          if os.environ.get('LEAF_DIAGNOSTICS') == 'true':
+              summary['LeafDiagnostics'] = True
           print('::notice::Verified packaged IPA metadata: ' + json.dumps(summary, sort_keys=True))
           PYVERIFY
         env:

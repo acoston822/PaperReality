@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include "port/Engine.h"
 #include "port/patches/Patches.h"
+#include "port/diagnostics/LeafTrace.h"
 
 // Check if a GBI opcode is a double-width OTR command (2 Gfx entries instead of 1)
 s32 mdl_is_otr_expanded_opcode(u32 opcode) {
@@ -2017,6 +2018,9 @@ void appendGfx_model(void* data) {
         }
     }
 
+    // Metadata-only experimental capture; does not change emitted commands.
+    LeafTrace_Draw(model, renderClass, renderModeIdx, ModelRenderModes[renderModeIdx]);
+
     // render the model
     if (!(flags & MODEL_FLAG_HAS_LOCAL_VERTEX_COPY)) {
         gSPDisplayList((*gfxPos)++, modelNode->displayData->displayList);
@@ -2844,6 +2848,8 @@ void render_models(void) {
 
     f32 wsCullX = GameEngine_GetAspectRatio() * (3.0f / 4.0f);
 
+    LeafTrace_BeginFrame();
+
 #define TEST_POINT_VISIBILITY \
     outX = (m00 * xComp) + (m10 * yComp) + (m20 * zComp) + m30; \
     outY = (m01 * xComp) + (m11 * yComp) + (m21 * zComp) + m31; \
@@ -2974,6 +2980,7 @@ void render_models(void) {
             }
             // no points of the models bounding box were visible
             if (notVisible) {
+                LeafTrace_Culled(model);
                 continue;
             }
         }
@@ -2998,6 +3005,7 @@ void render_models(void) {
         rtPtr->interpolationName = "model";
         rtPtr->interpolationTag = TAG_MODEL(i, model);
         queue_render_task(rtPtr);
+        LeafTrace_Queued(model, distance);
     }
 
     // enqueue models in transform groups
@@ -4879,6 +4887,7 @@ OPTIMIZE_OFAST void execute_render_tasks(void) {
                 // an actor gets drawn where a different object was. The draw
                 // function separates them and is stable per object.
                 FrameInterpolation_RecordOpenChild((const void*)task->appendGfx, (uintptr_t)task->appendGfxArg);
+                LeafTrace_Task((const void*)task->appendGfx, task->appendGfxArg, task->dist);
                 appendGfx(task->appendGfxArg);
                 FrameInterpolation_RecordCloseChild();
 
@@ -4898,12 +4907,14 @@ OPTIMIZE_OFAST void execute_render_tasks(void) {
                 task = &RenderTaskLists[j][sorteds[j][i]];
                 appendGfx = task->appendGfx;
                 FrameInterpolation_RecordOpenChild((const void*)task->appendGfx, (uintptr_t)task->appendGfxArg);
+                LeafTrace_Task((const void*)task->appendGfx, task->appendGfxArg, task->dist);
                 appendGfx(task->appendGfxArg);
                 FrameInterpolation_RecordCloseChild();
             }
         }
     }
 
+    LeafTrace_EndFrame();
     RenderTaskCount[RENDER_TASK_LIST_MID] = 0;
     RenderTaskCount[RENDER_TASK_LIST_FAR] = 0;
     RenderTaskCount[RENDER_TASK_LIST_NEAR] = 0;

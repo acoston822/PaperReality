@@ -10,6 +10,22 @@ See the [release notes](release-notes/v1.0.3.md) for the user-facing changes and
 the [source audit](source-changes-v1.0.3.md) for implementation details, source
 inventories, upstream commits, and pinned backend changes.
 
+## Isolated leaf diagnostic branch — 2026-10-31
+
+`experimental/leaf-render-diagnostics` includes the prior PaperReality changes
+and the retained save-card geometry fix; the unsuccessful shadow interpolation
+experiment stays reverted. It merges upstream `6cecd01a7` (#278): fixes 64-bit
+script-buffer overruns in Huff N. Puff, Fake Bowser/Koopa Bros. and Bandit code,
+and clears scripts/workers on soft reset. No new settings are introduced.
+
+Opt-in leaf metadata capture is compiled only when
+`PAPERREALITY_LEAF_DIAGNOSTICS=ON`; the IPA workflow enables it only for this
+branch and marks the artifact/version `-leaf-diagnostics`. Capture/export uses
+`leaftrace start|stop|status|export` in the UIKit Console and the existing Files
+picker. It adds no FPS HUD and is not a proposed rendering fix. See the
+[capture instructions and limits](leaf-render-diagnostics.md). The normal UIKit
+branch and published releases remain unchanged.
+
 ## After 1.0.4 — test build
 
 - **Animated window geometry**: keep rotating panel vertices in their own

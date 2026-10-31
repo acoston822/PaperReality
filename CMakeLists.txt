@@ -372,6 +372,11 @@ if(EMSCRIPTEN)
     set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "paperboat" SUFFIX ".html")
 endif()
 
+option(PAPERREALITY_LEAF_DIAGNOSTICS "Include opt-in experimental leaf metadata capture" OFF)
+if(PAPERREALITY_LEAF_DIAGNOSTICS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE PAPERREALITY_LEAF_DIAGNOSTICS=1)
+endif()
+
 # Organize source files into folders for Visual Studio Solution Explorer
 source_group(TREE ${CMAKE_SOURCE_DIR}/src PREFIX "Game" FILES ${GAME_SOURCES})
 source_group(TREE ${CMAKE_SOURCE_DIR}/src/port PREFIX "Port" FILES ${PORT_SOURCES})

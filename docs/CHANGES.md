@@ -1,29 +1,33 @@
 # PaperReality changes from HarbourMasters/PaperBoat
 
-Base: HarbourMasters/PaperBoat `develop` at 781d164cf, merged into
-`experimental/uikit-settings` on 2026-10-24. Previously synced through d98b4b63
-(#262, #263, #264, #266; originally 7f038b85). These changes have not all been
-tested on a device.
+Base: HarbourMasters/PaperBoat `develop` at 6cecd01a7 (#278), included in
+`experimental/uikit-settings` on 2026-10-31. Previously synced through 781d164cf
+(#269, #270, #272) and d98b4b63 (#262, #263, #264, #266; originally 7f038b85).
+Validation and device coverage are described per release below.
 
 PaperReality 1.0.3 collects the changes since the first PaperReality release.
 See the [release notes](release-notes/v1.0.3.md) for the user-facing changes and
 the [source audit](source-changes-v1.0.3.md) for implementation details, source
 inventories, upstream commits, and pinned backend changes.
 
-## After 1.0.4 — test build
+## PaperReality 1.0.5
 
-- **Animated window geometry**: keep rotating panel vertices in their own
-  display list instead of a shared 21-slot ring that a newer queued frame can
-  overwrite. Also keep the corner vertex base pointer fixed so all four corners
-  stay within their 16-vertex allocation; the old non-`SHIFT` path advanced it
-  while still indexing from the original base. A local regression verifies corner
-  positions, texture coordinates, initialization and queued-frame stability.
-  This targets the intermittent save-card
-  transition flicker; confirmation of that exact symptom still needs the test
-  IPA on a device, and absence of an intermittent flicker in one test is not proof
-  of a fix. Upstream [#219](https://github.com/HarbourMasters/PaperBoat/issues/219)
-  reports similar file-select flicker on Windows/DirectX 11 at 75 Hz; a shared
-  cause has not been established. The published 1.0.4 release is unchanged.
+See the [release notes](release-notes/v1.0.5.md) for changes since 1.0.4 and
+[the source audit](source-changes-v1.0.5.md) for scope and validation.
+
+- **Animated window geometry**: keep rotating panel vertices in their queued
+  frame's display list so newer frames cannot overwrite them. Correct corner
+  indexing to keep every corner within its 16-vertex allocation. This addresses
+  two geometry defects associated with save-card transitions. No further
+  save-card flicker was reported during the user's 60/120 FPS tests in 4:3 and
+  Off aspect-ratio modes; intermittent behavior still limits that observation.
+- **Upstream #278** (`6cecd01a7`): use pointer-sized script buffers for Huff N.
+  Puff, Fake Bowser/Koopa Bros. and Bandit, preventing 64-bit buffer overruns.
+  Clear scripts and workers on soft reset. No new settings are introduced.
+- The ground-leaf rendering experiment and Render Diagnostics stay on their
+  separate experimental branch. The unsuccessful shadow interpolation test
+  remains reverted. Existing iOS UI, AirPlay, touch, pacing and backend pins are
+  retained, with no settings FPS HUD in the release.
 
 ## PaperReality 1.0.4
 

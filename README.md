@@ -23,9 +23,9 @@ You can verify you have dumped a supported copy of the game by using the compati
 
 ### 2. Install the app
 
-For the packaged release, download `PaperReality-v1.0.3-unsigned.ipa` from
-[PaperReality 1.0.3](https://github.com/acoston822/PaperReality/releases/tag/v1.0.3).
-See the [release notes](docs/release-notes/v1.0.3.md) for the changes since 1.0.0.
+For the packaged release, download `PaperReality-v1.0.5-unsigned.ipa` from
+[PaperReality 1.0.5](https://github.com/acoston822/PaperReality/releases/tag/v1.0.5).
+See the [release notes](docs/release-notes/v1.0.5.md) for the changes since 1.0.4.
 
 Builds are unsigned `.ipa` files produced by this repository's GitHub Actions workflow (`Build unsigned iOS IPA`). Open the workflow run you want and download the `PaperReality-unsigned-ipa-bN` artifact. Sign and install it with the tool of your choice (for example AltStore, Sideloadly or your own developer certificate).
 

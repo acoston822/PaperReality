@@ -28,6 +28,8 @@ These are the files PaperReality changes (full list in [CHANGES.md](CHANGES.md))
 
 ## Merge log
 
+* 2026-10-31: included upstream `develop` at 6cecd01a7 (#278) in `experimental/uikit-settings` for 1.0.5. The four-file merge fixes pointer-sized script buffers and resets script/worker lists on soft reset; it adds no settings. The ground-leaf diagnostics and offset experiment remain on their isolated branch.
+
 * 2026-10-24: merged upstream `develop` at 781d164cf (#269, #270, #272) into `experimental/uikit-settings` with no conflicts. The new gameplay settings use the native UIKit mapping; the iOS libultraship fork and its AirPlay/frame-pacing changes are retained.
 * 2026-10-18: merged upstream `develop` at d98b4b63 (#262, #263, #264, #266) with no conflicts. Upstream's `build.yml` (now with an iOS job) and `pages.yml` come with it; the PaperReality IPA workflow is `ios-unsigned.yml`.
 

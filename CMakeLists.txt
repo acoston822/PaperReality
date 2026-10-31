@@ -372,7 +372,7 @@ if(EMSCRIPTEN)
     set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "paperboat" SUFFIX ".html")
 endif()
 
-option(PAPERREALITY_LEAF_DIAGNOSTICS "Include opt-in experimental leaf metadata capture" OFF)
+option(PAPERREALITY_LEAF_DIAGNOSTICS "Include Render Diagnostics and opt-in ground-leaf experiment" OFF)
 if(PAPERREALITY_LEAF_DIAGNOSTICS)
     target_compile_definitions(${PROJECT_NAME} PRIVATE PAPERREALITY_LEAF_DIAGNOSTICS=1)
 endif()

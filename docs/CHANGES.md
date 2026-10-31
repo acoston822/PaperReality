@@ -10,6 +10,17 @@ See the [release notes](release-notes/v1.0.3.md) for the user-facing changes and
 the [source audit](source-changes-v1.0.3.md) for implementation details, source
 inventories, upstream commits, and pinned backend changes.
 
+## Render Diagnostics: controlled ground-leaf test
+
+The isolated diagnostic branch adds optional original/identity/lift comparisons
+for the identified low flower/leaf mesh in `kmr_07`. The test is off by default,
+resets on map load/restart, preserves the authored mesh/material and targets no
+other objects. It is an experiment, not a confirmed flicker fix. New artifacts
+and reports use **Render Diagnostics** naming. `rendertrace` replaces the visible
+command name while `leaftrace` remains an alias. Reports include the selected and
+actually applied lift. See [the comparison guide](render-diagnostics.md).
+The normal UIKit branch and published releases are unchanged.
+
 ## Isolated leaf diagnostic branch — 2026-10-31
 
 `experimental/leaf-render-diagnostics` includes the prior PaperReality changes

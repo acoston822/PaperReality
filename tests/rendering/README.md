@@ -25,6 +25,7 @@ is still required to connect the fix to a particular recorded graphical symptom.
 ## Leaf capture regression
 
 See [the experimental diagnostic guide](../../docs/leaf-render-diagnostics.md)
-for scope and device instructions. Run `run-leaf-trace.py` (optionally with
+for the Build 125 scope. See [Render Diagnostics](../../docs/render-diagnostics.md)
+for the new original/identity/lift controls. Run `run-leaf-trace.py` (optionally with
 `--sanitize`) against the existing Linux build. The test uses the real collector
 and model-property lookup with synthetic metadata; no GPU or game data is used.

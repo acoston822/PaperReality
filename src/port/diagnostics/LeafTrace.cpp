@@ -5,6 +5,9 @@
 #include "port/Engine.h"
 #include "port/ui/NativeSettings.h"
 #include "model.h"
+#include "mapfs/kmr_07_shape.h"
+#include <cmath>
+#include <cstring>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
 
@@ -12,6 +15,7 @@ namespace {
 using Json = nlohmann::json;
 using Paperboat::Diagnostics::LeafTraceCapture;
 LeafTraceCapture capture;
+std::atomic<float> testLift { -1.0f };
 // Everything below is owned by the game thread, not the console/UI queue.
 std::string map;
 bool sampling = false;
@@ -68,11 +72,13 @@ uint32_t MatrixHash(const Mtx* matrix) {
 }
 Json Header() {
     return { { "type", "header" },
-             { "format", 1 },
+             { "format", 2 },
+             { "name", "Render Diagnostics" },
              { "map", "kmr_07" },
              { "branch", "experimental/leaf-render-diagnostics" },
              { "upstream", "6cecd01a7" },
              { "scope", "CPU command submission metadata; does not establish GPU pixel visibility" },
+             { "leaf_lift_modes", { { "off", -1 }, { "identity_control", 0 }, { "lift_range", { 0, 1 } } } },
              { "privacy", "No images, textures, saves, raw display lists, vertices, device paths or memory addresses" },
              { "limits", { { "frames", 600 }, { "bytes", 6 * 1024 * 1024 } } },
              { "queue_fields", { "node", "distance" } },
@@ -109,7 +115,7 @@ std::string LeafTraceReport() {
 }
 std::string LeafTraceStatus() {
     const auto snapshot = capture.Read();
-    return "Leaf capture: " + std::to_string(snapshot.frames) + " frames, " + std::to_string(snapshot.text.size())
+    return "Render capture: " + std::to_string(snapshot.frames) + " frames, " + std::to_string(snapshot.text.size())
         + " bytes; "
         + (snapshot.pending      ? "request pending"
                : snapshot.active ? "armed/recording"
@@ -117,6 +123,7 @@ std::string LeafTraceStatus() {
         + (snapshot.limited ? "; byte limit reached" : "");
 }
 void SetLeafTraceMap(const char* name) {
+    testLift.store(-1.0f);
     map = Name(name);
     sampling = false;
     nodes.clear();
@@ -124,6 +131,15 @@ void SetLeafTraceMap(const char* name) {
     arguments.clear();
     if (map != "kmr_07" || capture.Read().frames)
         capture.Stop();
+}
+bool SetLeafTestLift(float amount) {
+    if (!std::isfinite(amount) || (amount != -1.0f && (amount < 0.0f || amount > 1.0f)))
+        return false;
+    testLift.store(amount);
+    return true;
+}
+float LeafTestLift() {
+    return testLift.load();
 }
 } // namespace Paperboat::Diagnostics
 
@@ -162,6 +178,8 @@ extern "C" void LeafTrace_BeginFrame(void) {
               { "culled", Json::array() },
               { "draws", Json::array() },
               { "tasks", Json::array() },
+              { "leaf_lift_mode", testLift.load() },
+              { "leaf_lift_applied", Json::array() },
               { "z_fighting", CVarGetInteger("gSettings.ZFightingMode", 0) },
               { "alternate_assets", CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0) } };
     if (gCurrentModels) {
@@ -213,5 +231,37 @@ extern "C" void LeafTrace_EndFrame(void) {
         return;
     sampling = false;
     capture.AppendFrame(frame.dump() + "\n");
+}
+
+extern "C" int LeafTrace_BeginLeafDraw(const void* data) {
+    const float lift = testLift.load();
+    const auto* model = static_cast<const Model*>(data);
+    if (lift < 0 || map != "kmr_07" || !model || !model->modelNode || model->modelID != MODEL_o853
+        || model->modelNode->type != SHAPE_TYPE_MODEL || model->renderMode != RENDER_MODE_ALPHATEST || !gGameStatusPtr
+        || gGameStatusPtr->context != CONTEXT_WORLD || gCurrentCameraID != CAM_DEFAULT || !gDisplayContext
+        || !gMainGfxPos || gMatrixListPos >= ARRAY_COUNT(gDisplayContext->matrixStack))
+        return 0;
+    auto* texture = get_model_property(model->modelNode, MODEL_PROP_KEY_TEXTURE_NAME);
+    if (!texture || !texture->data.p || std::strcmp(static_cast<const char*>(texture->data.p), "kmr_flower_01tif"))
+        return 0;
+
+    // Temporary leaf-only draw transform. Preserve the authored model, material,
+    // alpha test, depth flags and collision data. Zero deliberately follows the
+    // same command path as a positive lift, controlling for a matrix/state flush.
+    Matrix4f translation;
+    Mtx* matrix = &gDisplayContext->matrixStack[gMatrixListPos++];
+    FrameInterpolation_RecordOpenChild("leaf_ground_test", reinterpret_cast<uintptr_t>(model->modelNode));
+    guTranslateF(translation, 0, lift, 0);
+    guMtxF2L(translation, matrix);
+    FrameInterpolation_RecordCloseChild();
+    gSPMatrix(gMainGfxPos++, matrix, G_MTX_PUSH | G_MTX_MUL | G_MTX_MODELVIEW);
+    if (sampling)
+        frame["leaf_lift_applied"].push_back({ Node(model), lift });
+    return 1;
+}
+
+extern "C" void LeafTrace_EndLeafDraw(int pushed) {
+    if (pushed)
+        gSPPopMatrix(gMainGfxPos++, G_MTX_MODELVIEW);
 }
 #endif

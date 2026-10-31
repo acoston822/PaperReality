@@ -213,7 +213,7 @@ jobs:
               echo "Leaf diagnostics must be built separately from releases and the UIKit timing overlay."
               exit 1
             fi
-            echo 'IPA_FLAVOR=-leaf-diagnostics' >> "$GITHUB_ENV"
+            echo 'IPA_FLAVOR=-render-diagnostics' >> "$GITHUB_ENV"
           elif [[ "$UI_DIAGNOSTICS" == true ]]; then
             if [[ -n "$RELEASE_VERSION" || "$GITHUB_REF" == refs/tags/v* ]]; then
               echo "Development UI diagnostics must be built separately from a release."
@@ -314,8 +314,8 @@ jobs:
               metadata = plistlib.loads(archive.read(path))
               if os.environ.get('LEAF_DIAGNOSTICS') == 'true':
                   executable = path.rsplit('/', 1)[0] + '/' + metadata['CFBundleExecutable']
-                  assert b'PaperReality-Leaf-Diagnostics.txt' in archive.read(executable), 'Leaf capture code is missing from the IPA'
-                  assert metadata.get('CFBundleShortVersionString', '').endswith('-leaf-diagnostics'), 'Unexpected diagnostic version'
+                  assert b'PaperReality-Render-Diagnostics.txt' in archive.read(executable), 'Leaf capture code is missing from the IPA'
+                  assert metadata.get('CFBundleShortVersionString', '').endswith('-render-diagnostics'), 'Unexpected diagnostic version'
           assert metadata.get('UIDeviceFamily') == [1, 2], 'IPA must support native iPhone and iPad'
           assert metadata.get('CFBundleDisplayName') == 'PaperReality', 'Unexpected app display name'
           assert metadata.get('CFBundleIdentifier') == 'com.damien.paperreality', 'Unexpected bundle identifier'

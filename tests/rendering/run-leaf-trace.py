@@ -19,6 +19,7 @@ with tempfile.TemporaryDirectory(prefix='paperreality-leaf-trace-') as directory
     objects = []
     for relative, template in [
         ('src/model.c', 'src/model.c'),
+        ('src/port/gu.c', 'src/port/gu.c'),
         ('src/port/diagnostics/LeafTrace.cpp', 'src/port/Engine.cpp'),
         ('tests/rendering/leaf-trace.cpp', 'src/port/Engine.cpp'),
     ]:
@@ -31,13 +32,14 @@ with tempfile.TemporaryDirectory(prefix='paperreality-leaf-trace-') as directory
                        cwd=entry['directory'], check=True)
         objects.append(str(obj))
     exe = temp / 'leaf-trace'
-    subprocess.run(['c++', *objects, *extra, '-Wl,--gc-sections', '-pthread', '-o', str(exe)], check=True)
+    subprocess.run(['c++', *objects, *extra, '-Wl,--gc-sections', '-pthread', '-lm', '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
     disabled = temp / 'disabled.c'
     disabled.write_text('#include "port/diagnostics/LeafTrace.h"\n'
                         'int main(void) { int n=0; LeafTrace_Draw(++n,++n,++n,++n);'
                         'LeafTrace_Queued(++n,++n); LeafTrace_Task(++n,++n,++n);'
-                        'LeafTrace_BeginFrame(); LeafTrace_EndFrame(); return n; }\n')
+                        'LeafTrace_BeginFrame(); LeafTrace_EndFrame();'
+                        'n+=LeafTrace_BeginLeafDraw(++n); LeafTrace_EndLeafDraw(++n); return n; }\n')
     subprocess.run(['cc', '-Isrc', str(disabled), '-o', str(temp / 'disabled')], cwd=root, check=True)
     subprocess.run([str(temp / 'disabled')], check=True)
     print('PASS: disabled hooks have no runtime argument evaluation')

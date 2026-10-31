@@ -2023,7 +2023,9 @@ void appendGfx_model(void* data) {
 
     // render the model
     if (!(flags & MODEL_FLAG_HAS_LOCAL_VERTEX_COPY)) {
+        s32 leafTestPushed = LeafTrace_BeginLeafDraw(model);
         gSPDisplayList((*gfxPos)++, modelNode->displayData->displayList);
+        LeafTrace_EndLeafDraw(leafTestPushed);
     }
 
     // custom gfx 'post'

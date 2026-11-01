@@ -144,7 +144,7 @@ void guMtxF2L(float mf[4][4], Mtx* m) {
         }
     }
 #endif
-    FrameInterpolation_RecordMatrixMtxFToMtx(mf, m);
+    FrameInterpolation_RecordMatrixEncoded((MtxF*) mf, m);
 }
 
 void guMtxL2F(float mf[4][4], Mtx* m) {
@@ -546,3 +546,4 @@ void guPositionF(float mf[4][4], float r, float p, float h, float s, float x, fl
     guMtxCatF(tmp2, scale, tmp);
     guMtxCatF(tmp, trans, mf);
 }
+

@@ -43,3 +43,22 @@ Test a cold launch from the Home Screen at both 60 and 120 FPS. Watch the centre
 line through the menu and Start buttons during the first splash frames; also
 confirm the usual fade and aspect/layout remain correct. No launch storyboard,
 status-bar behavior, game artwork, texture packs or recording captures are changed.
+
+## Performance comparison after build 131
+
+The user reports build 129 is smooth in the same areas where 131 drops frames.
+An artifact-only audit of both existing IPAs confirmed Xcode 15.4 / SDK 17.5
+for 129 and Xcode 16.4 / SDK 18.5 for 131. Both have the high-refresh permission
+and Game Mode keys enabled. This does not yet identify a causal code change.
+
+This comparison restores Engine.cpp exactly from build 129 (the only runtime
+source file changed in 131) while explicitly retaining Xcode 16.4 / SDK 18.5.
+It therefore retains the shadow and leaf fixes but intentionally omits the
+startup aspect guard; the brief startup bar may return. The startup regression
+is not run because this comparison deliberately restores its failing baseline.
+No allocator optimization is included: that cache was shared by smooth build 129.
+
+Use the same FPS/aspect/texture settings and area when comparing 129, 131 and
+this build. If this rebuild is smooth, the startup source change becomes the
+leading distinction. If it also drops frames, the changed toolchain or another
+uncontrolled factor remains relevant. Neither outcome alone is a profile.

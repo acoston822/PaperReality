@@ -83,6 +83,9 @@ jobs:
           c++ -std=c++20 -Wall -Wextra -Werror -Isrc tests/native-settings/controller-navigation.cpp -o "$RUNNER_TEMP/controller-navigation-check"
           "$RUNNER_TEMP/controller-navigation-check"
 
+      - name: Check startup aspect handling
+        run: python3 tests/rendering/run-boot-aspect.py
+
       - name: Install dependencies
         run: brew install cmake ninja
 

@@ -62,3 +62,18 @@ Use the same FPS/aspect/texture settings and area when comparing 129, 131 and
 this build. If this rebuild is smooth, the startup source change becomes the
 leading distinction. If it also drops frames, the changed toolchain or another
 uncontrolled factor remains relevant. Neither outcome alone is a profile.
+
+## Follow-up: retain the tested build 131 fixes
+
+The user confirmed identical FPS settings, removal of the startup bar in 131,
+and smoother play after restarting 131 at about 32% battery. Remaining drops
+were reported as comparable to the first stable release. The earlier 131 test
+was at 18% with Low Power Mode off, versus about 25–28% for 129. A new 131
+performance regression is therefore not established; battery percentage alone
+is not proven causal either.
+
+Restore the startup guard and its regression in the experimental branch, keeping
+all three tested fixes. Keep Xcode 16.4 / SDK 18.5 explicitly pinned. Build 132
+is only a diagnostic comparison and is not a recommended replacement for 131.
+This restoration matches the already-tested 131 runtime source and does not
+request another IPA build.

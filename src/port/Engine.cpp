@@ -1618,7 +1618,20 @@ Fast::Interpreter* GameEngine_GetInterpreter() {
 
 extern "C" float GameEngine_GetAspectRatio(void) {
     auto interp = GameEngine_GetInterpreter();
-    return interp != nullptr ? interp->mCurDimensions.aspect_ratio : (WS_NATIVE_WIDTH / WS_NATIVE_HEIGHT);
+    if (interp != nullptr) {
+        const float aspect = interp->mCurDimensions.aspect_ratio;
+        if (std::isfinite(aspect) && aspect > 0.0f) {
+            return aspect;
+        }
+        // Before the first render pass the cached aspect is zero. Prefer the
+        // configured target dimensions while that cache is not initialized.
+        const auto width = interp->mCurDimensions.width;
+        const auto height = interp->mCurDimensions.height;
+        if (width > 0 && height > 0) {
+            return static_cast<float>(width) / static_cast<float>(height);
+        }
+    }
+    return WS_NATIVE_WIDTH / WS_NATIVE_HEIGHT;
 }
 
 // Convert an AdjX-space native X into SCISSOR-space native X.

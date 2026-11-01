@@ -33,6 +33,9 @@ EvtScript N(EVS_Main) = {
     Set(GB_WorldLocation, LOCATION_GOOMBA_ROAD)
     Call(SetSpriteShading, SHADING_NONE)
     EVT_SETUP_CAMERA_DEFAULT(0, 0, 0)
+    // Keep the low flower/leaf clear of the terrain's depth surface.
+    // Map-local visual transform only; collision and other foliage are unchanged.
+    Call(TranslateModel, MODEL_o853, 0, Float(0.25), 0)
     Call(MakeNpcs, false, Ref(N(DefaultNPCs)))
     ExecWait(N(EVS_MakeEntities))
     Exec(N(EVS_SetupMusic))
@@ -43,3 +46,4 @@ EvtScript N(EVS_Main) = {
     Return
     End
 };
+

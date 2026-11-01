@@ -22,7 +22,7 @@ jobs:
 
   ios:
     if: github.ref == 'refs/heads/experimental/shadow-leaf-fixes-1.0.5'
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       UI_DIAGNOSTICS: ${{ (github.event_name == 'workflow_dispatch' && inputs.ui_diagnostics) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[ui-diagnostics]')) }}
     steps:

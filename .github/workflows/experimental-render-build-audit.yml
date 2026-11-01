@@ -1,0 +1,50 @@
+name: Audit experimental IPA build metadata
+on:
+  push:
+    branches: ['experimental/render-perf-audit']
+permissions:
+  actions: read
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build 129
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 41265896565
+          name: PaperReality-unsigned-ipa-b129-experimental-render-fixes
+          path: audit/129
+      - name: Download build 131
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 41320194055
+          name: PaperReality-unsigned-ipa-b131-experimental-render-fixes
+          path: audit/131
+      - name: Compare packaged toolchains and performance-related metadata
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, plistlib, zipfile
+          keys = ['CFBundleShortVersionString', 'CFBundleVersion', 'DTXcode',
+                  'DTXcodeBuild', 'DTSDKName', 'DTSDKBuild', 'DTPlatformVersion',
+                  'MinimumOSVersion', 'CADisableMinimumFrameDurationOnPhone',
+                  'UIDeviceFamily', 'CFBundleIdentifier', 'GCSupportsGameMode',
+                  'LSSupportsGameMode', 'UIRequiresFullScreen']
+          reports = {}
+          for build in ['129', '131']:
+              ipa = next(Path('audit', build).glob('*.ipa'))
+              with zipfile.ZipFile(ipa) as archive:
+                  path = next(n for n in archive.namelist()
+                              if n.count('/') == 2 and n.endswith('/Info.plist'))
+                  metadata = plistlib.loads(archive.read(path))
+              reports[build] = {key: metadata.get(key) for key in keys}
+          print('IPA_METADATA=' + json.dumps(reports, sort_keys=True))
+          Path('build-metadata.json').write_text(json.dumps(reports, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: experimental-build-metadata
+          path: build-metadata.json

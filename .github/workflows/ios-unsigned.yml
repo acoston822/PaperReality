@@ -1,4 +1,4 @@
-name: Build unsigned iOS IPA
+name: Experimental shadow and leaf IPA
 
 on:
   workflow_dispatch:
@@ -13,187 +13,15 @@ on:
         required: false
         default: ''
   push:
-    branches-ignore: [develop]
-    tags: ['v*']
+    branches: ['experimental/shadow-leaf-fixes-1.0.5']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  # Temporary repository-wide pause. Remove this job before re-enabling Build
-  # and Release in Actions; their workflow definitions remain available.
-  pause-other-builds:
-    if: github.repository == 'acoston822/PaperReality'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Pause multi-platform builds and desktop releases
-        uses: actions/github-script@v9
-        with:
-          script: |
-            // A corrected, unpublished release tag must retire its previous
-            // build before another IPA can be published for that version.
-            if (context.eventName === 'push') {
-              const refName = context.ref.replace(/^refs\/(heads|tags)\//, '');
-              const simulatorOnly = context.ref.startsWith('refs/heads/') &&
-                context.payload.head_commit?.message.includes('[simulator-only]');
-              const builds = await github.paginate(github.rest.actions.listWorkflowRuns, {
-                ...context.repo,
-                workflow_id: 'ios-unsigned.yml',
-                event: 'push',
-                per_page: 100,
-              });
-              for (const build of builds) {
-                if (build.id === context.runId || build.status === 'completed' ||
-                    build.head_branch !== refName || build.head_sha === context.sha) continue;
-                // A test-only retry is not a replacement for an actual IPA
-                // already compiling from the same production sources.
-                if (simulatorOnly && !build.head_commit?.message.includes('[simulator-only]')) continue;
-                try {
-                  await github.rest.actions.cancelWorkflowRun({ ...context.repo, run_id: build.id });
-                  core.notice(`Cancelled superseded IPA build ${build.run_number} for ${refName}.`);
-                } catch (error) {
-                  if (error.status !== 409) throw error;
-                }
-              }
-              if (context.payload.head_commit?.message.includes('[uikit-debug]')) {
-                const checks = await github.paginate(github.rest.actions.listWorkflowRuns, {
-                  ...context.repo, workflow_id: 'uikit-smoke.yml', event: 'push', per_page: 100,
-                });
-                for (const check of checks) {
-                  if (check.status === 'completed' || check.head_branch !== refName ||
-                      check.head_sha === context.sha) continue;
-                  try {
-                    await github.rest.actions.cancelWorkflowRun({ ...context.repo, run_id: check.id });
-                    core.notice(`Cancelled superseded simulator check ${check.run_number}.`);
-                  } catch (error) {
-                    if (error.status !== 409) throw error;
-                  }
-                }
-              }
-            }
-            for (const workflow_id of ['build.yml', 'release.yml']) {
-              const { data: workflow } = await github.rest.actions.getWorkflow({ ...context.repo, workflow_id });
-              if (workflow.state === 'active') {
-                await github.rest.actions.disableWorkflow({ ...context.repo, workflow_id });
-                core.notice(`Paused ${workflow_id}; unsigned IPA and UIKit workflows remain enabled.`);
-              } else {
-                core.notice(`${workflow_id} is already paused (${workflow.state}).`);
-              }
-              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-                ...context.repo,
-                workflow_id,
-                per_page: 100,
-              });
-              for (const run of runs) {
-                if (run.status === 'completed') continue;
-                try {
-                  await github.rest.actions.cancelWorkflowRun({ ...context.repo, run_id: run.id });
-                  core.notice(`Cancelled pending/running ${workflow_id} run ${run.run_number}.`);
-                } catch (error) {
-                  if (error.status !== 409) throw error;
-                }
-              }
-            }
-
-  cleanup-simulator-runs:
-    if: github.ref == 'refs/heads/experimental/uikit-settings'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      actions: write
-    steps:
-      - name: Remove completed simulator and capture runs
-        uses: actions/github-script@v9
-        with:
-          script: |
-            // The explicit request file starts the separate debug workflow on
-            // this branch. Wait for its registration before normal cleanup.
-            if (context.eventName === 'push' && context.payload.head_commit?.message.includes('[uikit-debug]')) {
-              let started = false;
-              for (let attempt = 0; attempt < 40; ++attempt) {
-                const { data } = await github.rest.actions.listWorkflowRunsForRepo({
-                  ...context.repo, head_sha: context.sha, per_page: 30,
-                });
-                if (data.workflow_runs.some(run => (run.path || '').split('@')[0] === '.github/workflows/uikit-smoke.yml')) {
-                  started = true; break;
-                }
-                await new Promise(resolve => setTimeout(resolve, 1500));
-              }
-              if (!started) throw new Error('Requested UIKit debug run did not start; cleanup left it intact.');
-              core.notice('Requested UIKit debug check registered.');
-            }
-            const simulatorPaths = new Set([
-              '.github/workflows/uikit-smoke.yml',
-              '.github/workflows/uikit-captures.yml',
-            ]);
-            const deadline = Date.now() + 25 * 60 * 1000;
-            let simulatorRuns;
-            for (;;) {
-              const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
-                ...context.repo,
-                per_page: 100,
-              });
-              simulatorRuns = runs.filter(run =>
-                simulatorPaths.has((run.path || '').split('@')[0])
-              ).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-              if (simulatorRuns.every(run => run.status === 'completed')) break;
-              if (Date.now() >= deadline) throw new Error('Simulator still active; cleanup left its run intact.');
-              core.info('Waiting for simulator checks to finish before cleanup.');
-              await new Promise(resolve => setTimeout(resolve, 15000));
-            }
-            const latest = simulatorRuns[0];
-            if (latest) {
-              core.notice(`Latest simulator/capture run ${latest.run_number}: ${latest.conclusion}.`);
-            }
-            let removed = 0;
-            for (const run of simulatorRuns) {
-              // Retain the newest unsuccessful result until it can be diagnosed.
-              // After a successful rerun, all older results can be removed.
-              if (run.id === latest.id && latest.conclusion !== 'success') {
-                core.notice(`Retained unsuccessful simulator run ${run.run_number} for diagnosis.`);
-                continue;
-              }
-              try {
-                await github.rest.actions.deleteWorkflowRun({ ...context.repo, run_id: run.id });
-                ++removed;
-                core.info(`Removed completed simulator/capture run ${run.run_number}.`);
-              } catch (error) {
-                if (error.status !== 404) throw error;
-              }
-            }
-            core.notice(`Removed ${removed} completed simulator/capture runs. IPA runs were left intact.`);
-            // Simulator-only requests use this workflow for cleanup but skip
-            // its IPA job. Remove those completed coordinators too. Confirm
-            // the actual job was skipped, so real IPA attempts are preserved.
-            const coordinators = await github.paginate(github.rest.actions.listWorkflowRuns, {
-              ...context.repo, workflow_id: 'ios-unsigned.yml', event: 'push', per_page: 100,
-            });
-            let removedCoordinators = 0;
-            for (const run of coordinators) {
-              if (run.id === context.runId || run.status !== 'completed' ||
-                  run.head_branch !== 'experimental/uikit-settings' ||
-                  !run.head_commit?.message.includes('[simulator-only]')) continue;
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
-                ...context.repo, run_id: run.id, filter: 'latest', per_page: 100,
-              });
-              if (!jobs.some(job => job.name === 'ios' && job.conclusion === 'skipped')) continue;
-              try {
-                await github.rest.actions.deleteWorkflowRun({ ...context.repo, run_id: run.id });
-                ++removedCoordinators;
-              } catch (error) {
-                if (error.status !== 404) throw error;
-              }
-            }
-            core.notice(`Removed ${removedCoordinators} completed simulator-only coordinators; actual IPA builds were preserved.`);
 
   ios:
-    needs: pause-other-builds
-    # A requested simulator investigation does not need another IPA. Tagged
-    # releases and manually requested IPA builds are never skipped by a marker.
-    if: ${{ !cancelled() && (needs.pause-other-builds.result == 'success' || needs.pause-other-builds.result == 'skipped') && !(github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[simulator-only]')) }}
+    if: github.ref == 'refs/heads/experimental/shadow-leaf-fixes-1.0.5'
     runs-on: macos-14
     env:
       UI_DIAGNOSTICS: ${{ (github.event_name == 'workflow_dispatch' && inputs.ui_diagnostics) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[ui-diagnostics]')) }}
@@ -207,6 +35,10 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.event.inputs.release_version }}
         run: |
+          if [[ -n "$RELEASE_VERSION" ]]; then
+            echo "This experimental workflow does not publish releases."
+            exit 1
+          fi
           if [[ "$UI_DIAGNOSTICS" == true ]]; then
             if [[ -n "$RELEASE_VERSION" || "$GITHUB_REF" == refs/tags/v* ]]; then
               echo "Development UI diagnostics must be built separately from a release."
@@ -214,7 +46,7 @@ jobs:
             fi
             echo 'IPA_FLAVOR=-development' >> "$GITHUB_ENV"
           else
-            echo 'IPA_FLAVOR=' >> "$GITHUB_ENV"
+            echo 'IPA_FLAVOR=-experimental-render-fixes' >> "$GITHUB_ENV"
           fi
 
       - name: Check UIKit sources
@@ -327,27 +159,3 @@ jobs:
           name: PaperReality-unsigned-ipa-b${{ github.run_number }}${{ env.IPA_FLAVOR }}
           path: out/PaperReality-b${{ github.run_number }}${{ env.IPA_FLAVOR }}-unsigned.ipa
 
-      - name: Create the release
-        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_version != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          REL="${{ github.event.inputs.release_version }}"
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then REL="${GITHUB_REF_NAME#v}"; fi
-          TAG="v${REL}"
-          TAG_COMMIT=$(git ls-remote origin "refs/tags/${TAG}^{}" | cut -f1)
-          if [[ -z "$TAG_COMMIT" ]]; then TAG_COMMIT=$(git ls-remote origin "refs/tags/${TAG}" | cut -f1); fi
-          if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
-            echo "Release tag ${TAG} no longer points at this build; refusing to publish a stale IPA."
-            exit 1
-          fi
-          cp out/PaperReality-b${{ github.run_number }}-unsigned.ipa "out/PaperReality-${TAG}-unsigned.ipa"
-          NOTES="docs/release-notes/${TAG}.md"
-          if [ -f "$NOTES" ]; then
-            NOTEARGS=(--notes-file "$NOTES")
-          else
-            NOTEARGS=(--generate-notes)
-          fi
-          # Creates the tag on this commit if it doesn't exist yet.
-          gh release create "$TAG" "out/PaperReality-${TAG}-unsigned.ipa" \
-            --target "$GITHUB_SHA" --title "PaperReality ${REL}" "${NOTEARGS[@]}"

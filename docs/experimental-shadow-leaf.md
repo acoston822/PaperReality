@@ -20,3 +20,26 @@ The portable CPU runner is tests/rendering/run-shadow-interpolation.py; it expec
 ## Device comparison
 
 Compare 30, 60 and 120 FPS on the settled switch, during button movement and after jumping. Also check Parakarry/other partner shadows, slopes and reflections, and watch frame pacing. Compare the Goomba Road 3 leaf while standing, moving and wall-running, then reenter the map and restart. Confirm adjacent upright flowers and terrain collision are unchanged. Test existing texture configuration and original assets separately, keeping game files and texture packs local.
+
+## Startup fade test — next experimental build
+
+The user reports the shadow and ground-leaf symptoms appear resolved in build 129.
+This build retains those changes and adds a startup aspect guard. Before the
+first render pass, the interpreter's cached aspect can be zero; the fullscreen
+fade can then calculate inverted edges at the screen centre and draw a narrow
+black strip. Use configured target dimensions while the cached aspect is invalid,
+or native 4:3 if dimensions are not ready. Initialized finite positive aspects
+retain their existing behavior.
+
+The CPU regression compiles the actual getter extracted from Engine.cpp with
+synthetic initial state. It checks missing/zero-initialized interpreter, usable
+target dimensions, zero/negative/nonfinite cache, unavailable dimensions and
+initialized aspects. The pre-fix source fails; the guard passes. The workflow
+runs this regression before the iOS build. This is a candidate for the brief
+central strip in the supplied clip; it still requires device confirmation.
+The separate Dynamic Island at the screen edge is not the reported defect.
+
+Test a cold launch from the Home Screen at both 60 and 120 FPS. Watch the centre
+line through the menu and Start buttons during the first splash frames; also
+confirm the usual fade and aspect/layout remain correct. No launch storyboard,
+status-bar behavior, game artwork, texture packs or recording captures are changed.

@@ -1596,6 +1596,10 @@ namespace {
     }
     bool IsUnusedEditorItem(int item) {
         switch (item) {
+            case ITEM_SMASH_CHARGE0:
+            case ITEM_JUMP_CHARGE0:
+            case ITEM_SHRINK_SMASH:
+            case ITEM_AUTO_MULTIBOUNCE:
             case ITEM_AUTO_JUMP:
             case ITEM_SUPER_JUMP:
             case ITEM_AUTO_SMASH:

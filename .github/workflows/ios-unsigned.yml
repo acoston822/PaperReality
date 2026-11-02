@@ -1,4 +1,4 @@
-name: Experimental shadow and leaf IPA
+name: Build unsigned iOS IPA
 
 on:
   workflow_dispatch:
@@ -8,12 +8,8 @@ on:
         type: boolean
         required: false
         default: false
-      release_version:
-        description: 'Publish a release with this version (for example 1.0.0). Leave empty for a normal build.'
-        required: false
-        default: ''
   push:
-    branches: ['experimental/shadow-leaf-fixes-1.0.5']
+    branches: ['experimental/shadow-leaf-fixes-1.0.5', 'release/v1.0.6']
 
 permissions:
   contents: read
@@ -21,10 +17,11 @@ permissions:
 jobs:
 
   ios:
-    if: github.ref == 'refs/heads/experimental/shadow-leaf-fixes-1.0.5'
+    if: github.ref == 'refs/heads/experimental/shadow-leaf-fixes-1.0.5' || github.ref == 'refs/heads/release/v1.0.6'
     runs-on: macos-15
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      RELEASE_VERSION: ${{ github.ref == 'refs/heads/release/v1.0.6' && '1.0.6' || '' }}
       UI_DIAGNOSTICS: ${{ (github.event_name == 'workflow_dispatch' && inputs.ui_diagnostics) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[ui-diagnostics]')) }}
     steps:
       - uses: actions/checkout@v6
@@ -38,21 +35,38 @@ jobs:
           test "$(xcrun --sdk iphoneos --show-sdk-version)" = "18.5"
 
       - name: Select IPA variant
-        env:
-          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
         run: |
           if [[ -n "$RELEASE_VERSION" ]]; then
-            echo "This experimental workflow does not publish releases."
-            exit 1
-          fi
-          if [[ "$UI_DIAGNOSTICS" == true ]]; then
-            if [[ -n "$RELEASE_VERSION" || "$GITHUB_REF" == refs/tags/v* ]]; then
-              echo "Development UI diagnostics must be built separately from a release."
+            if [[ "$UI_DIAGNOSTICS" == true ]]; then
+              echo "Release builds cannot enable UI diagnostics."
               exit 1
             fi
+            echo 'IPA_FLAVOR=' >> "$GITHUB_ENV"
+          elif [[ "$UI_DIAGNOSTICS" == true ]]; then
             echo 'IPA_FLAVOR=-development' >> "$GITHUB_ENV"
           else
             echo 'IPA_FLAVOR=-experimental-render-fixes' >> "$GITHUB_ENV"
+          fi
+
+      - name: Verify release source and stamp
+        if: github.ref == 'refs/heads/release/v1.0.6'
+        run: |
+          python3 - <<'PYRELEASE'
+          from pathlib import Path
+          import os
+          import re
+
+          version = os.environ['RELEASE_VERSION']
+          cmake = Path('CMakeLists.txt').read_text()
+          assert re.search(r'project\(Paperboat\s+VERSION\s+' + re.escape(version) + r'\s', cmake), 'Project version mismatch'
+          assert Path(f'docs/release-notes/v{version}.md').is_file(), 'Release notes missing'
+          PYRELEASE
+          TAG="v$RELEASE_VERSION"
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            test "$(git rev-parse "$TAG^{}")" = "$GITHUB_SHA"
+          else
+            # Local build stamp only. Publication creates the remote tag after checks pass.
+            git tag "$TAG" "$GITHUB_SHA"
           fi
 
       - name: Check UIKit sources
@@ -120,7 +134,7 @@ jobs:
           PLIST="$APP/Info.plist"
           BASE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" "$PLIST"
-          REL="${{ github.event.inputs.release_version }}"
+          REL="$RELEASE_VERSION"
           if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then REL="${GITHUB_REF_NAME#v}"; fi
           if [[ -n "$REL" ]]; then
             # Release builds show the release version (1.0.0).
@@ -149,6 +163,7 @@ jobs:
                           if name.count('/') == 2 and name.endswith('/Info.plist'))
               metadata = plistlib.loads(archive.read(path))
           assert metadata.get('UIDeviceFamily') == [1, 2], 'IPA must support native iPhone and iPad'
+          assert metadata.get('MinimumOSVersion') == '16.3', 'Unexpected minimum OS version'
           assert metadata.get('CFBundleDisplayName') == 'PaperReality', 'Unexpected app display name'
           assert metadata.get('CFBundleIdentifier') == 'com.damien.paperreality', 'Unexpected bundle identifier'
           assert metadata.get('CFBundleVersion') == os.environ['GITHUB_RUN_NUMBER'], 'Unexpected build number'
@@ -162,8 +177,6 @@ jobs:
               'CFBundleVersion', 'UIDeviceFamily', 'MinimumOSVersion')}
           print('::notice::Verified packaged IPA metadata: ' + json.dumps(summary, sort_keys=True))
           PYVERIFY
-        env:
-          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
 
       - name: Upload IPA
         uses: actions/upload-artifact@v7
@@ -171,3 +184,45 @@ jobs:
           name: PaperReality-unsigned-ipa-b${{ github.run_number }}${{ env.IPA_FLAVOR }}
           path: out/PaperReality-b${{ github.run_number }}${{ env.IPA_FLAVOR }}-unsigned.ipa
 
+
+  publish-release:
+    name: Publish PaperReality 1.0.6
+    needs: ios
+    if: github.ref == 'refs/heads/release/v1.0.6'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: PaperReality-unsigned-ipa-b${{ github.run_number }}
+          path: release-artifact
+
+      - name: Publish verified release IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REL="1.0.6"
+          TAG="v$REL"
+          CURRENT=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/release/v1.0.6" --jq '.object.sha')
+          if [[ "$CURRENT" != "$GITHUB_SHA" ]]; then
+            echo "Release branch changed during this build; refusing stale publication."
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to replace it."
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > tag.json 2>/dev/null; then
+            TAG_COMMIT=$(python3 -c 'import json; print(json.load(open("tag.json"))["object"]["sha"])')
+            if [[ "$TAG_COMMIT" != "$GITHUB_SHA" ]]; then
+              echo "Tag $TAG points at different source; refusing publication."
+              exit 1
+            fi
+          fi
+          cp "release-artifact/PaperReality-b$GITHUB_RUN_NUMBER-unsigned.ipa" "release-artifact/PaperReality-$TAG-unsigned.ipa"
+          gh release create "$TAG" "release-artifact/PaperReality-$TAG-unsigned.ipa" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "PaperReality $REL" --notes-file "docs/release-notes/$TAG.md" --latest

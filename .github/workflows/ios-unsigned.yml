@@ -225,6 +225,16 @@ jobs:
               exit 1
             fi
           fi
+          # A release is complete only when its committed source is in main.
+          # The normal merge API preserves main-only changes and honors protection.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/merges" \
+            -f base=main -f head="$GITHUB_SHA" \
+            -f commit_message="Merge PaperReality $REL release into main" --silent
+          MAIN_STATUS=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq '.status')
+          if [[ "$MAIN_STATUS" != ahead && "$MAIN_STATUS" != identical ]]; then
+            echo "main does not contain this release source; refusing publication."
+            exit 1
+          fi
           cp "release-artifact/PaperReality-b$GITHUB_RUN_NUMBER-unsigned.ipa" "release-artifact/PaperReality-$TAG-unsigned.ipa"
           gh release create "$TAG" "release-artifact/PaperReality-$TAG-unsigned.ipa" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \

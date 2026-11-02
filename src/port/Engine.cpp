@@ -321,7 +321,7 @@ void GameEngine::FinishInit() {
         static_cast<uint32_t>(Fast::ResourceType::Texture), 0
     );
     loader->RegisterResourceFactory(
-        std::make_shared<Fast::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY, "Texture",
+        std::make_shared<PM64::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY, "Texture",
         static_cast<uint32_t>(Fast::ResourceType::Texture), 1
     );
     loader->RegisterResourceFactory(

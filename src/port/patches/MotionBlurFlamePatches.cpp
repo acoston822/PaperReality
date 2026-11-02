@@ -76,9 +76,10 @@ void port_motion_blur_flame_appendGfx(void* effect) {
     // filtering and the G_RM_PASS / G_RM_CLD_SURF2 blender.
     gSPDisplayList(gMainGfxPos++, D_E00A29D0[type]);
 
-    // Experimental comparison: isolate replacement alpha/format handling.
+    // Optional native-mask comparison. The default path keeps the HD mask,
+    // whose intensity coverage is normalized by the texture importer.
     // Only the type-0 orb mask changes; geometry, combiner and other assets do not.
-    if (type == 0 && CVarGetInteger("gDeveloper.NativeUpgradeOrbMask", 1) != 0) {
+    if (type == 0 && CVarGetInteger("gDeveloper.NativeUpgradeOrbMask", 0) != 0) {
         const u8* mask = native_upgrade_orb_mask();
         if (mask != nullptr) {
             gDPLoadTextureBlock(gMainGfxPos++, mask, G_IM_FMT_I, G_IM_SIZ_8b,

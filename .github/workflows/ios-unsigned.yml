@@ -86,6 +86,9 @@ jobs:
       - name: Check startup aspect handling
         run: python3 tests/rendering/run-boot-aspect.py
 
+      - name: Check HD upgrade-orb coverage
+        run: python3 tests/rendering/run-upgrade-orb-alpha.py
+
       - name: Install dependencies
         run: brew install cmake ninja
 

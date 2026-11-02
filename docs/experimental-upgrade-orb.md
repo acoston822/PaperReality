@@ -1,54 +1,53 @@
-# Experimental partner-upgrade orb mask comparison
+# Experimental HD partner-upgrade mask correction
 
-Based on build 133. All shadow, leaf, startup and dialogue-frame candidate changes are retained.
+Build 135 supersedes build 134's default native-mask substitution. The earlier
+shadow, leaf, startup and dialogue-frame changes are retained. Release remains
+1.0.5; this is an experimental IPA.
 
-## What this tests
+## Evidence and correction
 
-The black patch over Goombario coincides with the type-0 energy orb used by
-SuperBlock_AnimateEnergyOrbs. Its port rendering path samples a 16x16 intensity
-texture for both colour and coverage. Native I8 decoding supplies the intensity
-as alpha; an imported replacement can take a different format/alpha path. This
-is a hypothesis consistent with an opaque rectangle, not proof that the author's
-pack contains invalid alpha. The user's pack is MasterKillua's Paper Mario
-Refolded HD; no pack images or bytes have been inspected or uploaded.
+The supplied `tex_0` is a binary-v1 RGBA32 replacement, 128x128 pixels, RAW flag,
+horizontal byte scale 32 and vertical pixel scale 8. It is grayscale throughout.
+Every pixel has nonzero alpha (minimum 27/255), including 11,582 black RGB pixels.
+The corners are black with alpha 27. This provides a concrete mechanism for a
+dark rectangular overlay in an effect that uses the mask's alpha as coverage.
+Device comparison is still required to establish that it explains the reported
+patch. The resource inspected was supplied privately and is not in this repo.
 
-This build substitutes a stable copy of the exact native tex_0 I8 mask for the
-type-0 orb. It loads the bytes from the user's existing game archive on-device,
-validates 16x16 dimensions and 256-byte size, and uses a normal raw-I8 texture
-load. Other effect types are untouched. HD characters/scenery remain enabled,
-as do the existing orb colour, size, geometry, trail and combiner calculations.
-No mask data is embedded in source or the IPA. Missing/invalid native data falls
-back to the previous path with a one-time log; successful loading logs once.
+The PM64 binary-v1 texture loader now delegates to the existing FAST loader and
+then normalizes only `effects/effect_gfx_motion_blur_flame/tex_0` (root or alt/).
+For valid grayscale RGBA32 RAW masks, alpha is capped at the grayscale intensity:
+`alpha = min(alpha, red)`. RGB, width, height, byte/pixel scales and texture flags
+are unchanged. Already lower alpha is retained. Black RGB therefore has zero
+coverage; a white opaque core stays white and opaque. Coloured art, other assets,
+other formats and invalid byte counts are untouched.
 
-This is a targeted compatibility workaround and comparison. A positive result
-narrows the problem to the replacement-mask/format/sampling path; it does not
-by itself distinguish pack alpha, importer behavior and tile metadata.
+Normalization happens once on resource loading, before mip generation. It uses
+a private pixel-buffer copy; archive files and shared file-buffer bytes are not
+edited. No game/pack image data is embedded in source, tests, or the IPA.
 
-## Compare in the same build
+## Device test
 
-Keep Alternate Assets ON. The native mask is enabled by default.
-Replay the upgrade from the same pre-upgrade save, then compare these Console commands:
+Keep Refolded HD/Alternate Assets enabled and replay the same partner upgrade.
+The HD alpha correction is enabled by default and native substitution is off.
+No console commands are needed unless a prior test explicitly saved the native
+comparison CVar; if so, use `set gDeveloper.NativeUpgradeOrbMask 0` once.
 
-- `set gDeveloper.NativeUpgradeOrbMask 1`: native I8 mask (candidate workaround).
-- `set gDeveloper.NativeUpgradeOrbMask 0`: original build-133 orb drawing path.
+For comparison, `set gDeveloper.UpgradeOrbHDAlpha 0` disables normalization for
+the next resource load; fully close and relaunch the app before replaying.
+Restore it with value 1 and relaunch. This loader-time switch does not modify
+already-cached textures. `set gDeveloper.NativeUpgradeOrbMask 1` remains the
+lower-resolution native fallback and can be returned to value 0.
 
-Close Console before observing/replaying. If the rectangle disappears in mode 1
-and returns in mode 0, report that along with whether the glow/trail still looks
-correct. Return to mode 1 afterward. This development CVar can be saved by the
-Console, so set it explicitly when comparing. Do not disable the entire pack.
+A successful correction logs `[upgrade-orb] HD intensity coverage corrected
+(128x128); RGB and scale retained`. Do not confuse this with build 134's native
+mask log.
 
-In Paperboat.log, a successful mask initialization prints
-`[upgrade-orb] Native 16x16 I8 mask ready`. If the log instead says the mask was
-unavailable and the previous path was kept, a visual result does not test the
-native-mask hypothesis. No private data or texture bytes are logged.
+## Verification
 
-## Validation
-
-The synthetic fixture compiles the production effect patch, inspects the actual
-texture load, checks I8 render-tile semantics, all 256 copied bytes and stability
-against source mutation. It covers enabled/disabled mode, other effect types,
-missing data, wrong size/width and cached reuse. Ordinary and AddressSanitizer
-runs pass locally (leak detection disabled for the traced environment).
-It does not execute Metal or the user's pack; device comparison is required.
-
-The Linux Ninja helper is `tests/rendering/run-upgrade-orb-mask.py [build] [--sanitize]`.
+`python3 tests/rendering/run-upgrade-orb-alpha.py` checks synthetic edge/core
+pixels, all 65,536 intensity/alpha pairs, unchanged RGB and lower alpha,
+idempotence, exact path matching, and rejection without partial edits for coloured
+or invalid input. `--sanitize` enables AddressSanitizer/UndefinedBehaviorSanitizer.
+Private local tests may inspect the user's supplied mask; it must not be
+committed or uploaded. Metal and the real scene still require device validation.

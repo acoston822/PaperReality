@@ -42,8 +42,10 @@ unchanged; existing row actions remain available.
 
 ## Build and distribution
 
-- CMake project version is 1.0.6. The release workflow uses the same macOS 15,
-  Xcode 16.4 and iPhoneOS SDK 18.5 combination as builds 131 through 136.
+- CMake project version is 1.0.6. The release workflow retains macOS 15,
+  Xcode 16.4 and iPhoneOS SDK 18.5. Release builds use the standard Intel host
+  after GitHub failed to acquire an ARM-hosted runner for build 137. The iOS
+  output still targets ARM64 devices. Experimental builds keep their prior host.
 - The release builds from `release/v1.0.6`, with UI diagnostics disabled. The
   version and notes must match before configuration. A local tag gives CMake the
   release stamp; the remote tag/release is created only after the build and

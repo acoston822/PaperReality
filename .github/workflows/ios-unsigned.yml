@@ -18,7 +18,7 @@ jobs:
 
   ios:
     if: github.ref == 'refs/heads/experimental/shadow-leaf-fixes-1.0.5' || github.ref == 'refs/heads/release/v1.0.6'
-    runs-on: macos-15
+    runs-on: ${{ github.ref == 'refs/heads/release/v1.0.6' && 'macos-15-intel' || 'macos-15' }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       RELEASE_VERSION: ${{ github.ref == 'refs/heads/release/v1.0.6' && '1.0.6' || '' }}

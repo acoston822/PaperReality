@@ -1600,6 +1600,12 @@ namespace {
             case ITEM_JUMP_CHARGE0:
             case ITEM_SHRINK_SMASH:
             case ITEM_AUTO_MULTIBOUNCE:
+            case ITEM_CRAZY_HEART:
+            case ITEM_MEGA_HP_DRAIN:
+            case ITEM_FLOWER_FANATIC:
+            case ITEM_SUPER_SMASH:
+            case ITEM_SUPER_FOCUS:
+            case ITEM_ATTACK_FX_F:
             case ITEM_AUTO_JUMP:
             case ITEM_SUPER_JUMP:
             case ITEM_AUTO_SMASH:
@@ -1608,6 +1614,18 @@ namespace {
             case ITEM_RIGHT_ON:
             case ITEM_HEALTHY_HEALTHY:
             case ITEM_EARTHQUAKE_JUMP:
+            // Unobtainable duplicate IDs; the normal copies stay in the main list.
+            case ITEM_HAPPY_HEART_X:
+            case ITEM_FLOWER_SAVER_X:
+            case ITEM_DAMAGE_DODGE_X:
+            case ITEM_POWER_PLUS_X:
+            case ITEM_HAPPY_FLOWER_X:
+            case ITEM_DEFEND_PLUS_X:
+            case ITEM_DEFEND_PLUS_Y:
+            case ITEM_HP_PLUS_X:
+            case ITEM_HP_PLUS_Y:
+            case ITEM_FP_PLUS_X:
+            case ITEM_FP_PLUS_Y:
             case ITEM_INSECTICIDE_HERB:
             case ITEM_PLEASE_COME_BACK:
                 return true;

@@ -46,6 +46,10 @@ unchanged; existing row actions remain available.
   Xcode 16.4 and iPhoneOS SDK 18.5. Release builds use the standard Intel host
   after GitHub failed to acquire an ARM-hosted runner for build 137. The iOS
   output still targets ARM64 devices. Experimental builds keep their prior host.
+- iOS configuration limits package, library and header discovery to target roots.
+  Build 138 exposed a preinstalled Mac libzip being selected on the Intel host,
+  bypassing the iOS source build. Host programs remain discoverable. Existing
+  FetchContent redirects and pinned dependency versions are retained.
 - The release builds from `release/v1.0.6`, with UI diagnostics disabled. The
   version and notes must match before configuration. A local tag gives CMake the
   release stamp; the remote tag/release is created only after the build and

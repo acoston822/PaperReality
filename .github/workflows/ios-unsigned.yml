@@ -117,7 +117,10 @@ jobs:
         run: |
           cmake -S . -B build-ios -G Xcode \
             -DCMAKE_TOOLCHAIN_FILE=cmake/ios.paperboat.toolchain.cmake \
-            -DPLATFORM=OS64 -DIOS_SIGNING=OFF -DPAPERREALITY_UI_DIAGNOSTICS="$UI_DIAGNOSTICS"
+            -DPLATFORM=OS64 -DIOS_SIGNING=OFF -DPAPERREALITY_UI_DIAGNOSTICS="$UI_DIAGNOSTICS" \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
 
       - name: Build
         run: cmake --build build-ios --config Release --parallel $(sysctl -n hw.logicalcpu)

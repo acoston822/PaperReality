@@ -78,6 +78,10 @@ void FrameInterpolation_RecordMatrixRotate1Coord(MtxF* matrix, u32 coord, s16 va
 void FrameInterpolation_RecordMatrixRotateXYCoords(MtxF* matrix, s16 x, s16 y);
 
 void FrameInterpolation_RecordMatrixMtxFToMtx(MtxF* src, Mtx* dest);
+// Encoding preserves the float source; decoding must not replace that sample.
+void FrameInterpolation_RecordMatrixEncoded(MtxF* src, Mtx* dest);
+void FrameInterpolation_CopyMatrix(Mtx* src, Mtx* dest);
+void FrameInterpolation_ReadMatrix(Mtx* src, MtxF* dest);
 
 void FrameInterpolation_RecordMatrixToMtx(Mtx* dest, char* file, s32 line);
 
@@ -105,3 +109,4 @@ void FrameInterpolation_RecordOrtho(Mtx* m, f32 left, f32 right, f32 bottom, f32
 #endif
 
 #endif // __FRAME_INTERPOLATION_H
+

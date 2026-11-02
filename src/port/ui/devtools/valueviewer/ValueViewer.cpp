@@ -1,4 +1,5 @@
 #include "ValueViewer.h"
+#include "port/ui/NativeSettings.h"
 #include "port/ui/UIWidgets.hpp"
 #include <string>
 #include <spdlog/fmt/fmt.h>
@@ -237,5 +238,55 @@ void ValueViewerSettingsWindow::DrawElement() {
 
     ValueViewerSettings_DrawTabBar();
 }
+
+namespace Paperboat::NativeSettings {
+Page ValueViewerPage() {
+    // Reuse the overlay's CVars and drawing path. UIKit edits run on the game
+    // queue, where the cached ImGui overlay state can be updated immediately.
+    auto connected = [](Row row) {
+        auto change = row.change;
+        row.change = [change](double value) {
+            change(value);
+            ValueViewerSettings_Update();
+            valueViewerBG.w = CVAR_VALUE_VIEWER_OPACITY;
+            valueViewerScale = CVAR_VALUE_VIEWER_SCALE;
+            if (CVAR_ENABLE_FLOATING_WINDOW)
+                valueViewerWindowFlags |= ImGuiWindowFlags_NoTitleBar;
+            else
+                valueViewerWindowFlags &= ~ImGuiWindowFlags_NoTitleBar;
+            auto viewer = Ship::Context::GetRawInstance()->GetWindow()->GetGui()->GetGuiWindow("Value Viewer");
+            if (viewer) {
+                if (CVAR_SHOW_VALUE_VIEWER)
+                    viewer->Show();
+                else
+                    viewer->Hide();
+            }
+        };
+        return row;
+    };
+    auto opacity = Number("Background Opacity", CVAR_NAME_VALUE_VIEWER_OPACITY, false, 0, 1, .01, .5);
+    opacity.percentage = true;
+    return { "values/root",
+             "Value Viewer",
+             "",
+             { { "",
+                 "",
+                 { connected(Toggle(
+                     "Show Value Viewer", CVAR_NAME_SHOW_VALUE_VIEWER, false, "Display selected values during play."
+                 )) } },
+               { "Window Options",
+                 "",
+                 { connected(Toggle(
+                       "Floating Window", CVAR_NAME_ENABLE_FLOATING_WINDOW, false, "Hide the viewer's title bar."
+                   )),
+                   connected(std::move(opacity)),
+                   // Preserve the overlay's existing 0.5 fallback as a valid size.
+                   connected(Number("Overlay Size", CVAR_NAME_VALUE_VIEWER_SCALE, false, .5, 2.5, .1, .5)) } },
+               { "Value Options",
+                 "",
+                 { connected(Toggle("Show Current Map", CVAR_NAME_SHOW_MAP, false)),
+                   connected(Toggle("Show Mario's Position", CVAR_NAME_SHOW_POSITION, false)) } } } };
+}
+} // namespace Paperboat::NativeSettings
 
 #pragma pop_macro("End")

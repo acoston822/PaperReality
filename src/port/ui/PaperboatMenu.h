@@ -3,6 +3,7 @@
 #include <libultraship/libultraship.h>
 #include "UIWidgets.hpp"
 #include "Menu.h"
+#include "NativeSettings.h"
 #include <fast/backends/gfx_rendering_api.h>
 #include "port/ui/cvar_prefixes.h"
 #include "port/ui/enhancementTypes.h"
@@ -23,6 +24,11 @@ class PaperboatMenu : public Ship::Menu {
     void AddMenuEnhancements();
     void AddMenuShaderSettings();
     void AddMenuDevTools();
+    std::vector<Paperboat::NativeSettings::Group> NativeNavigation();
+    Paperboat::NativeSettings::Page NativePage(const std::string& key);
+    void ApplyNativeWidget(const std::string& key, double value);
+    bool PrepareNativeWidget(WidgetInfo& widget);
+    WidgetInfo* NativeWidget(const std::string& key);
 
   private:
     char mGitCommitHashTruncated[8];

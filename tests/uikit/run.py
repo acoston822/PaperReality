@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Compile and run the real UIKit controllers on an iOS simulator, without game assets."""
+import json
+import argparse
+import os
+from pathlib import Path
+import platform
+import plistlib
+import shutil
+import subprocess
+import sys
+import time
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--no-captures', action='store_true', help='Run checks without writing screenshots or gallery images.')
+parser.add_argument('--ui-diagnostics', action='store_true', help='Include the development settings timing overlay.')
+args = parser.parse_args()
+
+root = Path(__file__).resolve().parents[2]
+out = root / 'build-uikit-smoke'
+app = out / 'UIKitSmoke.app'
+app.mkdir(parents=True, exist_ok=True)
+def run(*args, **kwargs):
+    return subprocess.check_output(args, text=True, **kwargs).strip()
+sdk = run('xcrun', '--sdk', 'iphonesimulator', '--show-sdk-path')
+backend_includes = ['-I'+str(root/'external/libultraship/include'), '-I'+str(root/'build-uikit-backend/include')]
+subprocess.run(['c++','-std=c++20',*backend_includes,str(root/'tests/native-settings/frame-pacer.cpp'),
+                '-o',str(out/'frame-pacer-check')],check=True)
+subprocess.run([str(out/'frame-pacer-check')],check=True)
+subprocess.run(['c++','-std=c++20','-I'+str(root/'src'),str(root/'tests/native-settings/portraits.cpp'),
+                '-o',str(out/'portrait-check')],check=True)
+subprocess.run([str(out/'portrait-check')],check=True)
+subprocess.run(['xcrun','--sdk','iphonesimulator','clang++','-std=c++20','-fobjc-arc',
+                '-target',platform.machine()+'-apple-ios16.3-simulator','-isysroot',sdk,
+                '-D__IOS__','-DPAPERREALITY_UI_DIAGNOSTICS='+str(int(args.ui_diagnostics)),
+                '-I'+str(root/'src'),*backend_includes,str(root/'tests/uikit/Host.mm'),
+                '-framework','UIKit','-framework','Foundation','-framework','CoreGraphics',
+                '-framework','QuartzCore','-framework','GameController','-o',str(app/'UIKitSmoke')],check=True)
+with (app/'Info.plist').open('wb') as f:
+    plistlib.dump({'CFBundleExecutable':'UIKitSmoke','CFBundleIdentifier':'org.paperreality.uikit-smoke',
+                  'CFBundleName':'UIKitSmoke','CFBundlePackageType':'APPL','CFBundleVersion':'1',
+                  'CFBundleShortVersionString':'1.0','MinimumOSVersion':'16.3','UIDeviceFamily':[1,2],
+                  'UILaunchScreen':{},'CFBundleURLTypes':[{'CFBundleURLSchemes':['uikitsmoke']}],'UISupportedInterfaceOrientations':['UIInterfaceOrientationLandscapeLeft','UIInterfaceOrientationLandscapeRight']},f)
+shutil.copyfile(root/'ios/PaperReality-Boat.png', app/'PaperReality-Boat.png')
+subprocess.run(['codesign','--force','--sign','-',str(app)],check=True)
+runtimes=json.loads(run('xcrun','simctl','list','runtimes','-j'))['runtimes']
+runtime=next(r for r in reversed(runtimes) if r.get('isAvailable') and r['identifier'].startswith('com.apple.CoreSimulator.SimRuntime.iOS-'))
+types=json.loads(run('xcrun','simctl','list','devicetypes','-j'))['devicetypes']
+device_type=next(d for d in types if d['name']=='iPhone 15 Pro')
+device=run('xcrun','simctl','create','PaperReality UIKit smoke',device_type['identifier'],runtime['identifier'])
+try:
+    run('xcrun','simctl','boot',device)
+    subprocess.run(['xcrun','simctl','bootstatus',device,'-b'],check=True,timeout=240)
+    run('xcrun','simctl','install',device,str(app))
+    run('xcrun','simctl','launch',device,'org.paperreality.uikit-smoke')
+    data=Path(run('xcrun','simctl','get_app_container',device,'org.paperreality.uikit-smoke','data'))
+    result=data/'Documents/UIKitSmoke.json'
+    for _ in range(100):
+        if result.exists(): break
+        time.sleep(1)
+    if not args.no_captures:
+        subprocess.run(['xcrun','simctl','io',device,'screenshot',str(out/'settings.png')],check=False)
+    if result.exists():
+        report=json.loads(result.read_text()); (out/'result.json').write_text(json.dumps(report,indent=2))
+    else:
+        progress=data/'Documents/UIKitProgress.log'
+        detail=progress.read_text() if progress.exists() else 'App did not reach launch callback'
+        report={'status':'failed','message':'Simulator exited or timed out.\n'+detail}
+    (out/'result.json').write_text(json.dumps(report,indent=2))
+    logs=''
+    if report['status']!='passed':
+        try:
+            logs=run('xcrun','simctl','spawn',device,'log','show','--last','1m','--style','compact','--predicate','process == "UIKitSmoke"',timeout=30)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
+            logs='System-log retrieval unavailable: '+str(error)
+    (out/'simulator.log').write_text(logs)
+    if report['status']=='passed' and not args.no_captures:
+        run('xcrun','simctl','status_bar',device,'override','--time','9:41','--batteryState','charged','--batteryLevel','100')
+        for page in ['general','audio','sidebar','audio-dark','general-dark']:
+            (data/'Documents/UIKitCommand').write_text(page)
+            source=data/('Documents/'+page+'.png')
+            for _ in range(50):
+                if source.exists():break
+                time.sleep(.2)
+            if not source.exists():raise RuntimeError('App view capture was not produced: '+page)
+            screenshot=out/(page+'.png')
+            screenshot.write_bytes(source.read_bytes())
+    print(json.dumps(report,indent=2))
+    if report['status']!='passed':
+        print(logs[-10000:])
+        for line in report['message'].splitlines()[:35]: print('::error::'+line.replace('%','%25').replace('\r','%0D'))
+        sys.exit(1)
+finally:
+    subprocess.run(['xcrun','simctl','shutdown',device],check=False)
+    subprocess.run(['xcrun','simctl','delete',device],check=False)

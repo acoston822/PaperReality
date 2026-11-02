@@ -9,6 +9,7 @@
 #include "port/Engine.h"
 #include "port/shape_loader.h"
 #include "port/patches/Patches.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 extern u16 gFrameBuf0[];
 extern u16 gFrameBuf1[];
@@ -34,6 +35,9 @@ extern ShapeFile gMapShapeData;
 
 void state_init_battle(void) {
     BattleTransitionDelay = 5;
+    GameEngine_LogInfo("[battle-start] requested battle=%04X stage=%d render=%ux%u msaa=%d alt=%d",
+        (unsigned) gCurrentBattleID, gCurrentStageID, OTRGetGameRenderWidth(), OTRGetGameRenderHeight(),
+        CVarGetInteger("gSettings.MSAAValue", 1), CVarGetInteger("gEnhancements.Mods.AlternateAssets", 0));
 }
 
 void state_step_battle(void) {
@@ -57,6 +61,7 @@ void state_step_battle(void) {
         nuGfxSetCfb(bFrameBuffers, 2);
         nuContRmbForceStopEnd();
         sfx_stop_env_sounds();
+        GameEngine_LogInfo("[battle-start] loading battle resources");
         func_8003B1A8();
         gGameStatusPtr->context = CONTEXT_BATTLE;
         backup_map_collision_data();
@@ -78,6 +83,7 @@ void state_step_battle(void) {
         } else {
             spr_init_sprites(PLAYER_SPRITES_MARIO_BATTLE);
         }
+        GameEngine_LogInfo("[battle-start] player sprites loaded");
 
         clear_model_data();
         clear_sprite_shading_data();
@@ -93,9 +99,11 @@ void state_step_battle(void) {
         clear_npcs();
         clear_entity_data(true);
         clear_trigger_data();
+        GameEngine_LogInfo("[battle-start] initializing battle status");
         initialize_battle();
         btl_save_world_cameras();
         load_battle_section();
+        GameEngine_LogInfo("[battle-start] battle section loaded state=%d substate=%d", gBattleState, gBattleSubState);
         SavedWorldAnimFlags = gPlayerStatusPtr->animFlags;
         gPlayerStatusPtr->animFlags &= ~PA_FLAG_PULSE_STONE_VISIBLE;
         SavedWorldFreezeMode = get_time_freeze_mode();

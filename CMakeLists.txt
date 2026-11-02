@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Paperboat
-    VERSION 1.0.3
+    VERSION 1.0.6
     LANGUAGES C CXX
     DESCRIPTION "PM64"
 )
@@ -313,7 +313,7 @@ endif()
 if(IOS)
     set(IOS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/ios)
     set(STORYBOARD_FILE ${IOS_DIR}/Launch.storyboard)
-    set(IMAGE_FILES ${IOS_DIR}/PoweredBy.png)
+    set(IMAGE_FILES ${IOS_DIR}/PoweredBy.png ${IOS_DIR}/PaperReality-Boat.png)
     set(ICON_FILES ${IOS_DIR}/Icon.png)
 
     add_executable(${PROJECT_NAME}
@@ -324,11 +324,19 @@ if(IOS)
         ${ICON_FILES}
     )
 
+    option(PAPERREALITY_UI_DIAGNOSTICS "Include development-only UIKit timing overlay" OFF)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE
+        $<$<OR:$<CONFIG:Debug>,$<BOOL:${PAPERREALITY_UI_DIAGNOSTICS}>>:PAPERREALITY_UI_DIAGNOSTICS=1>
+    )
+
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST ${IOS_DIR}/plist.in
         RESOURCE "${IMAGE_FILES};${STORYBOARD_FILE};${ICON_FILES}"
         XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${BUNDLE_ID}"
+        # Advertise both devices so iPadOS uses a native iPad window instead
+        # of running the app in an iPhone compatibility canvas.
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
     )
 
     if(IOS_SIGNING)
@@ -486,7 +494,7 @@ add_dependencies(${PROJECT_NAME} GeneratePortO2R)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship torch yaml-cpp)
 if(IOS)
-    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers")
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework UIKit" "-framework UniformTypeIdentifiers" "-framework QuartzCore" "-framework Metal" "-framework GameController")
 endif()
 
 if(ANDROID)
@@ -516,13 +524,15 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         -sEXIT_RUNTIME=1
         -sSTACK_SIZE=5242880
-        -sPTHREAD_POOL_SIZE=8
+        "-sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency+20"
         # The frame loop blocks; Asyncify lets it yield to the browser. Torch
         # is excluded — see src/port/web/asyncify-remove.txt.
         -sASYNCIFY=1
         "-sASYNCIFY_REMOVE=@${CMAKE_SOURCE_DIR}/src/port/web/asyncify-remove.txt"
         -sASYNCIFY_STACK_SIZE=8388608
         -sASSERTIONS=1
+        -sEMULATE_FUNCTION_POINTER_CASTS=1
+        -sBINARYEN_EXTRA_PASSES=--pass-arg=max-func-params@32
         -sFORCE_FILESYSTEM=1
         -sEXPORTED_FUNCTIONS=_main,_malloc,_free
         -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,UTF8ToString,stringToUTF8

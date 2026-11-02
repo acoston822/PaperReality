@@ -1,4 +1,6 @@
 #include "TouchControls.h"
+#include "NativeControllerNavigation.h"
+#include <cstring>
 
 #include <SDL2/SDL.h>
 #include <imgui.h>
@@ -258,11 +260,11 @@ void ComputeLayout(OverlayState& state) {
 
     state.stickTravel = 2.4f * u;
     state.nubRadius = 1.6f * u;
-    state.stickRest = LoadPos("Stick", ImVec2(4.8f * u, h - 4.8f * u), w, h);
+    state.stickRest = LoadPos("Stick", ImVec2(8.4f * u, h - 5.6f * u), w, h);
     state.stickUv0 = UvMin(rStick);
     state.stickUv1 = UvMax(rStick);
 
-    state.menuCenter = LoadPos("Menu", ImVec2(2.0f * u, 1.8f * u), w, h);
+    state.menuCenter = LoadPos("Menu", ImVec2(2.0f * u, h - 1.4f * u), w, h);
     state.menuRadius = 1.0f * u;
 
     state.editMode = CVarGetInteger(CVAR_TOUCH("EditMode"), 0) != 0;
@@ -273,50 +275,34 @@ void ComputeLayout(OverlayState& state) {
 
     state.gameButtons.clear();
     // Face buttons, bottom-right.
-    state.gameButtons.push_back(make(
-        BTN_A, "A", "A", "A-Btn", "textures/buttons/ABtn.png", "A-Btn Outline", "textures/buttons/ABtnOutline.png", rA,
-        kBlue, 0, 0, ImVec2(w - 2.6f * u, h - 3.0f * u), 1.5f * u
-    ));
-    state.gameButtons.push_back(make(
-        BTN_B, "B", "B", "B-Btn", "textures/buttons/BBtn.png", "B-Btn Outline", "textures/buttons/BBtnOutline.png", rB,
-        kGreen, 0, 0, ImVec2(w - 5.6f * u, h - 4.2f * u), 1.25f * u
-    ));
-    // C buttons in a diamond, above the face buttons.
-    const ImVec2 c(w - 3.3f * u, h - 8.8f * u);
-    const float cOff = 1.6f * u;
+    // Drawn as smooth vector discs (like L, R and Z) rather than the pixel-art sprites.
+    state.gameButtons.push_back(makeDisc(BTN_A, "A", "A", rA, kBlue, ImVec2(w - 5.8f * u, h - 3.9f * u), 1.5f * u));
+    state.gameButtons.push_back(makeDisc(BTN_B, "B", "B", rB, kGreen, ImVec2(w - 9.0f * u, h - 6.6f * u), 1.25f * u));
+    // C buttons in a square diamond, above the face buttons.
+    const ImVec2 c(w - 5.0f * u, h - 10.2f * u);
+    const float cOffset = 1.8f * u;
     const float cR = 0.95f * u;
-    state.gameButtons.push_back(make(
-        BTN_CUP, "CUp", "C", "C-Up", "textures/buttons/CUp.png", "C-Up Outline", "textures/buttons/CUpOutline.png",
-        rCUp, kYellow, 0, -1, ImVec2(c.x, c.y - cOff), cR
-    ));
-    state.gameButtons.push_back(make(
-        BTN_CDOWN, "CDown", "C", "C-Down", "textures/buttons/CDown.png", "C-Down Outline",
-        "textures/buttons/CDownOutline.png", rCDown, kYellow, 0, 1, ImVec2(c.x, c.y + cOff), cR
-    ));
-    state.gameButtons.push_back(make(
-        BTN_CLEFT, "CLeft", "C", "C-Left", "textures/buttons/CLeft.png", "C-Left Outline",
-        "textures/buttons/CLeftOutline.png", rCLeft, kYellow, -1, 0, ImVec2(c.x - cOff, c.y), cR
-    ));
-    state.gameButtons.push_back(make(
-        BTN_CRIGHT, "CRight", "C", "C-Right", "textures/buttons/CRight.png", "C-Right Outline",
-        "textures/buttons/CRightOutline.png", rCRight, kYellow, 1, 0, ImVec2(c.x + cOff, c.y), cR
-    ));
-    // Shoulder / trigger bars: L top-left (clear of the menu button), R and Z top-right.
-    // Round, gray-ringed L/R slightly larger than A (1.5u); purple-ringed Z the same size as B (1.25u).
+    state.gameButtons.push_back(makeDisc(BTN_CUP, "CUp", "C", rCUp, kYellow, ImVec2(c.x, c.y - cOffset), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CDOWN, "CDown", "C", rCDown, kYellow, ImVec2(c.x, c.y + cOffset), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CLEFT, "CLeft", "C", rCLeft, kYellow, ImVec2(c.x - cOffset, c.y), cR));
+    state.gameButtons.push_back(makeDisc(BTN_CRIGHT, "CRight", "C", rCRight, kYellow, ImVec2(c.x + cOffset, c.y), cR));
+    // L/R share their height and edge inset so their default positions are mirrored.
+    const float shoulderInset = 5.0f * u;
+    const float shoulderY = 1.9f * u;
     state.gameButtons.push_back(
-        makeRoundRect(BTN_L, "L", "L", rL, kGray, ImVec2(7.6f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+        makeRoundRect(BTN_L, "L", "L", rL, kGray, ImVec2(shoulderInset, shoulderY), 2.5f * u, 1.0f * u)
     );
     state.gameButtons.push_back(
-        makeRoundRect(BTN_R, "R", "R", rR, kGray, ImVec2(w - 4.4f * u, 1.9f * u), 2.5f * u, 1.0f * u)
+        makeRoundRect(BTN_R, "R", "R", rR, kGray, ImVec2(w - shoulderInset, shoulderY), 2.5f * u, 1.0f * u)
     );
-    state.gameButtons.push_back(makeDisc(BTN_Z, "Z", "Z", rZ, kPurple, ImVec2(w - 4.4f * u, 5.1f * u), 1.25f * u));
+    state.gameButtons.push_back(makeDisc(BTN_Z, "Z", "Z", rZ, kPurple, ImVec2(w - 10.2f * u, h - 2.9f * u), 1.25f * u));
     // D-pad cross on the left, above the stick area. Each texture is one arm
     // (with the shared hub), so adjacent placement reassembles the cross.
     const ImVec2 d(3.4f * u, h - 9.8f * u);
     const float dOff = 0.75f * u;
     // "Show Touch D-Pad" off: leave the four arms out entirely, so they are neither drawn, hit-tested nor
     // draggable in the layout editor.
-    const bool showDpad = CVarGetInteger(CVAR_TOUCH("ShowDpad"), 1) != 0;
+    const bool showDpad = CVarGetInteger(CVAR_TOUCH("ShowDpad"), 0) != 0;
     if (showDpad) {
     state.gameButtons.push_back(make(
         BTN_DUP, "DUp", "D", "Dpad-Up", "textures/buttons/DPadUp.png", "Dpad-Up Outline",
@@ -336,10 +322,7 @@ void ComputeLayout(OverlayState& state) {
     ));
     }
     // Start, bottom-center.
-    state.gameButtons.push_back(make(
-        BTN_START, "Start", "S", "Start-Btn", "textures/buttons/StartBtn.png", "Start-Btn Outline",
-        "textures/buttons/StartBtnOutline.png", rStart, kRed, 0, 0, ImVec2(w * 0.5f, h - 1.7f * u), 0.9f * u
-    ));
+    state.gameButtons.push_back(makeDisc(BTN_START, "Start", "S", rStart, kRed, ImVec2(w * 0.5f, h - 1.7f * u), 0.9f * u));
 }
 
 float Dist(const ImVec2& a, const ImVec2& b) {
@@ -366,6 +349,95 @@ bool HitsButton(const TouchButton& b, const ImVec2& p) {
 
 bool InRect(const ImVec2& p, const ImVec2& center, const ImVec2& half) {
     return std::fabs(p.x - center.x) <= half.x && std::fabs(p.y - center.y) <= half.y;
+}
+
+// Read the physical controller directly so N64 remappings cannot change the
+// editor's controls. A held opening button is ignored until everything releases.
+Paperboat::NativeSettings::ControllerRepeat sLayoutRepeat;
+bool sControllerLayoutActive = false;
+int sControllerLayoutTarget = 0;
+bool sLayoutReleasePending = false;
+uint32_t LayoutControllerHeld() {
+    using namespace Paperboat::NativeSettings;
+    uint32_t held = 0;
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        if (!SDL_IsGameController(i))
+            continue;
+        SDL_GameController* pad = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
+        if (!pad)
+            continue;
+        auto pressed = [pad](SDL_GameControllerButton button) { return SDL_GameControllerGetButton(pad, button) != 0; };
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_UP))
+            held |= PadUp;
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_DOWN))
+            held |= PadDown;
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_LEFT))
+            held |= PadLeft;
+        if (pressed(SDL_CONTROLLER_BUTTON_DPAD_RIGHT))
+            held |= PadRight;
+        if (pressed(SDL_CONTROLLER_BUTTON_A))
+            held |= PadAccept;
+        if (pressed(SDL_CONTROLLER_BUTTON_B))
+            held |= PadBack;
+        if (pressed(SDL_CONTROLLER_BUTTON_X))
+            held |= PadSearch;
+        if (pressed(SDL_CONTROLLER_BUTTON_LEFTSHOULDER))
+            held |= PadPrevious;
+        if (pressed(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER))
+            held |= PadNext;
+    }
+    return held;
+}
+void HandleControllerLayout(OverlayState& state, float w, float h) {
+    using namespace Paperboat::NativeSettings;
+    if (!sControllerLayoutActive) {
+        sLayoutRepeat.Reset();
+        sControllerLayoutTarget = 0;
+        sControllerLayoutActive = true;
+    }
+    const uint32_t pressed = sLayoutRepeat.Update(LayoutControllerHeld(), ImGui::GetTime());
+    const int count = int(state.gameButtons.size()) + 2;
+    if (pressed & PadPrevious)
+        sControllerLayoutTarget = (sControllerLayoutTarget + count - 1) % count;
+    if (pressed & PadNext)
+        sControllerLayoutTarget = (sControllerLayoutTarget + 1) % count;
+    if (pressed & (PadAccept | PadBack)) {
+        CVarSetInteger(CVAR_TOUCH("EditMode"), 0);
+        CVarSave();
+        sLayoutReleasePending = true;
+        sDragFinger = sDragTarget = -1;
+        sControllerLayoutActive = false;
+        return;
+    }
+    if (pressed & PadSearch) {
+        for (const auto& button : state.gameButtons)
+            ClearPos(button.id);
+        ClearPos("Stick");
+        ClearPos("Menu");
+        CVarSave();
+        return;
+    }
+    const bool button = sControllerLayoutTarget < int(state.gameButtons.size());
+    const bool stick = sControllerLayoutTarget == int(state.gameButtons.size());
+    const char* id = button ? state.gameButtons[sControllerLayoutTarget].id : stick ? "Stick" : "Menu";
+    ImVec2* position = button ? &state.gameButtons[sControllerLayoutTarget].center
+        : stick               ? &state.stickRest
+                              : &state.menuCenter;
+    sDragTarget = button ? sControllerLayoutTarget : stick ? -2 : -3;
+    if (pressed & (PadUp | PadDown | PadLeft | PadRight)) {
+        const float delta = std::min(w, h) * .005f;
+        if (pressed & PadUp)
+            position->y -= delta;
+        if (pressed & PadDown)
+            position->y += delta;
+        if (pressed & PadLeft)
+            position->x -= delta;
+        if (pressed & PadRight)
+            position->x += delta;
+        position->x = std::clamp(position->x, 0.f, w);
+        position->y = std::clamp(position->y, 0.f, h);
+        SavePos(id, *position, w, h);
+    }
 }
 
 // Layout-edit mode: one finger drags a widget; positions commit on release.
@@ -590,6 +662,10 @@ extern "C" void ControllerMenuShortcut_Poll(void) {
     if (!backDown && sBackWasDown && sBackOpenOnRelease) {
         sBackOpenOnRelease = false;
         if (menu != nullptr && !menu->IsVisible()) {
+            if (CVarGetInteger(CVAR_TOUCH("EditMode"), 0)) {
+                CVarSetInteger(CVAR_TOUCH("EditMode"), 0);
+                CVarSave();
+            }
             menu->ToggleVisibility();
         }
     }
@@ -611,6 +687,14 @@ extern "C" void TouchControls_ApplyPad(void* pads) {
         button.pressed = false;
     }
 
+    if (sLayoutReleasePending) {
+        std::memset(pads, 0, sizeof(OSContPad) * MAXCONTROLLERS);
+        if (LayoutControllerHeld() == 0)
+            sLayoutReleasePending = false;
+        return;
+    }
+    if (CVarGetInteger(CVAR_TOUCH("EditMode"), 0) == 0)
+        sControllerLayoutActive = false;
     if (ImGui::GetCurrentContext() == nullptr || !Enabled() || HiddenByController()) {
         sStickFinger = -1;
         return;
@@ -633,7 +717,13 @@ extern "C" void TouchControls_ApplyPad(void* pads) {
     // Layout-edit mode: fingers drag widgets instead of driving the game.
     if (sState.editMode && !sState.menuOpen) {
         const ImVec2 display = ImGui::GetIO().DisplaySize;
-        HandleEditMode(sState, fingers, display.x, display.y);
+        std::memset(pads, 0, sizeof(OSContPad) * MAXCONTROLLERS);
+        if (sControllerPresent && fingers.empty())
+            HandleControllerLayout(sState, display.x, display.y);
+        else {
+            sControllerLayoutActive = false;
+            HandleEditMode(sState, fingers, display.x, display.y);
+        }
         return;
     }
 
@@ -947,7 +1037,8 @@ void TouchControlsOverlay::Draw() {
 
         const ImVec2 display = ImGui::GetIO().DisplaySize;
         text(
-            ImVec2(display.x * 0.5f, 3.6f * u), u * 0.9f, "Drag controls to reposition them",
+            ImVec2(display.x * 0.5f, 3.6f * u), u * 0.9f,
+            sControllerPresent ? "L/R Select   D-pad Move   A/B Done   X Reset" : "Drag controls to reposition them",
             IM_COL32(255, 255, 255, 200)
         );
     }

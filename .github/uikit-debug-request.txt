@@ -1,0 +1,11 @@
+Requested check: verify native iPad mode for the universal iPhone/iPad build.
+Run only the universal SDL window configuration on the iPadOS 26.2 simulator.
+Assert iPad interface idiom, nonempty window, and SDL content matching its bounds.
+Report whether the window fills the reported screen, and whether the system
+fullscreen button was available. Do not equate a missing button with success.
+Use the production window placement/plist and iOS gameMode fullscreen switch.
+No game code, ROMs, saves, texture packs, screenshots or artifact uploads.
+Return text measurements through the test runner's sandbox; keep progress out
+of Actions annotations so the actual results stay within its annotation limit.
+Configure the standalone SDL dependency with Ninja before simulator boot to
+avoid the repeated Xcode compiler-probe timeout seen in the previous attempt.

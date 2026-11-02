@@ -1,0 +1,136 @@
+name: UIKit runtime smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [experimental/uikit-settings]
+    paths: [.github/uikit-debug-request.txt]
+
+# Only an explicit debug request file change triggers a push run. Editing normal
+# UI/game sources does not run a simulator during routine IPA builds.
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    if: ${{ !contains(github.event.head_commit.message, '[ipad-windowing]') }}
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      # Check out only the native UI and generated-pixel test fixtures. The
+      # harness does not build the game or load ROMs, saves, packs or resources.
+      - uses: actions/checkout@v6
+        with:
+          submodules: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /ios/PaperReality-Boat.png
+            /src/port/ios/IosNativeSettings.mm
+            /src/port/ios/IosControllerNavigation.h
+            /src/port/ios/IosControllerNavigation.mm
+            /src/port/ui/NativeControllerNavigation.h
+            /src/port/ui/NativeSettings.h
+            /src/port/ui/NativeFrameTiming.h
+            /src/port/ui/NativeRenderTiming.h
+            /src/port/ui/NativeTheme.h
+            /src/port/ui/NativePortrait.h
+            /tests/native-settings/portraits.cpp
+            /tests/native-settings/frame-pacer.cpp
+            /tests/uikit/
+
+      - name: Read the pinned backend revision
+        id: backend
+        run: echo "sha=$(git rev-parse HEAD:external/libultraship)" >> "$GITHUB_OUTPUT"
+
+      # Check the same small clock model that the production iOS backend uses.
+      # No backend binaries, rendering resources or game assets are fetched.
+      - uses: actions/checkout@v6
+        with:
+          repository: acoston822/libultraship
+          ref: ${{ steps.backend.outputs.sha }}
+          path: build-uikit-backend
+          submodules: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /include/fast/backends/FramePacer.h
+
+      - name: Check native UI and overscroll on iPhone Simulator
+        run: |
+          mkdir -p build-uikit-smoke
+          if (python3 tests/uikit/run.py --no-captures && python3 tests/uikit/run.py --no-captures --ui-diagnostics) > build-uikit-smoke/runner.log 2>&1; then
+            cat build-uikit-smoke/runner.log
+          else
+            cat build-uikit-smoke/runner.log
+            python3 - <<'PYLOG'
+          from pathlib import Path
+          text = Path('build-uikit-smoke/runner.log').read_text()[-14000:]
+          print('::error::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYLOG
+            exit 1
+          fi
+
+      # No screenshots, simulator apps, logs or other files are uploaded as
+      # artifacts, committed to a branch, or published to a PR or GitHub Pages.
+      - name: Remove simulator output
+        if: always()
+        run: rm -rf build-uikit-smoke
+
+  ipad-windowing:
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[ipad-windowing]') }}
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      IPAD_NATIVE_ONLY: ${{ contains(github.event.head_commit.message, '[ipad-native-check]') }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /ios/plist.in
+            /tests/ipad-windowing/
+
+      - name: Read the production window backend revision
+        id: backend
+        run: echo "sha=$(git rev-parse HEAD:external/libultraship)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          repository: acoston822/libultraship
+          ref: ${{ steps.backend.outputs.sha }}
+          path: build-uikit-backend
+          submodules: false
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /include/fast/backends/IosWindowPlacement.h
+
+      - name: Install isolated reproduction build tools
+        run: brew install cmake ninja xcodegen
+
+      - name: Inspect native iPad window expansion on iPadOS 26.2
+        run: |
+          set -o pipefail
+          mkdir -p build-ipad-windowing
+          PROBE_ARGS=()
+          if [[ "$IPAD_NATIVE_ONLY" == true ]]; then PROBE_ARGS+=(--native-ipad-only); fi
+          if python3 tests/ipad-windowing/run.py "${PROBE_ARGS[@]}" 2>&1 | tee build-ipad-windowing/runner.log; then
+            echo 'Completed native iPad window measurements.'
+          else
+            tail -c 18000 build-ipad-windowing/runner.log
+            python3 - <<'PYERROR'
+          from pathlib import Path
+          text = Path('build-ipad-windowing/runner.log').read_text()[-4000:]
+          print('::error::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PYERROR
+            exit 1
+          fi
+
+      - name: Remove temporary iPad reproduction and results
+        if: always()
+        run: rm -rf build-ipad-windowing

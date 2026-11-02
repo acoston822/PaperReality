@@ -250,14 +250,36 @@ void make_entity_model_mtx_flipZ(Matrix4f mtx) {
     mtx[3][3] = 1.0f;
 }
 
+static void copy_entity_model_matrix(EntityModel* model, Mtx* source) {
+    if (model->renderMode == RENDER_MODE_SHADOW) {
+        FrameInterpolation_CopyMatrix(source, &model->transform);
+    } else {
+        model->transform = *source;
+    }
+}
+
+// Record the frame-owned matrix consumed by gSPMatrix. Recording a persistent
+// shadow transform does not interpolate the copy loaded by this draw.
+static void load_entity_model_matrix(EntityModel* model, s32 reflected) {
+    Mtx* matrix = &gDisplayContext->matrixStack[gMatrixListPos++];
+
+    if (model->renderMode == RENDER_MODE_SHADOW) {
+        FrameInterpolation_RecordOpenChild(reflected ? "shadow_reflection_matrix" : "shadow_draw_matrix", (uintptr_t)model);
+        FrameInterpolation_CopyMatrix(&model->transform, matrix);
+        FrameInterpolation_RecordCloseChild();
+    } else {
+        *matrix = model->transform;
+    }
+    gSPMatrix(gMainGfxPos++, matrix, G_MTX_PUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+}
+
 void appendGfx_entity_model(EntityModel* model) {
     Matrix4f mtx;
     Matrix4f mtx2;
     ImgFXTexture ifxImg;
     Matrix4f imgfxMtx;
 
-    gDisplayContext->matrixStack[gMatrixListPos] = model->transform;
-    gSPMatrix(gMainGfxPos++, &gDisplayContext->matrixStack[gMatrixListPos++], G_MTX_PUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    load_entity_model_matrix(model, false);
     if (!(model->flags & ENTITY_MODEL_FLAG_USE_IMAGE)) {
         if (!(model->flags & ENTITY_MODEL_FLAG_10000)) {
             gDPPipeSync(gMainGfxPos++);
@@ -377,12 +399,15 @@ void appendGfx_entity_model(EntityModel* model) {
             return;
         }
 
-        guMtxL2F(mtx, &model->transform);
+        if (model->renderMode == RENDER_MODE_SHADOW) {
+            FrameInterpolation_ReadMatrix(&model->transform, (MtxF*) mtx);
+        } else {
+            guMtxL2F(mtx, &model->transform);
+        }
         make_entity_model_mtx_flipZ(mtx2);
         guMtxCatF(mtx, mtx2, mtx);
         guMtxF2L(mtx, &model->transform);
-        gDisplayContext->matrixStack[gMatrixListPos] = model->transform;
-        gSPMatrix(gMainGfxPos++, &gDisplayContext->matrixStack[gMatrixListPos++], G_MTX_PUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        load_entity_model_matrix(model, true);
         gSPDisplayList(gMainGfxPos++, model->gfx.displayList);
     } else {
         SpriteRasterInfo* imageData;
@@ -429,7 +454,7 @@ void draw_entity_model_A(s32 modelIdx, Mtx* transformMtx) {
                 if (!(model->flags & ENTITY_MODEL_FLAG_100)) {
                     if (!(model->flags & ENTITY_MODEL_FLAG_HIDDEN)) {
                         if (!(model->flags & ENTITY_MODEL_FLAG_40) && (model->flags & (1 << gCurrentCamID))) {
-                            model->transform = *transformMtx;
+                            copy_entity_model_matrix(model, transformMtx);
                             model->vertexArray = nullptr;
                             guMtxL2F(mtx, transformMtx);
                             inX = mtx[3][0];
@@ -467,7 +492,7 @@ void draw_entity_model_B(s32 modelIdx, Mtx* transformMtx, s32 vertexSegment, Vec
                 if (!(model->flags & ENTITY_MODEL_FLAG_100)) {
                     if (!(model->flags & ENTITY_MODEL_FLAG_HIDDEN)) {
                         if (model->flags & (1 << gCurrentCamID)) {
-                            model->transform = *transformMtx;
+                            copy_entity_model_matrix(model, transformMtx);
                             D_80154374 = vertexSegment;
                             model->vertexArray = vertexArray;
                             guMtxL2F(mtx, transformMtx);
@@ -503,7 +528,7 @@ void draw_entity_model_C(s32 modelIdx, Mtx* transformMtx) {
                     if (!(model->flags & ENTITY_MODEL_FLAG_HIDDEN)) {
                         if (!(model->flags & ENTITY_MODEL_FLAG_40) && (model->flags & (1 << gCurrentCamID))) {
                             model->flags |= ENTITY_MODEL_FLAG_REFLECT;
-                            model->transform = *transformMtx;
+                            copy_entity_model_matrix(model, transformMtx);
                             model->vertexArray = nullptr;
                             rtPtr->renderMode = model->renderMode;
                             rtPtr->appendGfxArg = model;
@@ -533,7 +558,7 @@ void draw_entity_model_D(s32 modelIdx, Mtx* transformMtx, s32 arg2, Vec3s* verte
                     if (!(model->flags & ENTITY_MODEL_FLAG_HIDDEN)) {
                         if (model->flags & (1 << gCurrentCamID)) {
                             model->flags |= ENTITY_MODEL_FLAG_REFLECT;
-                            model->transform = *transformMtx;
+                            copy_entity_model_matrix(model, transformMtx);
                             D_80154374 = arg2;
                             model->vertexArray = vertexArray;
                             rtPtr->renderMode = model->renderMode;
@@ -575,10 +600,9 @@ void draw_entity_model_E(s32 modelIdx, Mtx* transformMtx) {
         return;
     }
 
-    model->transform = *transformMtx;
+    copy_entity_model_matrix(model, transformMtx);
     model->vertexArray = nullptr;
-    gDisplayContext->matrixStack[gMatrixListPos] = model->transform;
-    gSPMatrix(gMainGfxPos++, &gDisplayContext->matrixStack[gMatrixListPos++], G_MTX_PUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    load_entity_model_matrix(model, false);
     if (!(model->flags & ENTITY_MODEL_FLAG_USE_IMAGE)) {
         switch (entity_fog_enabled && !(model->flags & ENTITY_MODEL_FLAG_FOG_DISABLED)) {
             case false:
@@ -681,12 +705,15 @@ void draw_entity_model_E(s32 modelIdx, Mtx* transformMtx) {
             return;
         }
 
-        guMtxL2F(mtx, &model->transform);
+        if (model->renderMode == RENDER_MODE_SHADOW) {
+            FrameInterpolation_ReadMatrix(&model->transform, (MtxF*) mtx);
+        } else {
+            guMtxL2F(mtx, &model->transform);
+        }
         make_entity_model_mtx_flipZ(mtx2);
         guMtxCatF(mtx, mtx2, mtx);
         guMtxF2L(mtx, &model->transform);
-        gDisplayContext->matrixStack[gMatrixListPos] = model->transform;
-        gSPMatrix(gMainGfxPos++, &gDisplayContext->matrixStack[gMatrixListPos++], G_MTX_PUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        load_entity_model_matrix(model, true);
         gSPDisplayList(gMainGfxPos++, model->gfx.displayList);
     } else {
         SpriteRasterInfo* imageData;
@@ -834,3 +861,4 @@ void get_entity_fog_color(s32* r, s32* g, s32* b, s32* a) {
     *b = entity_fog_blue;
     *a = entity_fog_alpha;
 }
+

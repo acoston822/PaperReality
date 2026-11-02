@@ -1,0 +1,2493 @@
+#include "port/ui/NativeSettings.h"
+#include "port/ui/NativeTheme.h"
+#include "IosControllerNavigation.h"
+#if defined(__IOS__)
+#import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
+#include <atomic>
+#include <deque>
+#include <memory>
+#include <algorithm>
+#include <cmath>
+#include <set>
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+#include "port/ui/NativeFrameTiming.h"
+#include "port/ui/NativeRenderTiming.h"
+#endif
+
+namespace N = Paperboat::NativeSettings;
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+static N::RenderTiming PRRenderTiming;
+#endif
+// Main-queue copy only; CVars and the shared game palette stay on the frame queue.
+static N::ThemeColor PRTheme;
+static UIColor* PRColor(N::ThemeColor color) {
+    return [UIColor colorWithRed:color.red green:color.green blue:color.blue alpha:1];
+}
+static UIColor* PRAccentFill() {
+    return PRColor(PRTheme);
+}
+static UIColor* PRAccentForeground() {
+    return PRColor(N::ThemeForeground(PRTheme));
+}
+static UIColor* PRAccent() {
+    const auto color = PRTheme;
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        const N::ThemeColor background = traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? N::ThemeColor { .09f, .12f, .17f }
+            : N::ThemeColor { .94f, .96f, .98f };
+        return PRColor(N::AccessibleThemeColor(color, background));
+    }];
+}
+static void PRStyleFilledButton(UIButton* button) {
+    UIButtonConfiguration* config = [button.configuration copy];
+    config.baseBackgroundColor = PRAccentFill();
+    config.baseForegroundColor = PRAccentForeground();
+    button.configuration = config;
+}
+// Shared materials keep the settings pages and editor submenus visually consistent.
+// Use dynamic colors so a system appearance change also updates an already-open menu.
+static UIColor* PRSurface() {
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? [UIColor colorWithRed:.09 green:.12 blue:.17 alpha:.90]
+            : [UIColor colorWithWhite:1 alpha:.92];
+    }];
+}
+static UIColor* PRCanvas() {
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? [UIColor colorWithRed:.025 green:.045 blue:.08 alpha:1]
+            : [UIColor colorWithRed:.93 green:.95 blue:.98 alpha:1];
+    }];
+}
+// Pages must cover the outgoing page during navigation. Transparent tables and
+// bars let the previous controller's controls show through push/pop transitions.
+static UIColor* PRPageCanvas() {
+    return [UIColor colorWithDynamicProvider:^UIColor*(UITraitCollection* traits) {
+        return traits.userInterfaceStyle == UIUserInterfaceStyleDark
+            ? [UIColor colorWithRed:.045 green:.065 blue:.095 alpha:1]
+            : [UIColor colorWithRed:.94 green:.96 blue:.98 alpha:1];
+    }];
+}
+static void PRIsolatePage(UIViewController* page) {
+    page.edgesForExtendedLayout = UIRectEdgeNone;
+    page.extendedLayoutIncludesOpaqueBars = NO;
+    page.view.backgroundColor = PRPageCanvas();
+    page.view.tintColor = PRAccent();
+    page.view.clipsToBounds = YES;
+}
+static UIFont* PRFont(CGFloat size, UIFontWeight weight, UIFontTextStyle style) {
+    return [[UIFontMetrics metricsForTextStyle:style] scaledFontForFont:[UIFont systemFontOfSize:size weight:weight]];
+}
+static void PRHideScrollEdgeEffects(UIScrollView* scroll) {
+    // Public API on newer iOS versions, guarded for older SDKs and devices.
+    // Our opaque panes already separate content from titles/toolbars; a second
+    // system edge material can paint strips over the first/last visible cards.
+    for (NSString* name in @[ @"topEdgeEffect", @"bottomEdgeEffect" ])
+        if ([scroll respondsToSelector:NSSelectorFromString(name)]) {
+            id effect = [scroll valueForKey:name];
+            if ([effect respondsToSelector:NSSelectorFromString(@"setHidden:")])
+                [effect setValue:@YES forKey:@"hidden"];
+        }
+}
+static void PRStyleTable(UITableView* table) {
+    table.backgroundColor = PRPageCanvas();
+    // UITableView keeps backgroundView stationary while its rows bounce. Cover
+    // the scroll limits as well as the content with the same opaque canvas.
+    UIView* backing = [[UIView alloc] init];
+    backing.backgroundColor = PRPageCanvas();
+    backing.userInteractionEnabled = NO;
+    table.backgroundView = backing;
+    table.separatorStyle = UITableViewCellSeparatorStyleNone;
+    table.contentInset = UIEdgeInsetsMake(4, 0, 20, 0);
+    table.sectionHeaderTopPadding = 0;
+    // Flat lists have no section chrome. Leaving UIKit's default dimensions
+    // creates empty floating header/footer materials over the first/last rows.
+    table.sectionHeaderHeight = 0;
+    table.sectionFooterHeight = 0;
+    table.estimatedSectionHeaderHeight = 0;
+    table.estimatedSectionFooterHeight = 0;
+    PRHideScrollEdgeEffects(table);
+}
+static CGRect PRPixelAlignedRect(CGRect frame, CGFloat scale) {
+    CGFloat left = std::round(CGRectGetMinX(frame) * scale) / scale;
+    CGFloat top = std::round(CGRectGetMinY(frame) * scale) / scale;
+    CGFloat right = std::round(CGRectGetMaxX(frame) * scale) / scale;
+    CGFloat bottom = std::round(CGRectGetMaxY(frame) * scale) / scale;
+    return CGRectMake(left, top, right - left, bottom - top);
+}
+static void PRStyleCard(UITableViewCell* cell) {
+    UIBackgroundConfiguration* background = [UIBackgroundConfiguration clearConfiguration];
+    background.backgroundColor = PRSurface();
+    background.cornerRadius = 16;
+    background.backgroundInsets = NSDirectionalEdgeInsetsMake(5, 12, 5, 12);
+    background.strokeColor = [UIColor.separatorColor colorWithAlphaComponent:.16];
+    background.strokeWidth = .5;
+    cell.backgroundConfiguration = background;
+    cell.contentView.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(17, 30, 17, 30);
+    cell.tintColor = PRAccent();
+}
+static void PRStyleNavigation(UINavigationController* navigation) {
+    UINavigationBarAppearance* appearance = [[UINavigationBarAppearance alloc] init];
+    [appearance configureWithOpaqueBackground];
+    appearance.backgroundColor = PRPageCanvas();
+    appearance.titleTextAttributes = @ {
+        NSFontAttributeName : PRFont(22, UIFontWeightBold, UIFontTextStyleTitle2),
+        NSForegroundColorAttributeName : UIColor.labelColor
+    };
+    navigation.navigationBar.standardAppearance = appearance;
+    navigation.navigationBar.scrollEdgeAppearance = appearance;
+    navigation.navigationBar.compactAppearance = appearance;
+    navigation.navigationBar.compactScrollEdgeAppearance = appearance;
+    navigation.navigationBar.translucent = NO;
+    navigation.navigationBar.prefersLargeTitles = NO;
+    navigation.view.backgroundColor = PRPageCanvas();
+    navigation.view.clipsToBounds = YES;
+}
+static NSString* PRText(const std::string& text) {
+    return [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding] ?: @"";
+}
+static std::string PRString(NSString* text) {
+    return text.UTF8String ?: "";
+}
+static std::atomic<bool> PRWanted { false };
+static std::atomic<uint64_t> PRPresentation { 0 };
+static UIViewController* PRTopController() {
+    UIWindow* fallback = nil;
+    for (UIScene* scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class])
+            continue;
+        for (UIWindow* window in ((UIWindowScene*) scene).windows) {
+            if (window.screen != UIScreen.mainScreen || window.hidden || !window.rootViewController)
+                continue;
+            if (window.isKeyWindow) {
+                fallback = window;
+                break;
+            }
+            if (!fallback)
+                fallback = window;
+        }
+    }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    if (!fallback)
+        for (UIWindow* window in UIApplication.sharedApplication.windows) {
+            if (window.screen == UIScreen.mainScreen && !window.hidden && window.rootViewController) {
+                fallback = window;
+                break;
+            }
+        }
+#pragma clang diagnostic pop
+    UIViewController* top = fallback.rootViewController;
+    while (top.presentedViewController && !top.presentedViewController.isBeingDismissed)
+        top = top.presentedViewController;
+    return top;
+}
+
+static UIImage* PRImage(const N::Image& image, CGFloat displayScale) {
+    if (image.width <= 0 || image.height <= 0 || image.rgba.size() < size_t(image.width) * image.height * 4)
+        return nil;
+    NSData* data = [NSData dataWithBytes:image.rgba.data() length:image.rgba.size()];
+    displayScale = displayScale > 0 ? displayScale : UIScreen.mainScreen.scale;
+    const CGFloat fit = std::min(44. / image.width, 44. / image.height);
+    const CGSize pixels = CGSizeMake(
+        std::max(1., std::round(image.width * fit * displayScale)),
+        std::max(1., std::round(image.height * fit * displayScale))
+    );
+    const BOOL reducing = pixels.width < image.width || pixels.height < image.height;
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData((__bridge CFDataRef) data);
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGImageRef cg = CGImageCreate(
+        image.width, image.height, 8, 32, image.width * 4, space,
+        CGBitmapInfo(kCGImageAlphaLast | kCGBitmapByteOrder32Big), provider, nullptr, reducing,
+        kCGRenderingIntentDefault
+    );
+    UIImage* result = nil;
+    if (cg) {
+        UIGraphicsImageRendererFormat* format = [UIGraphicsImageRendererFormat preferredFormat];
+        format.scale = displayScale;
+        format.opaque = NO;
+        format.preferredRange = UIGraphicsImageRendererFormatRangeStandard;
+        UIGraphicsImageRenderer* renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(44, 44)
+                                                                                   format:format];
+        UIImage* source = [UIImage imageWithCGImage:cg];
+        result = [renderer imageWithActions:^(UIGraphicsImageRendererContext* context) {
+            CGContextSetInterpolationQuality(context.CGContext, reducing ? kCGInterpolationHigh : kCGInterpolationNone);
+            // Align to physical pixels. UIKit receives a 44pt image already at
+            // the display's density, so it doesn't enlarge a 1x thumbnail again.
+            const CGRect target = CGRectMake(
+                std::floor((44 * displayScale - pixels.width) / 2) / displayScale,
+                std::floor((44 * displayScale - pixels.height) / 2) / displayScale, pixels.width / displayScale,
+                pixels.height / displayScale
+            );
+            [source drawInRect:target];
+        }];
+    }
+    if (cg)
+        CGImageRelease(cg);
+    CGColorSpaceRelease(space);
+    CGDataProviderRelease(provider);
+    return result;
+}
+static UIImage* PRBlankPortrait() {
+    UIGraphicsImageRenderer* renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(42, 42)];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext* context) {
+        [UIColor.separatorColor setStroke];
+        UIBezierPath* path = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(1, 1, 40, 40) cornerRadius:9];
+        path.lineWidth = 1;
+        [path stroke];
+    }];
+}
+
+// The menu owns its refresh request, independently of the game's frame limit.
+// This view has no size or visible content outside development builds.
+@class PRNativeFrameClock;
+@interface PRNativeFrameTarget : NSObject
+@property (nonatomic, weak) PRNativeFrameClock* clock;
+- (void)tick:(CADisplayLink*)link;
+@end
+
+@interface PRNativeFrameClock : UIView {
+    CADisplayLink* _link;
+    PRNativeFrameTarget* _target;
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    UILabel* _label;
+    N::FrameTiming _timing;
+#endif
+}
+@property (nonatomic) BOOL monitoring;
+- (void)tick:(CADisplayLink*)link;
+- (void)syncMonitoring;
+- (void)resetTiming;
+@end
+
+@implementation PRNativeFrameTarget
+- (void)tick:(CADisplayLink*)link {
+    [self.clock tick:link];
+}
+@end
+
+@implementation PRNativeFrameClock
+- (instancetype)init {
+    self = [super initWithFrame:CGRectZero];
+    if (!self)
+        return nil;
+    self.userInteractionEnabled = NO;
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    self.backgroundColor = [UIColor colorWithWhite:.025 alpha:.94];
+    self.layer.cornerRadius = 8;
+    self.clipsToBounds = YES;
+    self.accessibilityIdentifier = @"development-ui-timing";
+    _label = [[UILabel alloc] init];
+    _label.font = [UIFont monospacedDigitSystemFontOfSize:10 weight:UIFontWeightMedium];
+    _label.textColor = UIColor.whiteColor;
+    _label.numberOfLines = 7;
+    [self addSubview:_label];
+    [self resetTiming];
+#endif
+    _target = [[PRNativeFrameTarget alloc] init];
+    _target.clock = self;
+    NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+    for (NSNotificationName name in
+         @[ UIApplicationDidBecomeActiveNotification, UIApplicationWillResignActiveNotification ])
+        [center addObserver:self selector:@selector(applicationChanged:) name:name object:nil];
+    return self;
+}
+- (void)layoutSubviews {
+    [super layoutSubviews];
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    _label.frame = CGRectInset(self.bounds, 8, 6);
+#endif
+}
+- (void)resetTiming {
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    _timing.Reset();
+    PRRenderTiming.Reset();
+    _label.text = @"UI timing · DEVELOPMENT\nCollecting callback timing…\n\nTiming estimate; not GPU FPS";
+#endif
+}
+- (void)setMonitoring:(BOOL)monitoring {
+    _monitoring = monitoring;
+    [self syncMonitoring];
+}
+- (void)didMoveToWindow {
+    [super didMoveToWindow];
+    [self syncMonitoring];
+}
+- (void)applicationChanged:(NSNotification*)notification {
+    if ([notification.name isEqualToString:UIApplicationWillResignActiveNotification]) {
+        [_link invalidate];
+        _link = nil;
+        [self resetTiming];
+    } else {
+        [self syncMonitoring];
+    }
+}
+- (void)syncMonitoring {
+    if (!self.monitoring || !self.window
+        || UIApplication.sharedApplication.applicationState != UIApplicationStateActive)
+    {
+        [_link invalidate];
+        _link = nil;
+        [self resetTiming];
+        return;
+    }
+    if (_link)
+        return;
+    [self resetTiming];
+    _link = [CADisplayLink displayLinkWithTarget:_target selector:@selector(tick:)];
+    // Ask for the screen's full refresh rate only while Settings is visible.
+    // iOS can still reduce it for power, thermal or adaptive-refresh reasons.
+    const float maximum = MAX(30, self.window.screen.maximumFramesPerSecond);
+    _link.preferredFrameRateRange = CAFrameRateRangeMake(30, maximum, maximum);
+    [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+- (void)tick:(CADisplayLink*)link {
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    const auto sample = _timing.Sample(CACurrentMediaTime(), link.targetTimestamp - link.timestamp);
+    if (!sample)
+        return;
+    const auto render = PRRenderTiming.Take();
+    _label.text =
+        [NSString stringWithFormat:@"UI timing · DEVELOPMENT\nUpdates %.1f/s · target %.0f Hz\nAvg %.1f ms · "
+                                   @"peak %.1f ms\nLate callbacks %llu · timing estimate\n"
+                                   @"Game target %d FPS · pacing %@\nRender work peak %.1f ms\n"
+                                   @"Drawable wait peak %.1f ms",
+                                   sample->updatesPerSecond, sample->targetHz, sample->averageMs, sample->longestMs,
+                                   (unsigned long long) sample->lateCallbacks, render.gameTargetFps,
+                                   render.metalPacing ? @"on" : @"off", render.renderPeakMs, render.drawablePeakMs];
+#endif
+}
+- (void)dealloc {
+    [_link invalidate];
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+@end
+
+@class PRNativeRoot;
+@interface PRNativePage
+    : UITableViewController <UISearchResultsUpdating, UIColorPickerViewControllerDelegate, PRControllerNavigable> {
+    std::string _key;
+    N::Page _page;
+    std::vector<N::Section> _sections;
+    std::vector<std::vector<std::pair<size_t, size_t>>> _rows;
+    uint64_t _generation;
+    NSMutableDictionary<NSString*, UIImage*>* _images;
+    NSMutableSet<NSString*>* _pendingImages;
+    N::Row _colorRow;
+    BOOL _twoColumns;
+    NSTimer* _bindingTimer;
+}
+- (instancetype)initWithKey:(std::string)key;
+- (void)refresh;
+- (void)filter;
+- (void)apply:(const N::Row&)row value:(double)value;
+@end
+
+@interface PRNativeChoices : UITableViewController <UISearchResultsUpdating, PRControllerNavigable> {
+    N::Row _row;
+    std::vector<N::Choice> _choices;
+    __weak PRNativePage* _owner;
+}
+- (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner;
+@end
+
+@interface PRNativeSidebar : UITableViewController <PRControllerNavigable> {
+    std::vector<N::Group> _groups;
+    NSInteger _expanded;
+    NSString* _selected;
+    __weak PRNativeRoot* _host;
+    CGFloat _labelWidth;
+}
+- (instancetype)initWithGroups:(std::vector<N::Group>)groups initial:(std::string)initial host:(PRNativeRoot*)host;
+- (void)selectPage:(const std::string&)key;
+@end
+
+@interface PRNativeRoot : UIViewController <PRControllerNavigable> {
+    UIView* _header;
+    UIView* _primaryPanel;
+    UIView* _detailPanel;
+    UILabel* _category;
+    UIButton* _menuButton;
+    UIButton* _done;
+    PRNativeFrameClock* _frameClock;
+    BOOL _showPrimary;
+    BOOL _wide;
+    BOOL _consoleTyping;
+    BOOL _controllerSidebar;
+}
+@property (nonatomic, strong) UINavigationController* primary;
+@property (nonatomic, strong) UINavigationController* detail;
+- (void)setViewController:(UIViewController*)controller forColumn:(UISplitViewControllerColumn)column;
+- (void)showColumn:(UISplitViewControllerColumn)column;
+- (void)openPage:(std::string)key;
+- (void)setCategory:(NSString*)title;
+- (void)closeSettings;
+- (void)setConsoleTyping:(BOOL)typing;
+- (void)applyTheme;
+@end
+static PRNativeRoot* PRRoot = nil;
+
+@interface PRNativeSliderControl : UIView {
+    N::Row _row;
+    __weak PRNativePage* _owner;
+    UILabel* _value;
+    UISlider* _slider;
+}
+- (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner;
+@end
+
+@implementation PRNativeSliderControl
+- (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner {
+    self = [super initWithFrame:CGRectZero];
+    if (!self)
+        return nil;
+    _row = row;
+    _owner = owner;
+    self.backgroundColor = PRSurface();
+    self.layer.cornerRadius = 16;
+    self.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(14, 16, 14, 16);
+    UILabel* title = [[UILabel alloc] init];
+    title.text = PRText(row.title);
+    title.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody);
+    title.numberOfLines = 0;
+    title.adjustsFontForContentSizeCategory = YES;
+    _value = [[UILabel alloc] init];
+    _value.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleSubheadline]
+        scaledFontForFont:[UIFont monospacedDigitSystemFontOfSize:15 weight:UIFontWeightSemibold]];
+    _value.textColor = PRAccent();
+    _value.adjustsFontForContentSizeCategory = YES;
+    [_value setContentCompressionResistancePriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    [_value setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+    UIStackView* heading = [[UIStackView alloc] initWithArrangedSubviews:@[ title, _value ]];
+    heading.spacing = 12;
+    heading.alignment = UIStackViewAlignmentCenter;
+    _slider = [[UISlider alloc] init];
+    _slider.minimumValue = row.minimum;
+    _slider.maximumValue = row.maximum;
+    _slider.value = row.value;
+    _slider.enabled = row.enabled;
+    _slider.accessibilityLabel = PRText(row.title);
+    [_slider addTarget:self action:@selector(changing:) forControlEvents:UIControlEventValueChanged];
+    [_slider addTarget:self
+                  action:@selector(commit:)
+        forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside | UIControlEventTouchCancel];
+    UIStackView* controls = [[UIStackView alloc] init];
+    controls.axis = UILayoutConstraintAxisHorizontal;
+    controls.spacing = 6;
+    controls.alignment = UIStackViewAlignmentCenter;
+    for (NSNumber* direction in @[ @(-1), @(1) ]) {
+        if (direction.intValue == 1)
+            [controls addArrangedSubview:_slider];
+        UIButton* button = [UIButton buttonWithType:UIButtonTypeSystem];
+        UIButtonConfiguration* config = [UIButtonConfiguration tintedButtonConfiguration];
+        config.image = [UIImage systemImageNamed:direction.intValue < 0 ? @"minus" : @"plus"];
+        config.cornerStyle = UIButtonConfigurationCornerStyleMedium;
+        button.configuration = config;
+        button.enabled = row.enabled;
+        button.accessibilityLabel =
+            [NSString stringWithFormat:@"%@ %@", direction.intValue < 0 ? @"Decrease" : @"Increase", PRText(row.title)];
+        [button.widthAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
+        [button.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
+        __weak PRNativeSliderControl* weak = self;
+        [button addAction:[UIAction actionWithHandler:^(UIAction* action) {
+                    PRNativeSliderControl* cell = weak;
+                    if (!cell)
+                        return;
+                    cell->_slider.value += direction.intValue * cell->_row.step;
+                    [cell changing:cell->_slider];
+                    [cell commit:cell->_slider];
+                }]
+            forControlEvents:UIControlEventTouchUpInside];
+        [controls addArrangedSubview:button];
+    }
+    UIStackView* stack = [[UIStackView alloc] initWithArrangedSubviews:@[ heading, controls ]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 8;
+    if (!row.detail.empty()) {
+        UILabel* help = [[UILabel alloc] init];
+        help.text = PRText(row.detail);
+        help.font = PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote);
+        help.textColor = UIColor.secondaryLabelColor;
+        help.numberOfLines = 0;
+        help.adjustsFontForContentSizeCategory = YES;
+        [stack addArrangedSubview:help];
+    }
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self addSubview:stack];
+    UILayoutGuide* margins = self.layoutMarginsGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:margins.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor],
+        [stack.topAnchor constraintEqualToAnchor:margins.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:margins.bottomAnchor]
+    ]];
+    self.alpha = row.enabled ? 1 : .5;
+    [self changing:_slider];
+    return self;
+}
+- (void)changing:(UISlider*)sender {
+    double value = sender.value;
+    if (_row.step > 0)
+        value = _row.minimum + std::round((value - _row.minimum) / _row.step) * _row.step;
+    value = std::clamp(value, _row.minimum, _row.maximum);
+    NSNumberFormatter* format = [[NSNumberFormatter alloc] init];
+    format.maximumFractionDigits = _row.kind == N::Kind::Integer ? 0 : 2;
+    _value.text = [[format stringFromNumber:@(_row.percentage && _row.kind == N::Kind::Decimal ? value * 100 : value)]
+        stringByAppendingString:_row.percentage ? @"%" : @""];
+    sender.accessibilityValue = _value.text;
+}
+- (void)commit:(UISlider*)sender {
+    double value = sender.value;
+    if (_row.step > 0)
+        value = _row.minimum + std::round((value - _row.minimum) / _row.step) * _row.step;
+    [_owner apply:_row value:std::clamp(value, _row.minimum, _row.maximum)];
+}
+@end
+
+@interface PRNativeSliderCell : UITableViewCell
+- (instancetype)initWithRows:(const std::vector<N::Row>&)rows owner:(PRNativePage*)owner;
+@end
+@implementation PRNativeSliderCell
+- (instancetype)initWithRows:(const std::vector<N::Row>&)rows owner:(PRNativePage*)owner {
+    self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    if (!self)
+        return nil;
+    self.backgroundConfiguration = [UIBackgroundConfiguration clearConfiguration];
+    self.selectionStyle = UITableViewCellSelectionStyleNone;
+    UIStackView* stack = [[UIStackView alloc] init];
+    stack.distribution = UIStackViewDistributionFillEqually;
+    stack.spacing = 10;
+    for (const auto& row : rows)
+        [stack addArrangedSubview:[[PRNativeSliderControl alloc] initWithRow:row owner:owner]];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.contentView addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12],
+        [stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12],
+        [stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:5],
+        [stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-5]
+    ]];
+    return self;
+}
+@end
+
+@interface PRNativeColor : UIViewController <PRControllerNavigable> {
+    N::Row _row;
+    __weak PRNativePage* _owner;
+    NSMutableArray<UISlider*>* _sliders;
+    NSMutableArray<UILabel*>* _labels;
+    UIView* _swatch;
+    UIButton* _save;
+    UIButton* _cancel;
+}
+- (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner;
+@end
+@implementation PRNativeColor
+- (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner {
+    self = [super init];
+    if (self) {
+        _row = row;
+        _owner = owner;
+        self.modalPresentationStyle = UIModalPresentationFullScreen;
+    }
+    return self;
+}
+- (uint32_t)rgba {
+    uint32_t rgba = 0;
+    for (UISlider* slider in _sliders)
+        rgba = (rgba << 8) | uint32_t(std::lround(slider.value));
+    if (!_row.alpha)
+        rgba = (rgba << 8) | 255;
+    return rgba;
+}
+- (void)changed {
+    for (NSUInteger i = 0; i < _sliders.count; ++i)
+        _labels[i].text = [NSString stringWithFormat:@"%@: %d", @[ @"Red", @"Green", @"Blue", @"Alpha" ][i],
+                                                     int(std::lround(_sliders[i].value))];
+    uint32_t c = [self rgba];
+    _swatch.backgroundColor = [UIColor colorWithRed:((c >> 24) & 255) / 255.
+                                              green:((c >> 16) & 255) / 255.
+                                               blue:((c >> 8) & 255) / 255.
+                                              alpha:(c & 255) / 255.];
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRIsolatePage(self);
+    _sliders = [NSMutableArray array];
+    _labels = [NSMutableArray array];
+    UILabel* title = [[UILabel alloc] init];
+    title.text = PRText(_row.title);
+    title.font = PRFont(20, UIFontWeightBold, UIFontTextStyleHeadline);
+    _swatch = [[UIView alloc] init];
+    _swatch.layer.cornerRadius = 8;
+    [_swatch.widthAnchor constraintEqualToConstant:50].active = YES;
+    [_swatch.heightAnchor constraintEqualToConstant:30].active = YES;
+    UIStackView* heading = [[UIStackView alloc] initWithArrangedSubviews:@[ title, _swatch ]];
+    heading.spacing = 12;
+    UIStackView* stack = [[UIStackView alloc] initWithArrangedSubviews:@[ heading ]];
+    stack.axis = UILayoutConstraintAxisVertical;
+    stack.spacing = 6;
+    for (NSUInteger i = 0; i < (_row.alpha ? 4u : 3u); ++i) {
+        UILabel* label = [[UILabel alloc] init];
+        label.font = PRFont(14, UIFontWeightSemibold, UIFontTextStyleBody);
+        UISlider* slider = [[UISlider alloc] init];
+        slider.minimumValue = 0;
+        slider.maximumValue = 255;
+        slider.value = (uint32_t(_row.value) >> (24 - i * 8)) & 255;
+        slider.accessibilityLabel = @[ @"Red", @"Green", @"Blue", @"Alpha" ][i];
+        [slider addTarget:self action:@selector(changed) forControlEvents:UIControlEventValueChanged];
+        UIStackView* channel = [[UIStackView alloc] initWithArrangedSubviews:@[ label, slider ]];
+        channel.axis = UILayoutConstraintAxisVertical;
+        [stack addArrangedSubview:channel];
+        [_sliders addObject:slider];
+        [_labels addObject:label];
+    }
+    _save = [UIButton buttonWithType:UIButtonTypeSystem];
+    _save.configuration = [UIButtonConfiguration filledButtonConfiguration];
+    [_save setTitle:@"Done" forState:UIControlStateNormal];
+    PRStyleFilledButton(_save);
+    [_save addTarget:self action:@selector(save) forControlEvents:UIControlEventTouchUpInside];
+    _cancel = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_cancel setTitle:@"Cancel" forState:UIControlStateNormal];
+    [_cancel addTarget:self action:@selector(cancel) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView* buttons = [[UIStackView alloc] initWithArrangedSubviews:@[ _cancel, _save ]];
+    buttons.distribution = UIStackViewDistributionFillEqually;
+    buttons.spacing = 12;
+    [stack addArrangedSubview:buttons];
+    UIScrollView* scroll = [[UIScrollView alloc] init];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:scroll];
+    [scroll addSubview:stack];
+    UILayoutGuide* safe = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [scroll.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
+        [scroll.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-20],
+        [scroll.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8],
+        [scroll.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor constant:-8],
+        [stack.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor],
+        [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor],
+        [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor],
+        [stack.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor],
+        [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor]
+    ]];
+    [self changed];
+}
+- (void)save {
+    [_owner apply:_row value:[self rgba]];
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (void)cancel {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (BOOL)controllerBack {
+    [self cancel];
+    return YES;
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    NSMutableArray* targets = [NSMutableArray array];
+    __weak PRNativeColor* weak = self;
+    for (NSUInteger i = 0; i < _sliders.count; ++i) {
+        UISlider* slider = _sliders[i];
+        PRControllerTarget* target = PRControllerViewTarget(
+            slider, [NSString stringWithFormat:@"channel/%lu", (unsigned long) i], _labels[i].text, nil
+        );
+        __weak UISlider* control = slider;
+        target.adjust = ^(NSInteger direction) {
+            UISlider* value = control;
+            value.value = std::clamp(value.value + direction, 0.f, 255.f);
+            [weak changed];
+        };
+        [targets addObject:target];
+    }
+    [targets addObject:PRControllerViewTarget(_cancel, @"cancel", @"Cancel", ^{
+                 [weak cancel];
+             })];
+    [targets addObject:PRControllerViewTarget(_save, @"save", @"Done", ^{
+                 [weak save];
+             })];
+    return targets;
+}
+@end
+
+@interface PRNativeConsole : UIViewController <UITextFieldDelegate, PRControllerNavigable> {
+    UITextView* _output;
+    UITextField* _command;
+    UILabel* _empty;
+    UIButton* _run;
+    UIBarButtonItem* _history;
+    NSTimer* _timer;
+    N::ConsoleSnapshot _snapshot;
+    uint64_t _revision;
+    BOOL _refreshing, _scrollNext;
+}
+- (void)refresh;
+- (void)renderOutput;
+- (void)applyTheme;
+@end
+
+@implementation PRNativeConsole
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRIsolatePage(self);
+    self.title = @"Console";
+    _revision = ~uint64_t(0);
+    _history = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"clock.arrow.circlepath"] menu:nil];
+    _history.accessibilityLabel = @"Command history";
+    UIBarButtonItem* clear = [[UIBarButtonItem alloc] initWithTitle:@"Clear"
+                                                              style:UIBarButtonItemStylePlain
+                                                             target:self
+                                                             action:@selector(clearOutput)];
+    self.navigationItem.rightBarButtonItems = @[ clear, _history ];
+
+    _output = [[UITextView alloc] init];
+    _output.accessibilityLabel = @"Console output";
+    _output.accessibilityIdentifier = @"console-output";
+    _output.editable = NO;
+    _output.selectable = YES;
+    _output.backgroundColor = PRSurface();
+    _output.layer.cornerRadius = 16;
+    _output.textContainerInset = UIEdgeInsetsMake(12, 12, 12, 12);
+    _output.alwaysBounceVertical = YES;
+    _output.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    _output.adjustsFontForContentSizeCategory = YES;
+
+    _empty = [[UILabel alloc] init];
+    _empty.text = @"Console output appears here.";
+    _empty.textColor = UIColor.secondaryLabelColor;
+    _empty.font = PRFont(14, UIFontWeightRegular, UIFontTextStyleBody);
+    _empty.textAlignment = NSTextAlignmentCenter;
+    _empty.numberOfLines = 0;
+    _empty.userInteractionEnabled = NO;
+
+    UILabel* hint = [[UILabel alloc] init];
+    hint.text = @"Enter help to list all available commands.";
+    hint.textColor = UIColor.secondaryLabelColor;
+    hint.font = PRFont(12, UIFontWeightRegular, UIFontTextStyleFootnote);
+    hint.adjustsFontForContentSizeCategory = YES;
+    hint.numberOfLines = 0;
+
+    _command = [[UITextField alloc] init];
+    _command.placeholder = @"Enter command…";
+    _command.accessibilityIdentifier = @"console-command";
+    _command.borderStyle = UITextBorderStyleRoundedRect;
+    _command.backgroundColor = PRSurface();
+    _command.font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
+        scaledFontForFont:[UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular]];
+    _command.adjustsFontForContentSizeCategory = YES;
+    _command.autocorrectionType = UITextAutocorrectionTypeNo;
+    _command.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    _command.spellCheckingType = UITextSpellCheckingTypeNo;
+    _command.smartQuotesType = UITextSmartQuotesTypeNo;
+    _command.smartDashesType = UITextSmartDashesTypeNo;
+    _command.returnKeyType = UIReturnKeyGo;
+    _command.clearButtonMode = UITextFieldViewModeWhileEditing;
+    _command.delegate = self;
+    [_command addTarget:self action:@selector(editingChanged) forControlEvents:UIControlEventEditingChanged];
+    UIToolbar* keyboardTools = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
+    keyboardTools.items = @[
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone
+                                                      target:self
+                                                      action:@selector(dismissKeyboard)]
+    ];
+    _command.inputAccessoryView = keyboardTools;
+
+    _run = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration* configuration = [UIButtonConfiguration filledButtonConfiguration];
+    configuration.title = @"Run";
+    configuration.cornerStyle = UIButtonConfigurationCornerStyleMedium;
+    _run.configuration = configuration;
+    PRStyleFilledButton(_run);
+    _run.accessibilityIdentifier = @"console-run";
+    [_run addTarget:self action:@selector(submitCommand) forControlEvents:UIControlEventTouchUpInside];
+    UIStackView* composer = [[UIStackView alloc] initWithArrangedSubviews:@[ _command, _run ]];
+    composer.spacing = 8;
+    [_command setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [_run setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+
+    for (UIView* view in @[ _output, hint, composer ]) {
+        view.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.view addSubview:view];
+    }
+    _empty.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_empty];
+    UILayoutGuide* safe = self.view.safeAreaLayoutGuide;
+    NSLayoutConstraint* outputTop = [_output.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8];
+    outputTop.priority = UILayoutPriorityDefaultHigh;
+    [NSLayoutConstraint activateConstraints:@[
+        outputTop, [_output.heightAnchor constraintGreaterThanOrEqualToConstant:0],
+        [_output.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:12],
+        [_output.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-12],
+        [_output.bottomAnchor constraintEqualToAnchor:hint.topAnchor constant:-8],
+        [hint.leadingAnchor constraintEqualToAnchor:_output.leadingAnchor constant:4],
+        [hint.trailingAnchor constraintEqualToAnchor:_output.trailingAnchor constant:-4],
+        [hint.bottomAnchor constraintEqualToAnchor:composer.topAnchor constant:-8],
+        [composer.leadingAnchor constraintEqualToAnchor:_output.leadingAnchor],
+        [composer.trailingAnchor constraintEqualToAnchor:_output.trailingAnchor],
+        [composer.bottomAnchor constraintEqualToAnchor:self.view.keyboardLayoutGuide.topAnchor constant:-8],
+        [composer.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+        [_run.widthAnchor constraintGreaterThanOrEqualToConstant:64],
+        [_empty.centerYAnchor constraintEqualToAnchor:_output.centerYAnchor],
+        [_empty.leadingAnchor constraintEqualToAnchor:_output.leadingAnchor constant:16],
+        [_empty.trailingAnchor constraintEqualToAnchor:_output.trailingAnchor constant:-16]
+    ]];
+    [self editingChanged];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refresh];
+    __weak PRNativeConsole* weak = self;
+    _timer = [NSTimer scheduledTimerWithTimeInterval:.5
+                                             repeats:YES
+                                               block:^(NSTimer*) {
+                                                   [weak refresh];
+                                               }];
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_timer invalidate];
+    _timer = nil;
+    [self.view endEditing:YES];
+}
+- (void)editingChanged {
+    _run.enabled =
+        [_command.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length > 0;
+}
+- (BOOL)textFieldShouldReturn:(UITextField*)field {
+    [self submitCommand];
+    return NO;
+}
+- (void)textFieldDidBeginEditing:(UITextField*)field {
+    // Landscape phones need the header space while the software keyboard is up.
+    [PRRoot setConsoleTyping:YES];
+    [self.navigationController setNavigationBarHidden:YES animated:NO];
+}
+- (void)textFieldDidEndEditing:(UITextField*)field {
+    [PRRoot setConsoleTyping:NO];
+    [self.navigationController setNavigationBarHidden:NO animated:NO];
+}
+- (void)dismissKeyboard {
+    [_command resignFirstResponder];
+}
+- (void)submitCommand {
+    NSString* text = [_command.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!text.length)
+        return;
+    const auto command = PRString(text);
+    _command.text = @"";
+    [self editingChanged];
+    _scrollNext = YES;
+    __weak PRNativeConsole* weak = self;
+    N::Enqueue([weak, command] {
+        N::SubmitConsole(command);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weak refresh];
+        });
+    });
+}
+- (void)clearOutput {
+    __weak PRNativeConsole* weak = self;
+    N::Enqueue([weak] {
+        N::ClearConsole();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weak refresh];
+        });
+    });
+}
+- (void)refresh {
+    if (_refreshing)
+        return;
+    _refreshing = YES;
+    __weak PRNativeConsole* weak = self;
+    N::Enqueue([weak] {
+        auto snapshot = std::make_shared<N::ConsoleSnapshot>(N::ReadConsole());
+        dispatch_async(dispatch_get_main_queue(), ^{
+            PRNativeConsole* controller = weak;
+            if (!controller)
+                return;
+            controller->_refreshing = NO;
+            if (controller->_revision == snapshot->revision)
+                return;
+            controller->_snapshot = std::move(*snapshot);
+            controller->_revision = controller->_snapshot.revision;
+            [controller renderOutput];
+            NSMutableArray<UIMenuElement*>* entries = [NSMutableArray array];
+            size_t count = 0;
+            for (auto it = controller->_snapshot.history.rbegin();
+                 it != controller->_snapshot.history.rend() && count < 20; ++it, ++count)
+            {
+                NSString* command = PRText(*it);
+                [entries addObject:[UIAction actionWithTitle:command
+                                                       image:nil
+                                                  identifier:nil
+                                                     handler:^(UIAction*) {
+                                                         PRNativeConsole* owner = weak;
+                                                         if (!owner)
+                                                             return;
+                                                         owner->_command.text = command;
+                                                         [owner editingChanged];
+                                                         [owner->_command becomeFirstResponder];
+                                                     }]];
+            }
+            controller->_history.menu = [UIMenu menuWithTitle:@"Recent commands" children:entries];
+            controller->_history.enabled = entries.count > 0;
+        });
+    });
+}
+- (void)applyTheme {
+    PRStyleFilledButton(_run);
+    [self renderOutput];
+}
+- (void)renderOutput {
+    const BOOL follow =
+        _scrollNext || _output.contentOffset.y + _output.bounds.size.height >= _output.contentSize.height - 40;
+    const CGPoint offset = _output.contentOffset;
+    NSMutableAttributedString* text = [[NSMutableAttributedString alloc] initWithString:@""];
+    UIFont* font = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleBody]
+        scaledFontForFont:[UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular]];
+    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
+    paragraph.paragraphSpacing = 6;
+    for (const auto& line : _snapshot.lines) {
+        UIColor* color = line.error ? UIColor.systemRedColor : line.command ? PRAccent() : UIColor.labelColor;
+        [text appendAttributedString:[[NSAttributedString alloc]
+                                         initWithString:[PRText(line.text) stringByAppendingString:@"\n"]
+                                             attributes:@{
+                                                 NSFontAttributeName : font,
+                                                 NSForegroundColorAttributeName : color,
+                                                 NSParagraphStyleAttributeName : paragraph
+                                             }]];
+    }
+    _output.attributedText = text;
+    _empty.hidden = !_snapshot.lines.empty();
+    if (follow && text.length)
+        [_output scrollRangeToVisible:NSMakeRange(text.length - 1, 1)];
+    else
+        _output.contentOffset = offset;
+    _scrollNext = NO;
+}
+- (void)traitCollectionDidChange:(UITraitCollection*)previous {
+    [super traitCollectionDidChange:previous];
+    if (self.isViewLoaded)
+        [self renderOutput];
+}
+- (void)controllerSearch {
+    __weak PRNativeConsole* weak = self;
+    PRControllerEditText(PRRoot, @"Console command", _command.text, ^(NSString* text) {
+        PRNativeConsole* owner = weak;
+        if (owner) {
+            owner->_command.text = text;
+            [owner editingChanged];
+        }
+    });
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    NSMutableArray<PRControllerTarget*>* targets = [PRControllerDefaultTargets(self) mutableCopy];
+    __weak PRNativeConsole* weak = self;
+    PRControllerTarget* output =
+        PRControllerViewTarget(_output, @"console-output", @"Console output · Left/Right scroll", nil);
+    output.adjust = ^(NSInteger direction) {
+        PRNativeConsole* owner = weak;
+        if (!owner)
+            return;
+        UITextView* view = owner->_output;
+        CGFloat maximum =
+            MAX(-view.adjustedContentInset.top,
+                view.contentSize.height - view.bounds.size.height + view.adjustedContentInset.bottom);
+        [view setContentOffset:CGPointMake(
+                                   view.contentOffset.x,
+                                   std::clamp(
+                                       view.contentOffset.y + direction * 120, -view.adjustedContentInset.top, maximum
+                                   )
+                               )
+                      animated:NO];
+    };
+    [targets insertObject:output atIndex:0];
+    if (!_snapshot.history.empty()) {
+        [targets addObject:PRControllerViewTarget(
+                               self.navigationController.navigationBar, @"console/history", @"Command history", ^{
+                                   PRNativeConsole* owner = weak;
+                                   if (!owner)
+                                       return;
+                                   NSMutableArray<NSString*>* commands = [NSMutableArray array];
+                                   for (auto it = owner->_snapshot.history.rbegin();
+                                        it != owner->_snapshot.history.rend() && commands.count < 20;
+                                        ++it)
+                                       [commands addObject:PRText(*it)];
+                                   PRControllerChoose(PRRoot, @"Recent commands", commands, ^(NSInteger index) {
+                                       PRNativeConsole* page = weak;
+                                       if (page && index < NSInteger(commands.count)) {
+                                           page->_command.text = commands[index];
+                                           [page editingChanged];
+                                       }
+                                   });
+                               }
+                           )];
+    }
+    return targets;
+}
+
+@end
+
+static UIFont* PREventMonoFont(CGFloat size) {
+    return [[UIFontMetrics metricsForTextStyle:UIFontTextStyleFootnote]
+        scaledFontForFont:[UIFont monospacedSystemFontOfSize:size weight:UIFontWeightRegular]];
+}
+static UILabel* PREventLabel(NSString* text, UIFont* font, UIColor* color) {
+    UILabel* label = [[UILabel alloc] init];
+    label.text = text;
+    label.font = font;
+    label.textColor = color;
+    label.numberOfLines = 0;
+    label.adjustsFontForContentSizeCategory = YES;
+    return label;
+}
+static NSString* PREventPath(const std::string& path) {
+    NSString* text = [PRText(path) stringByReplacingOccurrencesOfString:@"\\" withString:@"/"];
+    // Drop build-machine prefixes while retaining the useful source directory.
+    for (NSString* prefix in @[ @"/external/", @"/src/", @"/include/" ]) {
+        NSRange range = [text rangeOfString:prefix];
+        if (range.location != NSNotFound)
+            return [text substringFromIndex:range.location + 1];
+    }
+    return text;
+}
+static bool PREventStructureMatches(const N::EventSnapshot& left, const N::EventSnapshot& right) {
+    if (left.available != right.available || left.recordsCallSites != right.recordsCallSites
+        || left.events.size() != right.events.size())
+        return false;
+    for (size_t i = 0; i < left.events.size(); ++i) {
+        const auto& a = left.events[i];
+        const auto& b = right.events[i];
+        if (a.id != b.id || a.name != b.name || a.listeners != b.listeners || a.callers.size() != b.callers.size())
+            return false;
+        for (size_t c = 0; c < a.callers.size(); ++c)
+            if (a.callers[c].path != b.callers[c].path || a.callers[c].line != b.callers[c].line)
+                return false;
+    }
+    return true;
+}
+
+@interface PRNativeEventCard : UITableViewCell {
+    UIStackView* _stack;
+    NSMutableArray<UILabel*>* _callLabels;
+}
+- (void)configure:(const N::EventInfo&)event expanded:(BOOL)expanded recordsCalls:(BOOL)recordsCalls target:(id)target;
+- (void)updateCalls:(const N::EventInfo&)event;
+@end
+
+@implementation PRNativeEventCard
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString*)identifier {
+    self = [super initWithStyle:style reuseIdentifier:identifier];
+    if (self) {
+        PRStyleCard(self);
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        _callLabels = [NSMutableArray array];
+        _stack = [[UIStackView alloc] init];
+        _stack.axis = UILayoutConstraintAxisVertical;
+        _stack.spacing = 10;
+        _stack.translatesAutoresizingMaskIntoConstraints = NO;
+        [self.contentView addSubview:_stack];
+        [NSLayoutConstraint activateConstraints:@[
+            [_stack.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:16],
+            [_stack.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-16],
+            [_stack.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:30],
+            [_stack.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-30]
+        ]];
+    }
+    return self;
+}
+- (void)addHeading:(NSString*)title {
+    [_stack addArrangedSubview:PREventLabel(
+                                   title, PRFont(12, UIFontWeightSemibold, UIFontTextStyleCaption1),
+                                   UIColor.secondaryLabelColor
+                               )];
+}
+- (UILabel*)addSource:(const std::string&)source
+                 line:(int)line
+               detail:(NSString*)detail
+                value:(NSString*)value
+                color:(UIColor*)color {
+    NSString* path = PREventPath(source);
+    NSString* location =
+        path.length ? [NSString stringWithFormat:@"%@:%d", path.lastPathComponent, line] : @"Unknown source";
+    UILabel* primary = PREventLabel(location, PREventMonoFont(13), UIColor.labelColor);
+    primary.lineBreakMode = NSLineBreakByCharWrapping;
+    primary.accessibilityLabel = path.length ? [NSString stringWithFormat:@"%@:%d", path, line] : location;
+    UIStackView* sourceLabels = [[UIStackView alloc] initWithArrangedSubviews:@[ primary ]];
+    sourceLabels.axis = UILayoutConstraintAxisVertical;
+    sourceLabels.spacing = 3;
+    NSString* directory = path.stringByDeletingLastPathComponent;
+    if ([directory isEqualToString:@"."])
+        directory = @"";
+    NSString* secondary = detail.length && directory.length ? [NSString stringWithFormat:@"%@ · %@", detail, directory]
+                                                            : (detail.length ? detail : directory);
+    if (secondary.length) {
+        UILabel* label = PREventLabel(secondary, PREventMonoFont(11), UIColor.secondaryLabelColor);
+        label.lineBreakMode = NSLineBreakByCharWrapping;
+        [sourceLabels addArrangedSubview:label];
+    }
+    UILabel* metric = PREventLabel(value, PREventMonoFont(13), color);
+    metric.textAlignment = NSTextAlignmentRight;
+    metric.numberOfLines = 1;
+    metric.adjustsFontSizeToFitWidth = YES;
+    metric.minimumScaleFactor = .5;
+    [metric setContentCompressionResistancePriority:UILayoutPriorityRequired - 1
+                                            forAxis:UILayoutConstraintAxisHorizontal];
+    [metric setContentHuggingPriority:UILayoutPriorityRequired - 1 forAxis:UILayoutConstraintAxisHorizontal];
+    // Reserve a stable column so growing live counts cannot rewrap source rows
+    // and invalidate the table's cached card height during a count-only update.
+    [metric.widthAnchor constraintEqualToConstant:130].active = YES;
+    UIStackView* content = [[UIStackView alloc] initWithArrangedSubviews:@[ sourceLabels, metric ]];
+    content.alignment = UIStackViewAlignmentCenter;
+    content.spacing = 12;
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    UIView* row = [[UIView alloc] init];
+    row.backgroundColor = [UIColor.labelColor colorWithAlphaComponent:.025];
+    row.layer.cornerRadius = 8;
+    [row addSubview:content];
+    [NSLayoutConstraint activateConstraints:@[
+        [content.topAnchor constraintEqualToAnchor:row.topAnchor constant:9],
+        [content.bottomAnchor constraintEqualToAnchor:row.bottomAnchor constant:-9],
+        [content.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:10],
+        [content.trailingAnchor constraintEqualToAnchor:row.trailingAnchor constant:-10],
+        [sourceLabels.widthAnchor constraintGreaterThanOrEqualToConstant:44]
+    ]];
+    [_stack addArrangedSubview:row];
+    return metric;
+}
+- (void)configure:(const N::EventInfo&)event expanded:(BOOL)expanded recordsCalls:(BOOL)recordsCalls target:(id)target {
+    for (UIView* view in _stack.arrangedSubviews.copy)
+        [view removeFromSuperview];
+    [_callLabels removeAllObjects];
+    UILabel* title =
+        PREventLabel(PRText(event.name), PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody), UIColor.labelColor);
+    NSString* subtitle = [NSString stringWithFormat:@"ID %d · %zu %@", event.id, event.listeners.size(),
+                                                    event.listeners.size() == 1 ? @"listener" : @"listeners"];
+    UIStackView* labels = [[UIStackView alloc] initWithArrangedSubviews:@[
+        title,
+        PREventLabel(subtitle, PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote), UIColor.secondaryLabelColor)
+    ]];
+    labels.axis = UILayoutConstraintAxisVertical;
+    labels.spacing = 5;
+    labels.userInteractionEnabled = NO;
+    labels.translatesAutoresizingMaskIntoConstraints = NO;
+    UIImageView* chevron =
+        [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:expanded ? @"chevron.down" : @"chevron.right"]];
+    chevron.tintColor = UIColor.tertiaryLabelColor;
+    chevron.contentMode = UIViewContentModeScaleAspectFit;
+    chevron.translatesAutoresizingMaskIntoConstraints = NO;
+    UIButton* heading = [UIButton buttonWithType:UIButtonTypeCustom];
+    heading.tag = event.id;
+    heading.accessibilityIdentifier = [NSString stringWithFormat:@"event-%d", event.id];
+    heading.accessibilityLabel = [NSString stringWithFormat:@"%@, %@", title.text, subtitle];
+    heading.accessibilityValue = expanded ? @"Expanded" : @"Collapsed";
+    [heading addTarget:target action:@selector(toggleEvent:) forControlEvents:UIControlEventTouchUpInside];
+    [heading addSubview:labels];
+    [heading addSubview:chevron];
+    [NSLayoutConstraint activateConstraints:@[
+        [heading.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+        [labels.topAnchor constraintEqualToAnchor:heading.topAnchor constant:4],
+        [labels.bottomAnchor constraintEqualToAnchor:heading.bottomAnchor constant:-4],
+        [labels.leadingAnchor constraintEqualToAnchor:heading.leadingAnchor],
+        [labels.trailingAnchor constraintEqualToAnchor:chevron.leadingAnchor constant:-12],
+        [chevron.trailingAnchor constraintEqualToAnchor:heading.trailingAnchor],
+        [chevron.centerYAnchor constraintEqualToAnchor:heading.centerYAnchor],
+        [chevron.widthAnchor constraintEqualToConstant:16], [chevron.heightAnchor constraintEqualToConstant:16]
+    ]];
+    [_stack addArrangedSubview:heading];
+    if (!expanded)
+        return;
+    [self addHeading:[NSString stringWithFormat:@"CALLERS · %zu", event.callers.size()]];
+    if (event.callers.empty())
+        [_stack addArrangedSubview:PREventLabel(
+                                       recordsCalls ? @"No call sites recorded yet."
+                                                    : @"This build does not record call sites.",
+                                       PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote),
+                                       UIColor.secondaryLabelColor
+                                   )];
+    for (const auto& caller : event.callers)
+        [_callLabels addObject:[self addSource:caller.path
+                                          line:caller.line
+                                        detail:@""
+                                         value:@""
+                                         color:UIColor.secondaryLabelColor]];
+    [self updateCalls:event];
+    UIView* divider = [[UIView alloc] init];
+    divider.backgroundColor = [UIColor.separatorColor colorWithAlphaComponent:.3];
+    [divider.heightAnchor constraintEqualToConstant:1 / UIScreen.mainScreen.scale].active = YES;
+    [_stack addArrangedSubview:divider];
+    [self addHeading:[NSString stringWithFormat:@"LISTENERS · %zu", event.listeners.size()]];
+    if (event.listeners.empty())
+        [_stack addArrangedSubview:PREventLabel(
+                                       @"No listeners registered.",
+                                       PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote),
+                                       UIColor.secondaryLabelColor
+                                   )];
+    for (const auto& listener : event.listeners) {
+        NSString* priority = @"Unknown";
+        UIColor* color = UIColor.secondaryLabelColor;
+        switch (listener.priority) {
+            case N::EventPriority::High:
+                priority = @"High";
+                color = UIColor.systemRedColor;
+                break;
+            case N::EventPriority::Normal:
+                priority = @"Normal";
+                color = UIColor.systemOrangeColor;
+                break;
+            case N::EventPriority::Low:
+                priority = @"Low";
+                break;
+            case N::EventPriority::Unknown:
+                break;
+        }
+        [self addSource:listener.path
+                   line:listener.line
+                 detail:[NSString stringWithFormat:@"Listener ID %lld", (long long) listener.id]
+                  value:priority
+                  color:color];
+    }
+}
+- (void)updateCalls:(const N::EventInfo&)event {
+    for (size_t i = 0; i < event.callers.size() && i < _callLabels.count; ++i)
+        _callLabels[i].text = [NSString stringWithFormat:@"%llu %@", (unsigned long long) event.callers[i].calls,
+                                                         event.callers[i].calls == 1 ? @"call" : @"calls"];
+}
+@end
+
+@interface PRNativeEvents : UIViewController <UITableViewDataSource, UITableViewDelegate, PRControllerNavigable> {
+    UITableView* _table;
+    UILabel* _empty;
+    UIButton* _expand;
+    UIButton* _collapse;
+    NSTimer* _timer;
+    N::EventSnapshot _snapshot;
+    std::set<int32_t> _expanded;
+    uint64_t _generation;
+    BOOL _active, _refreshing, _received, _allExpanded;
+}
+- (void)refresh;
+@end
+
+@implementation PRNativeEvents
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRIsolatePage(self);
+    self.title = @"Event Debugger";
+    _expand = [UIButton buttonWithType:UIButtonTypeSystem];
+    _collapse = [UIButton buttonWithType:UIButtonTypeSystem];
+    for (UIButton* button in @[ _expand, _collapse ]) {
+        UIButtonConfiguration* configuration = [UIButtonConfiguration plainButtonConfiguration];
+        configuration.title = button == _expand ? @"Expand All" : @"Collapse All";
+        configuration.contentInsets = NSDirectionalEdgeInsetsMake(8, 4, 8, 4);
+        button.configuration = configuration;
+        button.titleLabel.font = PRFont(14, UIFontWeightMedium, UIFontTextStyleSubheadline);
+        button.titleLabel.adjustsFontForContentSizeCategory = YES;
+        button.titleLabel.numberOfLines = 0;
+        button.enabled = NO;
+        [button.heightAnchor constraintGreaterThanOrEqualToConstant:44].active = YES;
+    }
+    _expand.accessibilityIdentifier = @"events-expand-all";
+    _collapse.accessibilityIdentifier = @"events-collapse-all";
+    [_expand addTarget:self action:@selector(expandAll) forControlEvents:UIControlEventTouchUpInside];
+    [_collapse addTarget:self action:@selector(collapseAll) forControlEvents:UIControlEventTouchUpInside];
+    UIView* spacer = [[UIView alloc] init];
+    [spacer.widthAnchor constraintGreaterThanOrEqualToConstant:8].active = YES;
+    UIStackView* toolbar = [[UIStackView alloc] initWithArrangedSubviews:@[ _expand, spacer, _collapse ]];
+    toolbar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:toolbar];
+    _table = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    PRStyleTable(_table);
+    _table.dataSource = self;
+    _table.delegate = self;
+    _table.rowHeight = UITableViewAutomaticDimension;
+    _table.estimatedRowHeight = 90;
+    _table.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    _table.sectionHeaderHeight = 0;
+    _table.sectionFooterHeight = 0;
+    _table.estimatedSectionHeaderHeight = 0;
+    _table.estimatedSectionFooterHeight = 0;
+    _table.clipsToBounds = YES;
+    _table.translatesAutoresizingMaskIntoConstraints = NO;
+    [_table registerClass:PRNativeEventCard.class forCellReuseIdentifier:@"event"];
+    [self.view addSubview:_table];
+    _empty = PREventLabel(
+        @"Loading events…", PRFont(14, UIFontWeightRegular, UIFontTextStyleBody), UIColor.secondaryLabelColor
+    );
+    _empty.textAlignment = NSTextAlignmentCenter;
+    _empty.userInteractionEnabled = NO;
+    _empty.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:_empty];
+    UILayoutGuide* safe = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [toolbar.topAnchor constraintEqualToAnchor:safe.topAnchor constant:4],
+        [toolbar.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:26],
+        [toolbar.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-26],
+        [_table.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:2],
+        [_table.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [_table.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
+        [_table.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+        [_empty.centerYAnchor constraintEqualToAnchor:_table.centerYAnchor],
+        [_empty.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:24],
+        [_empty.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-24]
+    ]];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    _active = YES;
+    [self refresh];
+    __weak PRNativeEvents* weak = self;
+    _timer = [NSTimer scheduledTimerWithTimeInterval:1
+                                             repeats:YES
+                                               block:^(NSTimer*) {
+                                                   [weak refresh];
+                                               }];
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    _active = NO;
+    ++_generation;
+    _refreshing = NO;
+    [_timer invalidate];
+    _timer = nil;
+}
+- (void)dealloc {
+    [_timer invalidate];
+}
+- (void)refresh {
+    if (!_active || _refreshing || _table.dragging || _table.decelerating
+        || UIApplication.sharedApplication.applicationState != UIApplicationStateActive)
+        return;
+    _refreshing = YES;
+    const uint64_t generation = ++_generation;
+    __weak PRNativeEvents* weak = self;
+    N::Enqueue([weak, generation] {
+        auto snapshot = std::make_shared<N::EventSnapshot>(N::ReadEvents());
+        dispatch_async(dispatch_get_main_queue(), ^{
+            PRNativeEvents* controller = weak;
+            if (!controller || !controller->_active || controller->_generation != generation)
+                return;
+            controller->_refreshing = NO;
+            if (controller->_table.dragging || controller->_table.decelerating)
+                return;
+            if (controller->_received && controller->_snapshot == *snapshot)
+                return;
+            const bool structureChanged =
+                !controller->_received || !PREventStructureMatches(controller->_snapshot, *snapshot);
+            controller->_received = YES;
+            controller->_snapshot = std::move(*snapshot);
+            std::set<int32_t> current;
+            for (const auto& event : controller->_snapshot.events)
+                if (controller->_allExpanded || controller->_expanded.contains(event.id))
+                    current.insert(event.id);
+            controller->_expanded = std::move(current);
+            controller->_expand.enabled = !controller->_snapshot.events.empty();
+            controller->_collapse.enabled = !controller->_expanded.empty();
+            controller->_empty.hidden = !controller->_snapshot.events.empty();
+            controller->_empty.text =
+                controller->_snapshot.available ? @"No events registered." : @"Event system unavailable.";
+            if (structureChanged) {
+                [controller->_table reloadData];
+            } else {
+                // Counts are the common live update. Do not rebuild cards or reset
+                // their expansion/scroll state just because another frame ran.
+                for (NSIndexPath* path in controller->_table.indexPathsForVisibleRows) {
+                    PRNativeEventCard* cell = (PRNativeEventCard*) [controller->_table cellForRowAtIndexPath:path];
+                    [cell updateCalls:controller->_snapshot.events[path.row]];
+                }
+            }
+        });
+    });
+}
+- (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
+    return _snapshot.events.size();
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
+    return 0;
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
+    return 0;
+}
+- (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)path {
+    PRNativeEventCard* cell = [tableView dequeueReusableCellWithIdentifier:@"event" forIndexPath:path];
+    const auto& event = _snapshot.events[path.row];
+    [cell configure:event expanded:_expanded.contains(event.id) recordsCalls:_snapshot.recordsCallSites target:self];
+    return cell;
+}
+- (void)toggleEvent:(UIButton*)sender {
+    const int32_t id = int32_t(sender.tag);
+    auto event = std::find_if(_snapshot.events.begin(), _snapshot.events.end(), [id](const auto& entry) {
+        return entry.id == id;
+    });
+    if (event == _snapshot.events.end())
+        return;
+    _allExpanded = NO;
+    if (!_expanded.erase(id))
+        _expanded.insert(id);
+    _collapse.enabled = !_expanded.empty();
+    NSIndexPath* path = [NSIndexPath indexPathForRow:event - _snapshot.events.begin() inSection:0];
+    [UIView performWithoutAnimation:^{
+        [_table reloadRowsAtIndexPaths:@[ path ] withRowAnimation:UITableViewRowAnimationNone];
+    }];
+}
+- (void)expandAll {
+    _allExpanded = YES;
+    for (const auto& event : _snapshot.events)
+        _expanded.insert(event.id);
+    _collapse.enabled = !_expanded.empty();
+    [_table reloadData];
+}
+- (void)collapseAll {
+    _allExpanded = NO;
+    _expanded.clear();
+    _collapse.enabled = NO;
+    [_table reloadData];
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    NSMutableArray<PRControllerTarget*>* targets = [NSMutableArray array];
+    __weak PRNativeEvents* weak = self;
+    if (_expand.enabled)
+        [targets addObject:PRControllerViewTarget(_expand, @"events/expand", @"Expand All", ^{
+                     [weak expandAll];
+                 })];
+    if (_collapse.enabled)
+        [targets addObject:PRControllerViewTarget(_collapse, @"events/collapse", @"Collapse All", ^{
+                     [weak collapseAll];
+                 })];
+    for (size_t i = 0; i < _snapshot.events.size(); ++i) {
+        const auto& event = _snapshot.events[i];
+        const int32_t id = event.id;
+        [targets addObject:PRControllerRowTarget(
+                               _table, [NSIndexPath indexPathForRow:i inSection:0],
+                               [NSString stringWithFormat:@"event/%d", id], PRText(event.name), ^{
+                                   UIButton* sender = [UIButton buttonWithType:UIButtonTypeSystem];
+                                   sender.tag = id;
+                                   [weak toggleEvent:sender];
+                               }
+                           )];
+    }
+    return targets;
+}
+
+@end
+
+@implementation PRNativePage
+- (instancetype)initWithKey:(std::string)key {
+    self = [super initWithStyle:UITableViewStyleGrouped];
+    if (self) {
+        _key = std::move(key);
+        _images = [NSMutableDictionary dictionary];
+        _pendingImages = [NSMutableSet set];
+    }
+    return self;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRStyleTable(self.tableView);
+    // This grouped page supplies real section labels and explanatory footers.
+    self.tableView.sectionHeaderHeight = UITableViewAutomaticDimension;
+    self.tableView.sectionFooterHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedSectionHeaderHeight = 38;
+    self.tableView.estimatedSectionFooterHeight = 20;
+    PRIsolatePage(self);
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 62;
+    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
+    self.refreshControl = [[UIRefreshControl alloc] init];
+    [self.refreshControl addTarget:self action:@selector(refresh) forControlEvents:UIControlEventValueChanged];
+    [self refresh];
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    if (self.isViewLoaded)
+        [self refresh];
+    if (_key.starts_with("bindings/capture/")) {
+        __weak PRNativePage* weak = self;
+        _bindingTimer = [NSTimer scheduledTimerWithTimeInterval:.2
+                                                        repeats:YES
+                                                          block:^(NSTimer*) {
+                                                              [weak refresh];
+                                                          }];
+    }
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [_bindingTimer invalidate];
+    _bindingTimer = nil;
+    if (_key.starts_with("bindings/capture/")) {
+        const auto key = _key;
+        N::Enqueue([key] { N::CancelBindingCapture(key); });
+    }
+}
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    BOOL two = self.tableView.bounds.size.width >= 440
+        && !UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
+    if (_twoColumns != two) {
+        _twoColumns = two;
+        [self filter];
+    }
+}
+- (void)refresh {
+    const uint64_t generation = ++_generation;
+    const auto key = _key;
+    __weak PRNativePage* weak = self;
+    N::Enqueue([weak, key, generation] {
+        auto page = std::make_shared<N::Page>(N::BuildPage(key));
+        dispatch_async(dispatch_get_main_queue(), ^{
+            PRNativePage* controller = weak;
+            if (!controller || controller->_generation != generation)
+                return;
+            if (page->returnToParent) {
+                if (controller.navigationController.topViewController == controller)
+                    [controller.navigationController popViewControllerAnimated:YES];
+                return;
+            }
+            controller->_page = std::move(*page);
+            controller.title = PRText(controller->_page.title);
+            [controller->_images removeAllObjects];
+            [controller->_pendingImages removeAllObjects];
+            if (controller->_page.searchable && !controller.navigationItem.searchController) {
+                UISearchController* search = [[UISearchController alloc] initWithSearchResultsController:nil];
+                search.obscuresBackgroundDuringPresentation = NO;
+                search.searchResultsUpdater = controller;
+                controller.navigationItem.searchController = search;
+                controller.definesPresentationContext = YES;
+            }
+            [controller filter];
+            [controller.refreshControl endRefreshing];
+        });
+    });
+}
+- (void)filter {
+    _sections = _page.sections;
+    NSString* query = self.navigationItem.searchController.searchBar.text ?: @"";
+    if (query.length)
+        for (auto& section : _sections) {
+            std::erase_if(section.rows, [query](const N::Row& row) {
+                return [PRText(row.title) rangeOfString:query
+                                                options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch]
+                           .location
+                    == NSNotFound;
+            });
+        }
+    std::erase_if(_sections, [](const auto& section) { return section.rows.empty(); });
+    _rows.clear();
+    for (const auto& section : _sections) {
+        auto& ranges = _rows.emplace_back();
+        auto numeric = [](const N::Row& row) { return row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal; };
+        for (size_t index = 0; index < section.rows.size();) {
+            size_t count = _twoColumns && numeric(section.rows[index]) && index + 1 < section.rows.size()
+                    && numeric(section.rows[index + 1])
+                ? 2
+                : 1;
+            ranges.emplace_back(index, count);
+            index += count;
+        }
+    }
+    [self.tableView reloadData];
+}
+- (void)updateSearchResultsForSearchController:(UISearchController*)controller {
+    [self filter];
+}
+- (NSInteger)numberOfSectionsInTableView:(UITableView*)tableView {
+    return _sections.size();
+}
+- (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
+    return _rows[section].size();
+}
+- (NSString*)tableView:(UITableView*)tableView titleForHeaderInSection:(NSInteger)section {
+    return _sections[section].title.empty() ? nil : PRText(_sections[section].title);
+}
+- (NSString*)tableView:(UITableView*)tableView titleForFooterInSection:(NSInteger)section {
+    return _sections[section].footer.empty() ? nil : PRText(_sections[section].footer);
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
+    return _sections[section].footer.empty() ? .01 : UITableViewAutomaticDimension;
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
+    return _sections[section].title.empty() ? 6 : UITableViewAutomaticDimension;
+}
+- (UIView*)tableView:(UITableView*)tableView viewForHeaderInSection:(NSInteger)section {
+    if (_sections[section].title.empty())
+        return nil;
+    UITableViewHeaderFooterView* header = [[UITableViewHeaderFooterView alloc] initWithReuseIdentifier:nil];
+    UIListContentConfiguration* content = [UIListContentConfiguration groupedHeaderConfiguration];
+    content.text = PRText(_sections[section].title);
+    content.textProperties.font = PRFont(15, UIFontWeightSemibold, UIFontTextStyleSubheadline);
+    content.textProperties.color = UIColor.secondaryLabelColor;
+    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(18, 28, 6, 28);
+    header.contentConfiguration = content;
+    header.backgroundView = [[UIView alloc] init];
+    return header;
+}
+- (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
+    const auto& rows = _sections[indexPath.section].rows;
+    const auto [index, columns] = _rows[indexPath.section][indexPath.row];
+    const N::Row row = rows[index];
+    if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal) {
+        std::vector<N::Row> controls { row };
+        if (columns == 2 && index + 1 < rows.size())
+            controls.push_back(rows[index + 1]);
+        return [[PRNativeSliderCell alloc] initWithRows:controls owner:self];
+    }
+    UITableViewCell* cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    PRStyleCard(cell);
+    if (row.kind == N::Kind::Info)
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    UIListContentConfiguration* content = cell.defaultContentConfiguration;
+    content.textProperties.font = PRFont(16, UIFontWeightSemibold, UIFontTextStyleBody);
+    content.textProperties.numberOfLines = 0;
+    content.secondaryTextProperties.font = PRFont(13, UIFontWeightRegular, UIFontTextStyleFootnote);
+    content.secondaryTextProperties.color = UIColor.secondaryLabelColor;
+    content.textToSecondaryTextVerticalPadding = 5;
+    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(18, 30, 18, 30);
+    content.imageProperties.tintColor = PRAccent();
+    content.text = PRText(row.title);
+    content.secondaryText = PRText(row.detail);
+    content.secondaryTextProperties.numberOfLines = 0;
+    if (!row.symbol.empty())
+        content.image = [UIImage systemImageNamed:PRText(row.symbol)];
+    if (row.portrait) {
+        NSString* key = PRText(row.id);
+        content.image = _images[key] ?: PRBlankPortrait();
+        content.imageProperties.maximumSize = CGSizeMake(44, 44);
+        content.imageProperties.reservedLayoutSize = CGSizeMake(44, 44);
+        if (!_images[key] && ![_pendingImages containsObject:key]) {
+            [_pendingImages addObject:key];
+            __weak PRNativePage* weak = self;
+            const uint64_t generation = _generation;
+            N::Enqueue([weak, row, key, generation] {
+                auto image = std::make_shared<N::Image>(row.portrait());
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    PRNativePage* controller = weak;
+                    if (!controller || controller->_generation != generation)
+                        return;
+                    controller->_images[key] =
+                        PRImage(*image, controller.traitCollection.displayScale) ?: PRBlankPortrait();
+                    [controller.tableView reloadData];
+                });
+            });
+        }
+    }
+    if (row.destructive)
+        content.textProperties.color = UIColor.systemRedColor;
+    else if (row.kind == N::Kind::Action)
+        content.textProperties.color = PRAccent();
+    if (row.kind == N::Kind::Choice) {
+        for (const auto& choice : row.choices)
+            if (choice.value == int(row.value))
+                content.secondaryText = PRText(choice.title);
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    }
+    if (row.kind == N::Kind::Link || row.kind == N::Kind::Text)
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    if (row.kind == N::Kind::Toggle) {
+        UISwitch* toggle = [[UISwitch alloc] init];
+        toggle.onTintColor = PRAccentFill();
+        toggle.on = row.value != 0;
+        toggle.enabled = row.enabled;
+        toggle.accessibilityLabel = PRText(row.title);
+        __weak PRNativePage* weak = self;
+        [toggle addAction:[UIAction actionWithHandler:^(UIAction* action) {
+                    UISwitch* sender = (UISwitch*) action.sender;
+                    [weak apply:row value:sender.on ? 1 : 0];
+                }]
+            forControlEvents:UIControlEventValueChanged];
+        cell.accessoryView = toggle;
+    }
+    if (row.kind == N::Kind::Color) {
+        const uint32_t rgba = uint32_t(row.value);
+        UIView* swatch = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 28, 28)];
+        swatch.layer.cornerRadius = 8;
+        swatch.layer.borderWidth = 1;
+        swatch.layer.borderColor = UIColor.separatorColor.CGColor;
+        swatch.backgroundColor = [UIColor colorWithRed:((rgba >> 24) & 255) / 255.
+                                                 green:((rgba >> 16) & 255) / 255.
+                                                  blue:((rgba >> 8) & 255) / 255.
+                                                 alpha:(rgba & 255) / 255.];
+        cell.accessoryView = swatch;
+    }
+    cell.contentConfiguration = content;
+    cell.userInteractionEnabled = row.enabled;
+    cell.contentView.alpha = row.enabled ? 1 : .45;
+    cell.accessibilityHint = PRText(row.detail);
+    return cell;
+}
+- (void)apply:(const N::Row&)row value:(double)value {
+    if (!row.enabled || !row.change)
+        return;
+    __weak PRNativePage* weak = self;
+    N::Enqueue([weak, row, value] {
+        row.change(value);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weak refresh];
+        });
+    });
+}
+- (void)tableView:(UITableView*)tableView didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    const auto row = _sections[indexPath.section].rows[_rows[indexPath.section][indexPath.row].first];
+    if (!row.enabled)
+        return;
+    if (row.kind == N::Kind::Link) {
+        if (row.activate)
+            N::Enqueue(row.activate);
+        [self.navigationController pushViewController:[[PRNativePage alloc] initWithKey:row.target] animated:YES];
+    } else if (row.kind == N::Kind::Choice)
+        [self.navigationController pushViewController:[[PRNativeChoices alloc] initWithRow:row owner:self]
+                                             animated:YES];
+    else if (row.kind == N::Kind::Toggle)
+        [self apply:row value:row.value == 0];
+    else if (row.kind == N::Kind::Action && row.activate) {
+        __weak PRNativePage* weak = self;
+        N::Enqueue([weak, row] {
+            row.activate();
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [weak refresh];
+            });
+        });
+    } else if (row.kind == N::Kind::Color) {
+        [self presentViewController:[[PRNativeColor alloc] initWithRow:row owner:self] animated:YES completion:nil];
+    } else if (row.kind == N::Kind::Text) {
+        if (PRControllerInUse()) {
+            __weak PRNativePage* weak = self;
+            PRControllerEditText(PRRoot, PRText(row.title), PRText(row.text), ^(NSString* value) {
+                const auto text = PRString(value);
+                N::Enqueue([weak, row, text] {
+                    if (row.submit)
+                        row.submit(text);
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [weak refresh];
+                    });
+                });
+            });
+            return;
+        }
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:PRText(row.title)
+                                                                       message:PRText(row.detail)
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addTextFieldWithConfigurationHandler:^(UITextField* field) {
+            field.autocapitalizationType = UITextAutocapitalizationTypeNone;
+            field.autocorrectionType = UITextAutocorrectionTypeNo;
+            field.text = PRText(row.text);
+        }];
+        PRControllerAddAlertAction(alert, @"Cancel", UIAlertActionStyleCancel, nil);
+        __weak PRNativePage* weak = self;
+        __weak UIAlertController* weakAlert = alert;
+        PRControllerAddAlertAction(alert, @"Run", UIAlertActionStyleDefault, ^(UIAlertAction* action) {
+            const auto text = PRString(weakAlert.textFields.firstObject.text);
+            N::Enqueue([weak, row, text] {
+                if (row.submit)
+                    row.submit(text);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weak refresh];
+                });
+            });
+        });
+        [self presentViewController:alert animated:YES completion:nil];
+    }
+}
+- (void)colorPickerViewControllerDidFinish:(UIColorPickerViewController*)controller {
+    CGFloat r = 0, g = 0, b = 0, a = 1;
+    [controller.selectedColor getRed:&r green:&g blue:&b alpha:&a];
+    const uint32_t rgba = (uint32_t(std::lround(r * 255)) << 24) | (uint32_t(std::lround(g * 255)) << 16)
+        | (uint32_t(std::lround(b * 255)) << 8) | uint32_t(std::lround(a * 255));
+    [self apply:_colorRow value:rgba];
+}
+- (BOOL)controllerCapturing {
+    return _page.capturesControllerInput;
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    NSMutableArray<PRControllerTarget*>* targets = [NSMutableArray array];
+    __weak PRNativePage* weak = self;
+    for (size_t section = 0; section < _rows.size(); ++section)
+        for (size_t display = 0; display < _rows[section].size(); ++display) {
+            const auto layout = _rows[section][display];
+            const size_t index = layout.first, columns = layout.second;
+            NSIndexPath* path = [NSIndexPath indexPathForRow:display inSection:section];
+            for (size_t column = 0; column < columns; ++column) {
+                const N::Row row = _sections[section].rows[index + column];
+                if (!row.enabled)
+                    continue;
+                NSString* identifier = row.id.empty()
+                    ? [NSString stringWithFormat:@"row/%zu/%zu/%zu/%@", section, display, column, PRText(row.title)]
+                    : PRText(row.id);
+                PRControllerTarget* target =
+                    PRControllerRowTarget(self.tableView, path, identifier, PRText(row.title), ^{
+                        PRNativePage* owner = weak;
+                        if (!owner || section >= owner->_rows.size() || display >= owner->_rows[section].size())
+                            return;
+                        if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal)
+                            [owner apply:row value:std::clamp(row.value + row.step, row.minimum, row.maximum)];
+                        else
+                            [owner tableView:owner.tableView didSelectRowAtIndexPath:path];
+                    });
+                if (row.kind == N::Kind::Integer || row.kind == N::Kind::Decimal) {
+                    target.adjust = ^(NSInteger direction) {
+                        [weak apply:row value:std::clamp(row.value + direction * row.step, row.minimum, row.maximum)];
+                    };
+                    CGRect (^frame)(UIView*) = target.frame;
+                    target.frame = ^CGRect(UIView* overlay) {
+                        CGRect rect = frame(overlay);
+                        rect.size.width /= columns;
+                        rect.origin.x += column * rect.size.width;
+                        return rect;
+                    };
+                }
+                [targets addObject:target];
+            }
+        }
+    return targets;
+}
+
+@end
+
+@implementation PRNativeChoices
+- (instancetype)initWithRow:(const N::Row&)row owner:(PRNativePage*)owner {
+    self = [super initWithStyle:UITableViewStylePlain];
+    if (self) {
+        _row = row;
+        _choices = row.choices;
+        _owner = owner;
+        self.title = PRText(row.title);
+    }
+    return self;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRStyleTable(self.tableView);
+    PRIsolatePage(self);
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 52;
+    if (_row.choices.size() > 12) {
+        UISearchController* search = [[UISearchController alloc] initWithSearchResultsController:nil];
+        search.obscuresBackgroundDuringPresentation = NO;
+        search.searchResultsUpdater = self;
+        self.navigationItem.searchController = search;
+    }
+}
+- (void)updateSearchResultsForSearchController:(UISearchController*)controller {
+    _choices = _row.choices;
+    NSString* query = controller.searchBar.text ?: @"";
+    if (query.length)
+        std::erase_if(_choices, [query](const auto& choice) {
+            return [PRText(choice.title) rangeOfString:query options:NSCaseInsensitiveSearch].location == NSNotFound;
+        });
+    [self.tableView reloadData];
+}
+- (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
+    return _choices.size();
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
+    return 0;
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
+    return 0;
+}
+- (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
+    const auto& choice = _choices[indexPath.row];
+    UITableViewCell* cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    PRStyleCard(cell);
+    UIListContentConfiguration* content = cell.defaultContentConfiguration;
+    content.text = PRText(choice.title);
+    cell.contentConfiguration = content;
+    if (choice.value == int(_row.value))
+        cell.accessoryType = UITableViewCellAccessoryCheckmark;
+    return cell;
+}
+- (void)tableView:(UITableView*)tableView didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
+    [_owner apply:_row value:_choices[indexPath.row].value];
+    [self.navigationController popViewControllerAnimated:YES];
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    return PRControllerDefaultTargets(self);
+}
+
+@end
+
+@implementation PRNativeSidebar
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (std::abs(_labelWidth - self.tableView.bounds.size.width) > .5) {
+        _labelWidth = self.tableView.bounds.size.width;
+        [self.tableView reloadData];
+    }
+}
+- (CGFloat)labelPointSize {
+    // Reserve the icon, margins and disclosure area for every entry, then fit
+    // the longest title once. Categories and destinations keep one shared size.
+    const CGFloat available = MAX(60, self.tableView.bounds.size.width - 120);
+    UIFont* base = PRFont(14, UIFontWeightSemibold, UIFontTextStyleSubheadline);
+    CGFloat longest = 1;
+    for (const auto& group : _groups) {
+        longest = MAX(longest, [PRText(group.title) sizeWithAttributes:@{ NSFontAttributeName : base }].width);
+        for (const auto& page : group.pages)
+            longest = MAX(longest, [PRText(page.title) sizeWithAttributes:@{ NSFontAttributeName : base }].width);
+    }
+    return base.pointSize * MIN(1, available / longest);
+}
+- (instancetype)initWithGroups:(std::vector<N::Group>)groups initial:(std::string)initial host:(PRNativeRoot*)host {
+    self = [super initWithStyle:UITableViewStylePlain];
+    if (self) {
+        _groups = std::move(groups);
+        _host = host;
+        _expanded = 0;
+        _selected = PRText(initial);
+        self.title = @"Browse";
+        for (size_t index = 0; index < _groups.size(); ++index)
+            for (const auto& page : _groups[index].pages)
+                if (page.key == initial)
+                    _expanded = index;
+    }
+    return self;
+}
+- (void)selectPage:(const std::string&)key {
+    _selected = PRText(key);
+    for (size_t index = 0; index < _groups.size(); ++index)
+        for (const auto& page : _groups[index].pages)
+            if (page.key == key) {
+                _expanded = index;
+                [_host setCategory:PRText(_groups[index].title)];
+            }
+    if (self.isViewLoaded)
+        [self.tableView reloadData];
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    PRStyleTable(self.tableView);
+    PRIsolatePage(self);
+    self.tableView.contentInset = UIEdgeInsetsMake(8, 0, 12, 0);
+    self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
+    self.tableView.showsVerticalScrollIndicator = NO;
+    self.tableView.showsHorizontalScrollIndicator = NO;
+    self.tableView.rowHeight = UITableViewAutomaticDimension;
+    self.tableView.estimatedRowHeight = 46;
+    self.tableView.estimatedSectionHeaderHeight = 0;
+    self.tableView.estimatedSectionFooterHeight = 0;
+}
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self.navigationController setNavigationBarHidden:YES animated:NO];
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForHeaderInSection:(NSInteger)section {
+    return 0;
+}
+- (CGFloat)tableView:(UITableView*)tableView heightForFooterInSection:(NSInteger)section {
+    return 0;
+}
+- (NSInteger)numberOfSectionsInTableView:(UITableView*)tableView {
+    return _groups.size();
+}
+- (NSInteger)tableView:(UITableView*)tableView numberOfRowsInSection:(NSInteger)section {
+    return 1 + (_expanded == section ? _groups[section].pages.size() : 0);
+}
+- (UITableViewCell*)tableView:(UITableView*)tableView cellForRowAtIndexPath:(NSIndexPath*)indexPath {
+    const auto& group = _groups[indexPath.section];
+    UITableViewCell* cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    UIBackgroundConfiguration* background = [UIBackgroundConfiguration clearConfiguration];
+    background.cornerRadius = 12;
+    background.backgroundInsets = NSDirectionalEdgeInsetsMake(2, 8, 2, 8);
+    UIListContentConfiguration* content = cell.defaultContentConfiguration;
+    content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(12, 18, 12, 18);
+    content.imageToTextPadding = 12;
+    content.imageProperties.preferredSymbolConfiguration = [UIImageSymbolConfiguration configurationWithPointSize:18];
+    content.imageProperties.reservedLayoutSize = CGSizeMake(22, 22);
+    content.imageProperties.tintColor = UIColor.secondaryLabelColor;
+    content.textProperties.numberOfLines = 1;
+    const CGFloat pointSize = [self labelPointSize];
+    if (!indexPath.row) {
+        content.text = PRText(group.title);
+        content.image = [UIImage systemImageNamed:PRText(group.symbol)];
+        content.textProperties.font = [UIFont systemFontOfSize:pointSize weight:UIFontWeightSemibold];
+        cell.accessoryView = [[UIImageView alloc]
+            initWithImage:[UIImage
+                              systemImageNamed:_expanded == indexPath.section ? @"chevron.down" : @"chevron.right"]];
+        cell.accessoryView.tintColor = UIColor.tertiaryLabelColor;
+    } else {
+        const auto& page = group.pages[indexPath.row - 1];
+        content.textProperties.font = [UIFont systemFontOfSize:pointSize weight:UIFontWeightMedium];
+        content.text = PRText(page.title);
+        content.image = [UIImage systemImageNamed:PRText(page.symbol)];
+        content.directionalLayoutMargins = NSDirectionalEdgeInsetsMake(13, 24, 13, 18);
+        if ([_selected isEqualToString:PRText(page.key)]) {
+            background.backgroundColor = PRAccentFill();
+            content.textProperties.color = PRAccentForeground();
+            content.imageProperties.tintColor = PRAccentForeground();
+            cell.accessibilityTraits |= UIAccessibilityTraitSelected;
+        }
+    }
+    cell.backgroundConfiguration = background;
+    cell.contentConfiguration = content;
+    return cell;
+}
+- (void)tableView:(UITableView*)tableView didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if (!indexPath.row) {
+        _expanded = _expanded == indexPath.section ? -1 : indexPath.section;
+        [tableView reloadData];
+    } else {
+        const auto& page = _groups[indexPath.section].pages[indexPath.row - 1];
+        _selected = PRText(page.key);
+        [_host setCategory:PRText(_groups[indexPath.section].title)];
+        [_host openPage:page.key];
+        [tableView reloadData];
+    }
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    return PRControllerDefaultTargets(self);
+}
+
+@end
+
+static UIViewController* PRPageController(std::string key) {
+    if (key == "menu/Dev Tools/Console" || key == "console")
+        return [[PRNativeConsole alloc] init];
+    if (key == "menu/Dev Tools/Event Debugger" || key == "events")
+        return [[PRNativeEvents alloc] init];
+    return [[PRNativePage alloc] initWithKey:std::move(key)];
+}
+
+static void PRRefreshTheme(UIViewController* controller) {
+    if (!controller.isViewLoaded)
+        return;
+    controller.view.tintColor = PRAccent();
+    if ([controller isKindOfClass:UITableViewController.class])
+        [((UITableViewController*) controller).tableView reloadData];
+    if ([controller isKindOfClass:PRNativeConsole.class])
+        [(PRNativeConsole*) controller applyTheme];
+    for (UIViewController* child in controller.childViewControllers)
+        PRRefreshTheme(child);
+}
+
+@implementation PRNativeRoot
+- (void)applyTheme {
+    if (!self.isViewLoaded)
+        return;
+    PRStyleFilledButton(_done);
+    // Repaint existing controls from their snapshots without rebuilding pages,
+    // changing navigation/expansion state or reading engine data on UIKit.
+    PRRefreshTheme(self);
+}
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        self.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        self.modalInPresentation = YES;
+    }
+    return self;
+}
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    // Do not sample the live Metal surface through a backdrop blur. On-device
+    // edge artifacts can disappear during screen capture, so snapshot tests
+    // alone cannot validate that compositing path. Cover the whole overlay,
+    // including the gutters and rounded panel edges, with an opaque canvas.
+    self.view.backgroundColor = PRCanvas();
+    self.view.tintColor = PRAccent();
+    self.view.opaque = YES;
+    _header = [[UIView alloc] init];
+    [self.view addSubview:_header];
+    NSString* logoPath = [NSBundle.mainBundle pathForResource:@"PaperReality-Boat" ofType:@"png"];
+    UIImage* boat = logoPath ? [UIImage imageWithContentsOfFile:logoPath] : nil;
+    // Retain a small, sharp thumbnail for the header rather than the full artwork.
+    UIImage* thumbnail = [boat imageByPreparingThumbnailOfSize:CGSizeMake(108, 108)] ?: boat;
+    UIImageView* logo =
+        [[UIImageView alloc] initWithImage:[thumbnail imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal]];
+    logo.contentMode = UIViewContentModeScaleAspectFit;
+    [logo.widthAnchor constraintEqualToConstant:36].active = YES;
+    [logo.heightAnchor constraintEqualToConstant:28].active = YES;
+    UILabel* name = [[UILabel alloc] init];
+    name.text = @"PaperReality";
+    name.font = PRFont(20, UIFontWeightBold, UIFontTextStyleHeadline);
+    name.adjustsFontForContentSizeCategory = YES;
+    name.adjustsFontSizeToFitWidth = YES;
+    name.minimumScaleFactor = .7;
+    _category = [[UILabel alloc] init];
+    _category.text = @"Settings";
+    _category.font = PRFont(15, UIFontWeightRegular, UIFontTextStyleSubheadline);
+    _category.textColor = UIColor.secondaryLabelColor;
+    _category.adjustsFontForContentSizeCategory = YES;
+    UIStackView* brand = [[UIStackView alloc] initWithArrangedSubviews:@[ logo, name, _category ]];
+    brand.spacing = 12;
+    brand.alignment = UIStackViewAlignmentCenter;
+    brand.translatesAutoresizingMaskIntoConstraints = NO;
+    [_header addSubview:brand];
+    UIButton* done = [UIButton buttonWithType:UIButtonTypeSystem];
+    _done = done;
+    UIButtonConfiguration* config = [UIButtonConfiguration filledButtonConfiguration];
+    config.title = @"Done";
+    config.cornerStyle = UIButtonConfigurationCornerStyleMedium;
+    config.contentInsets = NSDirectionalEdgeInsetsMake(10, 20, 10, 20);
+    done.configuration = config;
+    PRStyleFilledButton(done);
+    [done addTarget:self action:@selector(closeSettings) forControlEvents:UIControlEventTouchUpInside];
+    done.translatesAutoresizingMaskIntoConstraints = NO;
+    [_header addSubview:done];
+    [NSLayoutConstraint activateConstraints:@[
+        [brand.leadingAnchor constraintEqualToAnchor:_header.leadingAnchor constant:8],
+        [brand.centerYAnchor constraintEqualToAnchor:_header.centerYAnchor],
+        [brand.trailingAnchor constraintLessThanOrEqualToAnchor:done.leadingAnchor constant:-16],
+        [done.trailingAnchor constraintEqualToAnchor:_header.trailingAnchor constant:-8],
+        [done.centerYAnchor constraintEqualToAnchor:_header.centerYAnchor],
+        [done.heightAnchor constraintGreaterThanOrEqualToConstant:44]
+    ]];
+    _primaryPanel = [[UIView alloc] init];
+    // The fixed panel must also cover the game when a scrolling child exposes
+    // an edge. Card material is translucent and is not a suitable backing.
+    _primaryPanel.backgroundColor = PRPageCanvas();
+    _primaryPanel.layer.cornerRadius = 18;
+    _primaryPanel.clipsToBounds = YES;
+    // Composite the fixed sidebar, its scrolling rows and its rounded clipping
+    // as one surface. The reported device-only seams follow these boundaries
+    // and disappear under screen capture; opaque backing alone did not help.
+    // Keep this scoped to the sidebar rather than rasterizing all settings.
+    _primaryPanel.layer.shouldRasterize = YES;
+    [self.view addSubview:_primaryPanel];
+    _detailPanel = [[UIView alloc] init];
+    _detailPanel.backgroundColor = PRPageCanvas();
+    _detailPanel.clipsToBounds = YES;
+    [self.view addSubview:_detailPanel];
+    _menuButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    [_menuButton setImage:[UIImage systemImageNamed:@"sidebar.left"] forState:UIControlStateNormal];
+    _menuButton.accessibilityLabel = @"Browse settings categories";
+    [_menuButton addTarget:self action:@selector(browse) forControlEvents:UIControlEventTouchUpInside];
+    _menuButton.frame = CGRectMake(0, 0, 44, 44);
+    _frameClock = [[PRNativeFrameClock alloc] init];
+    [self.view addSubview:_frameClock];
+}
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    _frameClock.monitoring = YES;
+}
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    _frameClock.monitoring = NO;
+}
+- (void)setCategory:(NSString*)title {
+    _category.text = title;
+}
+- (void)setViewController:(UIViewController*)controller forColumn:(UISplitViewControllerColumn)column {
+    [self loadViewIfNeeded];
+    [self addChildViewController:controller];
+    UIView* panel = column == UISplitViewControllerColumnPrimary ? _primaryPanel : _detailPanel;
+    controller.view.frame = panel.bounds;
+    controller.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [panel addSubview:controller.view];
+    [controller didMoveToParentViewController:self];
+    if (column == UISplitViewControllerColumnPrimary) {
+        self.primary = (UINavigationController*) controller;
+        [self.primary setNavigationBarHidden:YES];
+    } else {
+        self.detail = (UINavigationController*) controller;
+    }
+    [self.view setNeedsLayout];
+}
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    UIEdgeInsets safe = self.view.safeAreaInsets;
+    CGFloat width = self.view.bounds.size.width - safe.left - safe.right - 24;
+    CGFloat height = self.view.bounds.size.height - safe.top - safe.bottom;
+    // Use the available width, not iPhone's compact size class, for the landscape sidebar.
+    // Large accessibility text falls back to one pane so controls retain room to wrap.
+    _wide = width >= 700
+        && !UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
+    CGFloat headerHeight = _consoleTyping                                                                 ? 0
+        : UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory) ? 76
+                                                                                                          : 56;
+    _header.hidden = _consoleTyping;
+    _header.frame = CGRectMake(safe.left + 12, safe.top, width, headerHeight);
+    CGFloat y = safe.top + headerHeight + 6;
+    CGFloat bodyHeight = MAX(0, height - headerHeight - 14);
+    CGFloat sidebarWidth = _wide ? std::clamp(width * .28, 220., 290.) : width;
+    const CGFloat scale = self.view.window.screen.scale ?: UIScreen.mainScreen.scale;
+    _primaryPanel.layer.rasterizationScale = scale;
+    // Align both edges, rather than just the size, so clipping cannot leave a
+    // partially covered pixel along the straight top/bottom of either panel.
+    _primaryPanel.frame = PRPixelAlignedRect(CGRectMake(safe.left + 12, y, sidebarWidth, bodyHeight), scale);
+    CGFloat x = safe.left + 12 + (_wide ? sidebarWidth + 12 : 0);
+    _detailPanel.frame =
+        PRPixelAlignedRect(CGRectMake(x, y, width - (_wide ? sidebarWidth + 12 : 0), bodyHeight), scale);
+    _primaryPanel.hidden = !_wide && !_showPrimary;
+    _detailPanel.hidden = !_wide && _showPrimary;
+    _category.hidden =
+        width < 500 || UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
+    UIViewController* page = self.detail.viewControllers.firstObject;
+    page.navigationItem.leftBarButtonItem = _wide ? nil : [[UIBarButtonItem alloc] initWithCustomView:_menuButton];
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    const CGFloat hudWidth = MIN(width, 260);
+    _frameClock.frame = PRPixelAlignedRect(
+        CGRectMake(
+            CGRectGetWidth(self.view.bounds) - safe.right - hudWidth - 12,
+            CGRectGetHeight(self.view.bounds) - safe.bottom - 108, hudWidth, 100
+        ),
+        scale
+    );
+    [self.view bringSubviewToFront:_frameClock];
+#endif
+}
+- (void)traitCollectionDidChange:(UITraitCollection*)previous {
+    [super traitCollectionDidChange:previous];
+    [self.view setNeedsLayout];
+}
+- (void)browse {
+    _controllerSidebar = YES;
+    [self showColumn:UISplitViewControllerColumnPrimary];
+}
+- (void)setConsoleTyping:(BOOL)typing {
+    _consoleTyping = typing;
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
+}
+- (void)showColumn:(UISplitViewControllerColumn)column {
+    _showPrimary = column == UISplitViewControllerColumnPrimary;
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
+}
+- (void)openPage:(std::string)key {
+    N::Enqueue([key] { N::RememberPage(key); });
+    _controllerSidebar = NO;
+    [(PRNativeSidebar*) self.primary.viewControllers.firstObject selectPage:key];
+    UIViewController* page = PRPageController(std::move(key));
+    [self.detail setViewControllers:@[ page ] animated:NO];
+    [self showColumn:UISplitViewControllerColumnSecondary];
+}
+- (void)closeSettings {
+    N::Enqueue([] { N::Close(); });
+}
+- (NSArray<UIKeyCommand*>*)keyCommands {
+    return @[ [UIKeyCommand keyCommandWithInput:UIKeyInputEscape modifierFlags:0 action:@selector(closeSettings)] ];
+}
+- (id)controllerContext {
+    return _controllerSidebar ? self.primary.topViewController : self.detail.topViewController;
+}
+- (BOOL)controllerCapturing {
+    UIViewController* page = self.detail.topViewController;
+    return !_controllerSidebar && [page respondsToSelector:@selector(controllerCapturing)] &&
+        [(id<PRControllerNavigable>) page controllerCapturing];
+}
+- (NSArray<PRControllerTarget*>*)controllerTargets {
+    UIViewController* page = [self controllerContext];
+    if ([page conformsToProtocol:@protocol(PRControllerNavigable)])
+        return [(id<PRControllerNavigable>) page controllerTargets];
+    return PRControllerDefaultTargets(page);
+}
+- (void)controllerPanel:(NSInteger)direction {
+    _controllerSidebar = direction < 0;
+    [self showColumn:_controllerSidebar ? UISplitViewControllerColumnPrimary : UISplitViewControllerColumnSecondary];
+}
+- (BOOL)controllerBack {
+    if (!_controllerSidebar && self.detail.viewControllers.count > 1)
+        [self.detail popViewControllerAnimated:YES];
+    else if (!_controllerSidebar)
+        [self controllerPanel:-1];
+    else
+        [self closeSettings];
+    return YES;
+}
+- (void)controllerSearch {
+    UIViewController* page = self.detail.topViewController;
+    if ([page respondsToSelector:@selector(controllerSearch)]) {
+        [(id<PRControllerNavigable>) page controllerSearch];
+        return;
+    }
+    UISearchController* search = page.navigationItem.searchController;
+    if (!search)
+        return;
+    __weak UISearchController* weak = search;
+    PRControllerEditText(self, @"Search", search.searchBar.text, ^(NSString* text) {
+        UISearchController* owner = weak;
+        owner.searchBar.text = text;
+        [owner.searchResultsUpdater updateSearchResultsForSearchController:owner];
+    });
+}
+
+@end
+
+struct PRAlertInfo {
+    std::string title, message, first, second;
+    std::function<void()> firstAction, secondAction;
+};
+static std::deque<PRAlertInfo> PRAlerts;
+static bool PRAlertVisible = false;
+static void PRShowNextAlert() {
+    if (PRAlertVisible || PRAlerts.empty() || !PRWanted.load())
+        return;
+    UIViewController* top = PRTopController();
+    if (!top || top.presentedViewController || top.isBeingPresented || top.isBeingDismissed || top.transitionCoordinator
+        || [top isKindOfClass:UIDocumentPickerViewController.class] || [top isKindOfClass:UIAlertController.class])
+    {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            PRShowNextAlert();
+        });
+        return;
+    }
+    const auto item = PRAlerts.front();
+    PRAlerts.pop_front();
+    PRAlertVisible = true;
+    UIAlertController* alert = [UIAlertController alertControllerWithTitle:PRText(item.title)
+                                                                   message:PRText(item.message)
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    auto finish = [](std::function<void()> callback) {
+        if (callback)
+            N::Enqueue([callback = std::move(callback)] {
+                callback();
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    UIViewController* page = PRRoot.detail.topViewController;
+                    if ([page isKindOfClass:PRNativePage.class])
+                        [(PRNativePage*) page refresh];
+                });
+            });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            PRAlertVisible = false;
+            PRShowNextAlert();
+        });
+    };
+    PRControllerAddAlertAction(
+        alert, PRText(item.first.empty() ? "OK" : item.first), UIAlertActionStyleDefault, ^(UIAlertAction*) {
+            finish(item.firstAction);
+        }
+    );
+    if (!item.second.empty())
+        PRControllerAddAlertAction(alert, PRText(item.second), UIAlertActionStyleCancel, ^(UIAlertAction*) {
+            finish(item.secondAction);
+        });
+    [top presentViewController:alert animated:YES completion:nil];
+}
+
+// Main queue only. Each delayed attempt owns its captures until it returns.
+// Clearing a self-capturing block from inside its first synchronous invocation
+// could destroy its std::string/shared_ptr captures while they were still in use.
+static void PRPresentSettings(
+    std::shared_ptr<std::vector<N::Group>> groups, std::string initial, uint64_t generation, int attempt = 0
+) {
+    if (generation != PRPresentation.load())
+        return;
+    UIViewController* top = PRTopController();
+    if (!top || top.presentedViewController || top.isBeingPresented || top.isBeingDismissed) {
+        if (attempt < 29) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                PRPresentSettings(groups, initial, generation, attempt + 1);
+            });
+        } else {
+            // A busy presenter must not switch to the original settings UI or
+            // leave gameplay input blocked without a settings page to dismiss.
+            N::Enqueue([generation] {
+                if (generation == PRPresentation.load())
+                    N::Close();
+            });
+        }
+        return;
+    }
+    PRRoot = [[PRNativeRoot alloc] init];
+    PRNativeSidebar* sidebar = [[PRNativeSidebar alloc] initWithGroups:*groups initial:initial host:PRRoot];
+    UINavigationController* primary = [[UINavigationController alloc] initWithRootViewController:sidebar];
+    PRStyleNavigation(primary);
+    PRRoot.detail = [[UINavigationController alloc] initWithRootViewController:PRPageController(initial)];
+    PRStyleNavigation(PRRoot.detail);
+    [PRRoot setViewController:primary forColumn:UISplitViewControllerColumnPrimary];
+    [PRRoot setViewController:PRRoot.detail forColumn:UISplitViewControllerColumnSecondary];
+    for (const auto& group : *groups)
+        for (const auto& page : group.pages)
+            if (page.key == initial)
+                [PRRoot setCategory:PRText(group.title)];
+    [top presentViewController:PRRoot animated:YES completion:nil];
+}
+
+namespace Paperboat::NativeSettings {
+void SetThemeColor(ThemeColor color) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        PRTheme = color;
+        [PRRoot applyTheme];
+    });
+}
+bool IsPresented() {
+    return PRWanted.load();
+}
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+void BeginRenderTiming(int targetFps, bool metalPacing) {
+    if (NSThread.isMainThread && IsPresented())
+        PRRenderTiming.Begin(CACurrentMediaTime(), targetFps, metalPacing);
+}
+void EndRenderTiming() {
+    if (NSThread.isMainThread)
+        PRRenderTiming.End(CACurrentMediaTime());
+}
+void RecordDrawableWait(double seconds) {
+    if (NSThread.isMainThread && IsPresented())
+        PRRenderTiming.RecordDrawableWait(seconds);
+}
+#endif
+bool WaitForUi(double seconds) {
+    if (!std::isfinite(seconds) || seconds <= 0 || !NSThread.isMainThread || !IsPresented()
+        || !PRRoot.viewIfLoaded.window || UIApplication.sharedApplication.applicationState != UIApplicationStateActive)
+        return false;
+    const double started = CACurrentMediaTime();
+    const double deadline = started + seconds;
+    // SDL's main loop normally services UIKit only between game frames. Spend
+    // the existing limiter wait in the run loop instead of sleeping through UI
+    // refreshes. UI callbacks still enqueue engine work for the next game frame.
+    // Poll tracking mode as SDL2 does, without entering the SDL/game loop again.
+    while (true) {
+        const double remaining = deadline - CACurrentMediaTime();
+        if (remaining <= 0)
+            break;
+        if (!IsPresented() || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) {
+            [NSThread sleepForTimeInterval:remaining];
+            break;
+        }
+        @autoreleasepool {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, std::min(remaining, .002), true);
+            if (CACurrentMediaTime() < deadline)
+                CFRunLoopRunInMode((__bridge CFStringRef) UITrackingRunLoopMode, 0, true);
+        }
+    }
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    PRRenderTiming.RecordUiWait(CACurrentMediaTime() - started);
+#endif
+    return true;
+}
+void SetPresented(bool presented, std::vector<Group> navigation) {
+    const uint64_t generation = ++PRPresentation;
+    PRWanted = presented;
+    auto groups = std::make_shared<std::vector<Group>>(std::move(navigation));
+    const std::string initial = presented ? InitialPage() : "";
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (generation != PRPresentation.load())
+            return;
+        if (!presented) {
+            if (PRRoot.presentingViewController)
+                [PRRoot dismissViewControllerAnimated:YES completion:nil];
+            PRRoot = nil;
+            PRAlerts.clear();
+            PRAlertVisible = false;
+            return;
+        }
+        PRPresentSettings(groups, initial, generation);
+    });
+}
+bool Alert(
+    std::string title,
+    std::string message,
+    std::string first,
+    std::string second,
+    std::function<void()> firstAction,
+    std::function<void()> secondAction
+) {
+    if (!PRWanted.load())
+        return false;
+    auto alert = std::make_shared<PRAlertInfo>(PRAlertInfo { std::move(title), std::move(message), std::move(first),
+                                                             std::move(second), std::move(firstAction),
+                                                             std::move(secondAction) });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        PRAlerts.push_back(*alert);
+        PRShowNextAlert();
+    });
+    return true;
+}
+} // namespace Paperboat::NativeSettings
+#endif

@@ -25,9 +25,48 @@ enum {
 
 BSS s32 BattleEnemiesCreated;
 
+// Temporary diagnostics for a battle that stays black while audio and menus work.
+// Log state changes and at most three wait reports per startup substate.
+static void log_battle_start_progress(Stage* stage) {
+    static s32 lastSubstate = -1;
+    static s32 framesInSubstate = 0;
+    b32 changed = gBattleSubState == BTL_SUBSTATE_INIT || gBattleSubState != lastSubstate;
+
+    if (changed) {
+        lastSubstate = gBattleSubState;
+        framesInSubstate = 0;
+    } else {
+        framesInSubstate++;
+    }
+
+    if (changed || (framesInSubstate <= 900 && framesInSubstate % 300 == 0)) {
+        GameEngine_LogInfo("[battle-start] battle=%04X substate=%d frames=%d fade=%d stage=%s freeze=%d",
+            (unsigned) gCurrentBattleID, gBattleSubState, framesInSubstate, BattleScreenFadeAmt,
+            stage->shape ? stage->shape : "(none)", gBattleStatus.stateFreezeCount);
+
+        if (!changed) {
+            s32 ids[3] = {
+                gBattleStatus.camMovementScriptID,
+                gBattleStatus.playerActor ? gBattleStatus.playerActor->takeTurnScriptID : -1,
+                gBattleStatus.enemyActors[0] ? gBattleStatus.enemyActors[0]->takeTurnScriptID : -1
+            };
+            const char* names[3] = { "camera", "player", "enemy0" };
+            for (s32 i = 0; i < ARRAY_COUNT(ids); i++) {
+                Evt* script = ids[i] >= 0 ? get_script_by_id(ids[i]) : nullptr;
+                GameEngine_LogInfo("[battle-start] waiting %s script=%d exists=%d opcode=%d blocked=%d flags=%02X",
+                    names[i], ids[i], script != nullptr, script ? script->curOpcode : -1,
+                    script ? script->blocked : -1, script ? script->stateFlags : 0);
+            }
+        }
+    }
+}
+
 void load_stage_assets(Stage* stage) {
     ModelNode* rootModel;
 
+    GameEngine_LogInfo("[battle-start] loading stage shape=%s texture=%s hit=%s bg=%s",
+        stage->shape ? stage->shape : "(none)", stage->texture ? stage->texture : "(none)",
+        stage->hit ? stage->hit : "(none)", stage->bg ? stage->bg : "(none)");
     {
         char shapeAssetPath[64];
         snprintf(shapeAssetPath, sizeof(shapeAssetPath), "__OTR__shapes/%s", stage->shape);
@@ -35,17 +74,21 @@ void load_stage_assets(Stage* stage) {
         size_t shapeSize = ResourceGetSizeByName(shapeAssetPath);
         Shape_LoadFromRawData(&gMapShapeData, shapeData, shapeSize, stage->shape);
     }
+    GameEngine_LogInfo("[battle-start] stage shape loaded");
 
     rootModel = gMapShapeData.header.root;
     if (rootModel != nullptr) {
         load_data_for_models(rootModel, stage->texture);
     }
+    GameEngine_LogInfo("[battle-start] stage models loaded");
     load_battle_hit_asset(stage->hit);
+    GameEngine_LogInfo("[battle-start] stage collision loaded");
 
     if (stage->bg != nullptr) {
         port_load_map_bg(stage->bg);
         set_background(&gBackgroundImage);
     }
+    GameEngine_LogInfo("[battle-start] stage assets loaded");
 }
 
 void btl_state_update_normal_start(void) {
@@ -74,6 +117,7 @@ void btl_state_update_normal_start(void) {
     }
 
     battleStatus->curStage = stage;
+    log_battle_start_progress(stage);
     switch (gBattleSubState) {
         case BTL_SUBSTATE_INIT:
             #if DX_DEBUG_MENU
@@ -347,6 +391,7 @@ void btl_state_update_normal_start(void) {
             if (battleStatus->stateFreezeCount == 0) {
                 set_screen_overlay_params_front(OVERLAY_NONE, -1.0f);
                 btl_set_state(BATTLE_STATE_BEGIN_TURN);
+                GameEngine_LogInfo("[battle-start] fade cleared; entered begin-turn state");
             }
             break;
     }

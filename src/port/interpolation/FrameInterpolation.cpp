@@ -50,7 +50,10 @@ given a specific interpolation factor (0=old frame, 0.5=average of frames,
 
 static bool invert_MtxF(const float m[16], float invOut[16]);
 
+extern "C" void guMtxL2F(float mf[4][4], Mtx* matrix);
 using namespace std;
+// Game-thread-only samples for the current recording. Replays own values in ops.
+static unordered_map<Mtx*, MtxF> encodedMatrices;
 
 namespace {
 
@@ -482,6 +485,7 @@ void FrameInterpolation_ShouldInterpolateFrame(bool shouldInterpolate) {
 }
 
 void FrameInterpolation_StartRecord(void) {
+    encodedMatrices.clear();
     for (int i = 0; i < kRingSlots; i++) {
         gRecordSlot = (gRecordSlot + 1) % kRingSlots;
         if (gSlotClaims[gRecordSlot].load(std::memory_order_acquire) == 0 && gRecordSlot != gLastRecordedSlot) {
@@ -651,6 +655,36 @@ void FrameInterpolation_RecordMatrixMtxFToMtx(MtxF* src, Mtx* dest) {
     append(Op::MtxFMtxFToMtx).MtxF_mtxf_to_mtx = { *src, dest };
 }
 
+void FrameInterpolation_RecordMatrixEncoded(MtxF* src, Mtx* dest) {
+    if (!is_recording) return;
+    encodedMatrices[dest] = *src;
+    FrameInterpolation_RecordMatrixMtxFToMtx(src, dest);
+}
+
+void FrameInterpolation_ReadMatrix(Mtx* src, MtxF* dest) {
+    if (is_recording) {
+        auto it = encodedMatrices.find(src);
+        if (it != encodedMatrices.end()) {
+            *dest = it->second;
+            return;
+        }
+    }
+    guMtxL2F(dest->mf, src);
+}
+
+void FrameInterpolation_CopyMatrix(Mtx* src, Mtx* dest) {
+    // Preserve native/keyframe bytes exactly, including when src == dest.
+    if (!is_recording) {
+        *dest = *src;
+        return;
+    }
+    MtxF value;
+    FrameInterpolation_ReadMatrix(src, &value);
+    *dest = *src;
+    encodedMatrices[dest] = value;
+    FrameInterpolation_RecordMatrixMtxFToMtx(&value, dest);
+}
+
 void FrameInterpolation_RecordMtxFToMtx(Mtx* dest, char* file, s32 line) {
     if (!is_recording)
         return;
@@ -742,3 +776,4 @@ static bool invert_MtxF(const float m[16], float invOut[16]) {
 
     return true;
 }
+

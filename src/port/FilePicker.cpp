@@ -1,6 +1,13 @@
 #include "port/FilePicker.h"
 #include "spdlog/spdlog.h"
 
+#if defined(__IOS__)
+#include "port/ios/IosFilePicker.h"
+#include "port/ui/NativeSettings.h"
+#include "port/ui/PaperboatGui.hpp"
+#include <atomic>
+#endif
+
 #if PAPERBOAT_NATIVE_FILE_DIALOG
 #include <cstdlib>
 #include <string>
@@ -44,7 +51,55 @@ static bool NativeDialogUsable() {
 #endif
 
 void PickFile(Ship::FileBrowserRequest request, std::function<void(std::optional<fs::path>)> onResult) {
-#if PAPERBOAT_NATIVE_FILE_DIALOG
+#if defined(__IOS__)
+    // The ImGui browser is covered by the native settings screen. Use Files for
+    // every iOS caller and return to the game queue before importing game state.
+    if (!request.Save) {
+        IosPickFile([onResult = std::move(onResult)](std::string picked) {
+            NativeSettings::Enqueue([onResult, picked = std::move(picked)] {
+                if (!onResult)
+                    return;
+                if (picked.empty()) {
+                    onResult(std::nullopt);
+                    return;
+                }
+                const fs::path path(picked);
+                onResult(path);
+                // Files imported as copies are temporary; never delete a caller's
+                // original file or leave private imports in the app indefinitely.
+                std::error_code error;
+                fs::remove(path, error);
+            });
+        });
+        return;
+    }
+    // Existing save callbacks write to a path. Generate the file privately, then
+    // let the system export a copy to the destination chosen by the user.
+    static std::atomic<uint64_t> serial { 0 };
+    const auto folder = fs::temp_directory_path() / ("PaperReality-export-" + std::to_string(++serial));
+    std::error_code error;
+    fs::create_directories(folder, error);
+    if (error) {
+        if (onResult)
+            onResult(std::nullopt);
+        PaperboatGui::RegisterPopup("Export File", "Could not create a temporary export file.");
+        return;
+    }
+    const auto path =
+        folder / (request.DefaultName.empty() ? fs::path("export.json") : fs::path(request.DefaultName).filename());
+    if (onResult)
+        onResult(path);
+    if (!fs::is_regular_file(path, error)) {
+        fs::remove_all(folder, error);
+        return;
+    }
+    IosExportFile(path.string(), [folder](bool) {
+        NativeSettings::Enqueue([folder] {
+            std::error_code error;
+            fs::remove_all(folder, error);
+        });
+    });
+#elif PAPERBOAT_NATIVE_FILE_DIALOG
     if (!NativeDialogUsable()) {
         SPDLOG_INFO("Native file dialog unavailable, using the in-game file browser.");
         request.OnResult = std::move(onResult);

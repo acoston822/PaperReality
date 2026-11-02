@@ -1,6 +1,5 @@
-#include "port/ShipInit.hpp"
 #include "port/Engine.h"
-#include "port/hooks/Events.h"
+#include <cstring>
 
 #include "common.h"
 #include "effects_internal.h"
@@ -28,6 +27,38 @@ extern s32 D_E00A2A24[];
 
 #define MBF_TEX_SIZE 16
 
+// A lifetime-stable copy of the native I8 coverage mask for the type-0
+// upgrade orb. Exact lookup bypasses alt/ without changing the global asset mode.
+static const u8* native_upgrade_orb_mask(void) {
+    static u8 mask[MBF_TEX_SIZE * MBF_TEX_SIZE];
+    static bool ready = false;
+    static bool warned = false;
+    if (!ready) {
+        const char* path = D_09000000_3A33D0;
+        if (GameEngine_GetTexWidthExact(path) != MBF_TEX_SIZE ||
+            GameEngine_GetTexHeightExact(path) != MBF_TEX_SIZE ||
+            GameEngine_GetSizeExact(path) != sizeof(mask)) {
+            if (!warned) {
+                GameEngine_LogInfo("[upgrade-orb] Native mask unavailable or not 16x16 I8-sized; keeping current path");
+                warned = true;
+            }
+            return nullptr;
+        }
+        const void* data = GameEngine_GetDataExact(path);
+        if (data == nullptr) {
+            if (!warned) {
+                GameEngine_LogInfo("[upgrade-orb] Native mask data unavailable; keeping current path");
+                warned = true;
+            }
+            return nullptr;
+        }
+        std::memcpy(mask, data, sizeof(mask));
+        ready = true;
+        GameEngine_LogInfo("[upgrade-orb] Native 16x16 I8 mask ready; set gDeveloper.NativeUpgradeOrbMask 0 compares the current path");
+    }
+    return mask;
+}
+
 void port_motion_blur_flame_appendGfx(void* effect) {
     MotionBlurFlameFXData* data = ((EffectInstance*) effect)->data.motionBlurFlame;
     s32 type = data->unk_00;
@@ -44,6 +75,18 @@ void port_motion_blur_flame_appendGfx(void* effect) {
     // Loads the noise texture into TMEM 0 on tile 0 and sets 2-cycle, point
     // filtering and the G_RM_PASS / G_RM_CLD_SURF2 blender.
     gSPDisplayList(gMainGfxPos++, D_E00A29D0[type]);
+
+    // Optional native-mask comparison. The default path keeps the HD mask,
+    // whose intensity coverage is normalized by the texture importer.
+    // Only the type-0 orb mask changes; geometry, combiner and other assets do not.
+    if (type == 0 && CVarGetInteger("gDeveloper.NativeUpgradeOrbMask", 0) != 0) {
+        const u8* mask = native_upgrade_orb_mask();
+        if (mask != nullptr) {
+            gDPLoadTextureBlock(gMainGfxPos++, mask, G_IM_FMT_I, G_IM_SIZ_8b,
+                               MBF_TEX_SIZE, MBF_TEX_SIZE, 0,
+                               G_TX_WRAP, G_TX_WRAP, 4, 4, G_TX_NOLOD, G_TX_NOLOD);
+        }
+    }
 
     // Second descriptor over the same TMEM, so the cycle-1 texel fetch reads the
     // noise whichever slot the 2-cycle texel swap resolves to.
@@ -147,3 +190,4 @@ void port_motion_blur_flame_appendGfx(void* effect) {
     }
 }
 }
+

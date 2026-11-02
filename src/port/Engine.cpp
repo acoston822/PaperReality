@@ -14,9 +14,15 @@
 #include "port/DevTools/ThreadWatchdog.h"
 #include "port/TextureCache.h"
 #include "port/ios/IosFilePicker.h"
+#include "port/ios/IosExternalDisplay.h"
+#include "port/ios/IosDisplayTiming.h"
+#include "port/ios/IosControllerNavigation.h"
+#include <spdlog/spdlog.h>
+#include <chrono>
 #include "src/Companion.h"
 #include "ui/PaperboatGui.hpp"
 #include "ui/TouchDragScroll.h"
+#include "ui/NativeSettings.h"
 #include "ui/PaperboatModMenuWindow.h"
 #ifdef __EMSCRIPTEN__
 #include "port/web/WebUtils.h"
@@ -72,10 +78,14 @@
 #include <ship/window/gui/resource/Font.h>
 #include <thread>
 #include <unordered_map>
+#if defined(__IOS__)
+#include <fast/backends/ios_frame_wait.h>
+#endif
 
-// The decomp EVT script API defines a function-like `Add(VAR, VALUE)` macro that
-// swallows ComponentList::Add(). Engine.cpp does not build EVT scripts, so we drop it.
+// The decomp EVT script API's Add and End macros collide with ComponentList::Add()
+// and ImGui::End(). Engine.cpp does not build EVT scripts, so we drop them.
 #undef Add
+#undef End
 
 using json = nlohmann::json;
 
@@ -216,6 +226,10 @@ GameEngine::GameEngine() {
     this->context->InitLogging();
     this->context->InitConfiguration();
     this->context->InitConsoleVariables();
+#if defined(__IOS__)
+    // First-run prompts need navigation before the first N64 input read.
+    CVarRegisterInteger("gControlNav", 1);
+#endif
 
     this->context->InitControlDeck(std::make_shared<LUS::ControlDeck>());
     this->context->InitResourceManager(
@@ -307,7 +321,7 @@ void GameEngine::FinishInit() {
         static_cast<uint32_t>(Fast::ResourceType::Texture), 0
     );
     loader->RegisterResourceFactory(
-        std::make_shared<Fast::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY, "Texture",
+        std::make_shared<PM64::ResourceFactoryBinaryTextureV1>(), RESOURCE_FORMAT_BINARY, "Texture",
         static_cast<uint32_t>(Fast::ResourceType::Texture), 1
     );
     loader->RegisterResourceFactory(
@@ -431,8 +445,18 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 
     std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
 
+#if defined(__IOS__)
+    // These screens are drawn as fast as the display allows. Present pacing (holding each frame back until a
+    // minimum time after the previous one) is for the game's fixed frame rate, and has been suspected of leaving
+    // the screen showing an old frame until iOS refreshes the display, so it is off here and restored afterwards.
+    const int savedPresentPacing = CVarGetInteger("gMetalPresentPacing", 1);
+    CVarSetInteger("gMetalPresentPacing", 0);
+#endif
+
+    bool showedFirstRunScreens = false;
     while (!extractDone) {
         if (PaperboatGui::PopupsQueued() > 0 || extracting) {
+            showedFirstRunScreens = true;
             goto render;
         }
 
@@ -905,6 +929,34 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
         ImGui::PopStyleColor(2);
     }
 
+#if defined(__IOS__)
+    CVarSetInteger("gMetalPresentPacing", savedPresentPacing);
+#endif
+
+    // Loading the game archive and setting the game up blocks this thread for several seconds with nothing drawn,
+    // which leaves the last dialog frozen on screen. After the first-run screens, draw a loading message first.
+    if (showedFirstRunScreens) {
+        for (int i = 0; i < 3 && WindowIsRunning(); i++) {
+            wnd->HandleEvents();
+            gui->StartDraw();
+            wnd->StartFrame();
+            wnd->RunGuiOnly();
+            ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+            if (ImGui::Begin(
+                    "Loading", nullptr,
+                    ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+                        | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings
+                        | ImGuiWindowFlags_AlwaysAutoResize
+                ))
+            {
+                ImGui::SetWindowFontScale(kFirstRunPopupScale);
+                ImGui::Text("Loading game...");
+            }
+            ImGui::End();
+            gui->EndDraw();
+            wnd->EndFrame();
+        }
+    }
     threadPool = nullptr;
 
 #if !defined(__SWITCH__) && !defined(__WIIU__)
@@ -918,9 +970,21 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
 
 void GameEngine::Create(int argc, char* argv[]) {
     const auto instance = Instance = new GameEngine();
+#if defined(__IOS__)
+    Paperboat::IosStartControllerNavigation();
+#endif
     instance->RunExtract(argc, argv);
     instance->FinishInit();
     PaperboatGui::SetupGuiElements();
+    Paperboat::IosExternalDisplayInit();
+#if defined(__IOS__)
+    Fast::SetIosFrameWaitCallback(Paperboat::NativeSettings::WaitForUi);
+#if defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    Fast::SetIosDrawableWaitCallback(Paperboat::NativeSettings::RecordDrawableWait);
+#endif
+    // Write the log to disk every second, so it is complete even if the app is swiped away instead of quit.
+    spdlog::flush_every(std::chrono::seconds(1));
+#endif
     PortEnhancements_Init();
     ShipInit::InitAll();
     instance->AudioInit();
@@ -1094,19 +1158,28 @@ void GameEngine::StartFrame() const {
 }
 
 uint32_t GameEngine::GetInterpolationFPS() {
+    const auto presentationRate = [](uint32_t requested) {
+#if defined(__IOS__)
+        return Paperboat::IosPresentationFrameRate(requested, Paperboat::IosExternalDisplayRefreshRate());
+#else
+        return requested;
+#endif
+    };
     if (CVarGetInteger(CVAR_SETTING("MatchRefreshRate"), 0)) {
-        return Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate();
+        return presentationRate(Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate());
     }
 
     if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1)
         || !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync())
     {
-        return std::min<uint32_t>(
-            Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
-            CVarGetInteger(CVAR_SETTING("InterpolationFPS"), 30)
+        return presentationRate(
+            std::min<uint32_t>(
+                Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
+                CVarGetInteger(CVAR_SETTING("InterpolationFPS"), 30)
+            )
         );
     }
-    return CVarGetInteger(CVAR_SETTING("InterpolationFPS"), 30);
+    return presentationRate(CVarGetInteger(CVAR_SETTING("InterpolationFPS"), 30));
 }
 
 // Audio
@@ -1173,7 +1246,18 @@ void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map
             interpreter->mInterpolationIndex++;
             continue;
         }
+#if defined(__IOS__) && defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+        const bool traceRender = Paperboat::NativeSettings::IsPresented();
+        if (traceRender)
+            Paperboat::NativeSettings::BeginRenderTiming(
+                wnd->GetTargetFps(), CVarGetInteger("gMetalPresentPacing", 1) != 0
+            );
+#endif
         wnd->DrawAndRunGraphicsCommands(Commands, mtx_replacements[i], {});
+#if defined(__IOS__) && defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+        if (traceRender)
+            Paperboat::NativeSettings::EndRenderTiming();
+#endif
         OS_ViNotifyPresent();
         interpreter->mInterpolationIndex++;
     }
@@ -1191,6 +1275,11 @@ void GameEngine::ProcessGfxCommands(Gfx* commands) {
     std::vector<std::unordered_map<Mtx*, MtxF>> mtx_replacements;
 
     int target_fps = GetInterpolationFPS();
+#if defined(__IOS__) && defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    const bool tracePreparation = Paperboat::NativeSettings::IsPresented();
+    if (tracePreparation)
+        Paperboat::NativeSettings::BeginRenderTiming(target_fps, CVarGetInteger("gMetalPresentPacing", 1) != 0);
+#endif
     static int last_fps;
     static int time;
     int fps = target_fps;
@@ -1220,6 +1309,10 @@ void GameEngine::ProcessGfxCommands(Gfx* commands) {
         wnd->SetTargetFps(GetInterpolationFPS());
         wnd->SetMaximumFrameLatency(1);
     }
+#if defined(__IOS__) && defined(PAPERREALITY_UI_DIAGNOSTICS) && PAPERREALITY_UI_DIAGNOSTICS
+    if (tracePreparation)
+        Paperboat::NativeSettings::EndRenderTiming();
+#endif
     RunCommands(commands, mtx_replacements);
 
     last_fps = fps;
@@ -1525,7 +1618,20 @@ Fast::Interpreter* GameEngine_GetInterpreter() {
 
 extern "C" float GameEngine_GetAspectRatio(void) {
     auto interp = GameEngine_GetInterpreter();
-    return interp != nullptr ? interp->mCurDimensions.aspect_ratio : (WS_NATIVE_WIDTH / WS_NATIVE_HEIGHT);
+    if (interp != nullptr) {
+        const float aspect = interp->mCurDimensions.aspect_ratio;
+        if (std::isfinite(aspect) && aspect > 0.0f) {
+            return aspect;
+        }
+        // Before the first render pass the cached aspect is zero. Prefer the
+        // configured target dimensions while that cache is not initialized.
+        const auto width = interp->mCurDimensions.width;
+        const auto height = interp->mCurDimensions.height;
+        if (width > 0 && height > 0) {
+            return static_cast<float>(width) / static_cast<float>(height);
+        }
+    }
+    return WS_NATIVE_WIDTH / WS_NATIVE_HEIGHT;
 }
 
 // Convert an AdjX-space native X into SCISSOR-space native X.

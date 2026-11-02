@@ -11,6 +11,8 @@
 #include <tuple>
 #include <variant>
 
+#undef End
+
 namespace PaperboatGui {
 extern std::shared_ptr<PaperboatMenu> mPaperboatMenu;
 
@@ -154,7 +156,11 @@ void PaperboatMenu::UpdateElement() {
 }
 
 void PaperboatMenu::Draw() {
+#if defined(__IOS__)
+    Paperboat::NativeSettings::Frame(*this);
+#else
     Ship::Menu::Draw();
+#endif
 }
 
 void PaperboatMenu::DrawElement() {

@@ -1594,6 +1594,32 @@ namespace {
             );
         };
     }
+    std::string KeyItemTitle(int item) {
+        switch (item) {
+            case ITEM_MAP: return "Map";
+            case ITEM_BIG_MAP: return "Big Map";
+            case ITEM_ODD_KEY: return "Odd Key";
+            case ITEM_KOOT_ALT_PHOTO: return "Alternate Photo";
+            case ITEM_UNUSED_PEACH_KEY: return "Unused Peach Key";
+            case ITEM_WAREHOUSE_KEY: return "Warehouse Key";
+            case ITEM_PRISON_KEY: return "Prison Key";
+            case ITEM_UNUSED_PRISON_KEY_1: return "Unused Prison Key 1";
+            case ITEM_UNUSED_PRISON_KEY_2: return "Unused Prison Key 2";
+            case ITEM_UNUSED_PRISON_KEY_3: return "Unused Prison Key 3";
+            default: break;
+        }
+        for (const auto& letter : letterList)
+            if (letter.itemID == item)
+                return letter.name;
+        for (const auto& letter : chainLetterList)
+            if (letter.itemID == item)
+                return std::string("Chain Letter to ") + letter.name;
+        if (item >= ITEM_UNUSED_LETTER_1 && item <= ITEM_UNUSED_LETTER_7 && item != ITEM_ARTIFACT)
+            return "Unused Letter " + std::to_string(item);
+        if (item <= ITEM_NONE || item > ITEM_UNUSED_PRISON_KEY_3)
+            return "Unknown Key Item (" + std::to_string(item) + ")";
+        return ItemTitle(item);
+    }
     bool IsUnusedEditorItem(int item) {
         switch (item) {
             case ITEM_SMASH_CHARGE0:
@@ -1656,12 +1682,13 @@ Page SaveEditorPage(const std::string& key) {
         const std::vector<std::pair<std::string, std::string>> tabs = { { "Player", "player" },
                                                                         { "Badges", "badges" },
                                                                         { "Items", "items" },
+                                                                        { "Key Items", "key-items" },
                                                                         { "Party", "party" },
                                                                         { "Letters", "letters" },
                                                                         { "Recipes", "recipes" },
                                                                         { "Star Pieces", "star-pieces" },
                                                                         { "Tattles", "tattles" } };
-        const char* icons[] = { "person",   "seal",       "bag",  "person.2",
+        const char* icons[] = { "person",   "seal",       "bag", "key", "person.2",
                                 "envelope", "fork.knife", "star", "text.book.closed" };
         for (size_t i = 0; i < tabs.size(); ++i) {
             auto row = Link(tabs[i].first, "save/" + tabs[i].second, icons[i]);
@@ -1815,6 +1842,65 @@ Page SaveEditorPage(const std::string& key) {
         page.sections.push_back(
             { "Add Items", "", { Link("Food", "save/food", "carrot"), Link("Battle Items", "save/battle", "bolt") } }
         );
+    } else if (key == "save/key-items") {
+        page.title = "Key Items";
+        page.searchable = true;
+        const int used = CountUsedKeyItemSlots();
+        page.subtitle = std::to_string(used) + " of " + std::to_string(MAX_KEY_ITEM_SIZE) + " slots used";
+        Section inventory {
+            "Held Key Items",
+            "Tap a held item to remove it. Letters share these 32 slots. Edits do not update story progress or grant rewards; use Letters to edit delivery progress. Save in game to keep changes.",
+            {}
+        };
+        for (int slot = 0; slot < MAX_KEY_ITEM_SIZE; ++slot) {
+            const int id = gPlayerData.keyItems[slot];
+            if (id == ITEM_NONE)
+                continue;
+            Row row;
+            row.title = KeyItemTitle(id);
+            row.detail = "Slot " + std::to_string(slot + 1);
+            row.kind = Kind::Action;
+            row.destructive = true;
+            if (id > ITEM_NONE && id <= ITEM_UNUSED_PRISON_KEY_3)
+                ItemPortrait(row, id);
+            row.id = "key-slot/" + std::to_string(slot);
+            row.activate = EditSave([slot, id] {
+                if (gPlayerData.keyItems[slot] == id)
+                    gPlayerData.keyItems[slot] = ITEM_NONE;
+            });
+            inventory.rows.push_back(std::move(row));
+        }
+        if (inventory.rows.empty()) {
+            Row empty;
+            empty.title = "No Key Items Held";
+            inventory.rows.push_back(std::move(empty));
+        }
+        page.sections.push_back(std::move(inventory));
+        Section available {
+            "Available Key Items",
+            used == MAX_KEY_ITEM_SIZE ? "Key item inventory is full. Remove an item before adding another."
+                                     : "Switch an item on to add it, or off to remove one held copy.",
+            {}
+        };
+        for (int id = ITEM_NONE + 1; id <= ITEM_UNUSED_PRISON_KEY_3; ++id) {
+            const char* path = reinterpret_cast<const char*>(gItemIconRasterOffsets[id]);
+            if (!path || !std::strstr(path, "key/"))
+                continue;
+            const bool held = PlayerHasKeyItem(id);
+            Row row;
+            row.title = KeyItemTitle(id);
+            ItemPortrait(row, id);
+            row.kind = Kind::Toggle;
+            row.value = held;
+            row.enabled = held || used < MAX_KEY_ITEM_SIZE;
+            row.change = ChangeSave([id](double value) {
+                const bool held = PlayerHasKeyItem(id);
+                if (bool(value) != held && (!value || CountUsedKeyItemSlots() < MAX_KEY_ITEM_SIZE))
+                    AddRemove_KeyItem(id, held);
+            });
+            available.rows.push_back(std::move(row));
+        }
+        page.sections.push_back(std::move(available));
     } else if (key == "save/letters") {
         page.title = "Letters";
         page.searchable = true;
@@ -1985,3 +2071,4 @@ Page SaveEditorPage(const std::string& key) {
     return page;
 }
 } // namespace Paperboat::NativeSettings
+

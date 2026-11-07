@@ -9,7 +9,7 @@ on:
         required: false
         default: false
   push:
-    branches: ['experimental/shadow-leaf-fixes-1.0.5', 'release/v1.0.6']
+    branches: ['experimental/shadow-leaf-fixes-1.0.5', 'release/v1.0.7']
 
 permissions:
   contents: read
@@ -17,11 +17,11 @@ permissions:
 jobs:
 
   ios:
-    if: github.ref == 'refs/heads/experimental/shadow-leaf-fixes-1.0.5' || github.ref == 'refs/heads/release/v1.0.6'
-    runs-on: ${{ github.ref == 'refs/heads/release/v1.0.6' && 'macos-15-intel' || 'macos-15' }}
+    if: github.ref == 'refs/heads/experimental/shadow-leaf-fixes-1.0.5' || github.ref == 'refs/heads/release/v1.0.7'
+    runs-on: ${{ github.ref == 'refs/heads/release/v1.0.7' && 'macos-15-intel' || 'macos-15' }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-      RELEASE_VERSION: ${{ github.ref == 'refs/heads/release/v1.0.6' && '1.0.6' || '' }}
+      RELEASE_VERSION: ${{ github.ref == 'refs/heads/release/v1.0.7' && '1.0.7' || '' }}
       UI_DIAGNOSTICS: ${{ (github.event_name == 'workflow_dispatch' && inputs.ui_diagnostics) || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && contains(github.event.head_commit.message, '[ui-diagnostics]')) }}
     steps:
       - uses: actions/checkout@v6
@@ -49,7 +49,7 @@ jobs:
           fi
 
       - name: Verify release source and stamp
-        if: github.ref == 'refs/heads/release/v1.0.6'
+        if: github.ref == 'refs/heads/release/v1.0.7'
         run: |
           python3 - <<'PYRELEASE'
           from pathlib import Path
@@ -68,6 +68,9 @@ jobs:
             # Local build stamp only. Publication creates the remote tag after checks pass.
             git tag "$TAG" "$GITHUB_SHA"
           fi
+
+      - name: Check native Key Items behavior
+        run: python3 tests/native-settings/key-items.py
 
       - name: Check UIKit sources
         run: |
@@ -189,9 +192,9 @@ jobs:
 
 
   publish-release:
-    name: Publish PaperReality 1.0.6
+    name: Publish PaperReality 1.0.7
     needs: ios
-    if: github.ref == 'refs/heads/release/v1.0.6'
+    if: github.ref == 'refs/heads/release/v1.0.7'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -207,9 +210,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          REL="1.0.6"
+          REL="1.0.7"
           TAG="v$REL"
-          CURRENT=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/release/v1.0.6" --jq '.object.sha')
+          CURRENT=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/release/v1.0.7" --jq '.object.sha')
           if [[ "$CURRENT" != "$GITHUB_SHA" ]]; then
             echo "Release branch changed during this build; refusing stale publication."
             exit 1

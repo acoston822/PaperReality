@@ -15,10 +15,8 @@
 #include "fast/interpreter.h"
 #include "fast/Fast3dWindow.h"
 #include "fast/Fast3dGui.h"
-
 #include "common_structs.h"
 #include "assets/ui.h"
-
 extern "C" {
 extern s32 get_global_byte(s32 index);
 extern s8 set_global_byte(s32 index, s32 value);
@@ -87,6 +85,22 @@ typedef struct {
     const char* kind;
     s32 flag;
 } StarPieceData;
+
+// Some Icons are identical and are otherwise confusing.
+// This map is to change the text in the menu for the given items.
+std::unordered_map<int32_t, const char*> keyItemList = {
+    { ITEM_NONE, "None" },
+    { ITEM_MAP, "Map" },
+    { ITEM_BIG_MAP, "Big Map" },
+    { ITEM_ODD_KEY, "Odd Key" },
+    { ITEM_KOOT_ALT_PHOTO, " Alt Photo" },
+    { ITEM_UNUSED_PEACH_KEY, "Unused Peach Key" },
+    { ITEM_WAREHOUSE_KEY, "Warehouse Key" },
+    { ITEM_PRISON_KEY, "Prison Key" },
+    { ITEM_UNUSED_PRISON_KEY_1, "Unused Prison Key 1" },
+    { ITEM_UNUSED_PRISON_KEY_2, "Unused Prison Key 2" },
+    { ITEM_UNUSED_PRISON_KEY_3, "Unused Prison Key 3" },
+};
 
 // Standalone letters Parakarry delivers, keyed by the flag set when the letter is picked up.
 // Delivering one only removes the key item, so "delivered" is picked up but no longer held.
@@ -585,6 +599,8 @@ void SaveEditor_DrawImageButton(int32_t iconIndex, const char* itemType) {
         hasItem = PlayerHasItem(iconIndex);
     } else if (itemType == "badge") {
         hasItem = PlayerHasBadge(iconIndex);
+    } else if (itemType == "key") {
+        hasItem = PlayerHasKeyItem(iconIndex);
     } else {
         hasItem = true;
     }
@@ -604,9 +620,30 @@ void SaveEditor_DrawImageButton(int32_t iconIndex, const char* itemType) {
         if (itemType == "inventory") {
             AddRemove_Item(iconIndex, true);
         }
+        if (itemType == "key") {
+            AddRemove_KeyItem(iconIndex, hasItem);
+        }
     }
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s", GetNameFromPath(rasterPath));
+        if (keyItemList.find(iconIndex) == keyItemList.end() && (iconIndex > 85 || iconIndex < 53)) {
+            ImGui::SetTooltip("%s", GetNameFromPath(rasterPath));
+        } else if (keyItemList.find(iconIndex) != keyItemList.end()) {
+            ImGui::SetTooltip("%s", keyItemList.find(iconIndex)->second);
+        } else if (iconIndex == ITEM_ARTIFACT) {
+            ImGui::SetTooltip("%s", GetNameFromPath(rasterPath));
+        } else {
+            for (int i = 0; i < letterList.size(); i++) {
+                if (letterList[i].itemID == iconIndex) {
+                    ImGui::SetTooltip("%s", letterList[i].name);
+                    break;
+                } else if (chainLetterList[i].itemID == iconIndex) {
+                    ImGui::SetTooltip("%s", chainLetterList[i].name);
+                    break;
+                } else {
+                    ImGui::SetTooltip("UnusedLetter");
+                }
+            }
+        }
     }
     SaveEditor_PopImageButtonStyle();
 }
@@ -630,7 +667,9 @@ void SaveEditor_DrawItemList(const char* itemType) {
                 {
                     continue;
                 }
-
+                if (itemType == "key" && i > ITEM_UNUSED_PRISON_KEY_3) {
+                    break;
+                }
                 ImGui::PushID(i);
                 ImGui::TableNextColumn();
                 SaveEditor_DrawImageButton(i, itemType);
@@ -1438,6 +1477,33 @@ void SaveEditor_DrawTattlesMenu() {
     }
 }
 
+void SaveEditor_DrawKeyItemsMenu() {
+    auto gui = std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui());
+    if (ImGui::BeginChild("ItemChild")) {
+        for (int i = 0; i < MAX_KEY_ITEM_SIZE; i++) {
+
+            ImGui::PushID(i);
+            if (gPlayerData.keyItems[i] == 0) {
+                SaveEditor_PushImageButtonStyle();
+                ImGui::ImageButton("Empty", gui->GetTextureByName(ui_battle_menu_nothing_png), itemImageSize);
+                SaveEditor_PopImageButtonStyle();
+            } else {
+                SaveEditor_DrawImageButton(gPlayerData.keyItems[i], "key");
+            }
+            ImGui::PopID();
+            if (i != (MAX_KEY_ITEM_SIZE / 2) - 1) {
+                ImGui::SameLine();
+            } else {
+                ImGui::NewLine();
+            }
+        }
+        ImGui::NewLine();
+        ImGui::SeparatorText("Available Items");
+        SaveEditor_DrawItemList("key");
+        ImGui::EndChild();
+    }
+}
+
 void SaveEditor_DrawTabBar() {
     UIWidgets::PushStyleTabs(WIDGET_COLOR);
     if (ImGui::BeginTabBar("SaveEditorTabBar")) {
@@ -1471,6 +1537,10 @@ void SaveEditor_DrawTabBar() {
         }
         if (ImGui::BeginTabItem("Tattles")) {
             SaveEditor_DrawTattlesMenu();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Key Items")) {
+            SaveEditor_DrawKeyItemsMenu();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -1541,7 +1611,7 @@ namespace {
         };
     }
     template <typename T>
-    Row Stat(const std::string& title, T& field, int min, int max, int step = 1, std::function<void()> after = { }) {
+    Row Stat(const std::string& title, T& field, int min, int max, int step = 1, std::function<void()> after = {}) {
         Row row;
         row.title = title;
         row.kind = Kind::Integer;
@@ -1593,6 +1663,43 @@ namespace {
                 reinterpret_cast<const char*>(gItemIconPaletteOffsets[item])
             );
         };
+    }
+    std::string KeyItemTitle(int item) {
+        switch (item) {
+            case ITEM_MAP:
+                return "Map";
+            case ITEM_BIG_MAP:
+                return "Big Map";
+            case ITEM_ODD_KEY:
+                return "Odd Key";
+            case ITEM_KOOT_ALT_PHOTO:
+                return "Alternate Photo";
+            case ITEM_UNUSED_PEACH_KEY:
+                return "Unused Peach Key";
+            case ITEM_WAREHOUSE_KEY:
+                return "Warehouse Key";
+            case ITEM_PRISON_KEY:
+                return "Prison Key";
+            case ITEM_UNUSED_PRISON_KEY_1:
+                return "Unused Prison Key 1";
+            case ITEM_UNUSED_PRISON_KEY_2:
+                return "Unused Prison Key 2";
+            case ITEM_UNUSED_PRISON_KEY_3:
+                return "Unused Prison Key 3";
+            default:
+                break;
+        }
+        for (const auto& letter : letterList)
+            if (letter.itemID == item)
+                return letter.name;
+        for (const auto& letter : chainLetterList)
+            if (letter.itemID == item)
+                return std::string("Chain Letter to ") + letter.name;
+        if (item >= ITEM_UNUSED_LETTER_1 && item <= ITEM_UNUSED_LETTER_7 && item != ITEM_ARTIFACT)
+            return "Unused Letter " + std::to_string(item);
+        if (item <= ITEM_NONE || item > ITEM_UNUSED_PRISON_KEY_3)
+            return "Unknown Key Item (" + std::to_string(item) + ")";
+        return ItemTitle(item);
     }
     bool IsUnusedEditorItem(int item) {
         switch (item) {
@@ -1650,19 +1757,18 @@ void AppendSaveEditorTextureCoverage(std::ostream& report) {
         InspectImagePresence(raster.c_str(), palette.c_str(), report);
 }
 Page SaveEditorPage(const std::string& key) {
-    Page page { key, "Save Editor", "", { } };
+    Page page { key, "Save Editor", "", {} };
     if (key == "save/root") {
-        Section sections { "Current Game", "Edits change the loaded game. Save in game to keep those changes.", { } };
-        const std::vector<std::pair<std::string, std::string>> tabs = { { "Player", "player" },
-                                                                        { "Badges", "badges" },
-                                                                        { "Items", "items" },
-                                                                        { "Party", "party" },
-                                                                        { "Letters", "letters" },
-                                                                        { "Recipes", "recipes" },
-                                                                        { "Star Pieces", "star-pieces" },
-                                                                        { "Tattles", "tattles" } };
-        const char* icons[] = { "person",   "seal",       "bag",  "person.2",
-                                "envelope", "fork.knife", "star", "text.book.closed" };
+        Section sections { "Current Game", "Edits change the loaded game. Save in game to keep those changes.", {} };
+        const std::vector<std::pair<std::string, std::string>> tabs = {
+            { "Player", "player" },   { "Badges", "badges" },
+            { "Items", "items" },     { "Key Items", "key-items" },
+            { "Party", "party" },     { "Letters", "letters" },
+            { "Recipes", "recipes" }, { "Star Pieces", "star-pieces" },
+            { "Tattles", "tattles" }
+        };
+        const char* icons[] = { "person",          "seal", "bag", "key", "person.2", "envelope", "fork.knife", "star",
+                                "text.book.closed" };
         for (size_t i = 0; i < tabs.size(); ++i) {
             auto row = Link(tabs[i].first, "save/" + tabs[i].second, icons[i]);
             row.enabled = SaveLoaded();
@@ -1762,7 +1868,7 @@ Page SaveEditorPage(const std::string& key) {
         Section items { "",
                         badges ? "Switch a badge on to add it to your collection. This does not equip it."
                                : "Tap an item to add it to the current inventory.",
-                        { } };
+                        {} };
         Section unused { "Unused", "Not obtainable through normal gameplay.", {} };
         bool full = true;
         for (const int item : gPlayerData.invItems)
@@ -1796,7 +1902,7 @@ Page SaveEditorPage(const std::string& key) {
             page.sections.push_back(std::move(unused));
     } else if (key == "save/items") {
         page.title = "Items";
-        Section inventory { "Inventory", "Tap a held item to remove it. Inventory holds ten items.", { } };
+        Section inventory { "Inventory", "Tap a held item to remove it. Inventory holds ten items.", {} };
         for (int i = 0; i < MAX_INVENTORY_SIZE; ++i) {
             const int id = gPlayerData.invItems[i];
             Row row;
@@ -1815,6 +1921,65 @@ Page SaveEditorPage(const std::string& key) {
         page.sections.push_back(
             { "Add Items", "", { Link("Food", "save/food", "carrot"), Link("Battle Items", "save/battle", "bolt") } }
         );
+    } else if (key == "save/key-items") {
+        page.title = "Key Items";
+        page.searchable = true;
+        const int used = CountUsedKeyItemSlots();
+        page.subtitle = std::to_string(used) + " of " + std::to_string(MAX_KEY_ITEM_SIZE) + " slots used";
+        Section inventory {
+            "Held Key Items (" + std::to_string(used) + "/" + std::to_string(MAX_KEY_ITEM_SIZE) + ")",
+            "Tap a held item to remove it. Letters share these 32 slots. Edits do not update story progress or grant "
+            "rewards; use Letters to edit delivery progress. Save in game to keep changes.",
+            {}
+        };
+        for (int slot = 0; slot < MAX_KEY_ITEM_SIZE; ++slot) {
+            const int id = gPlayerData.keyItems[slot];
+            if (id == ITEM_NONE)
+                continue;
+            Row row;
+            row.title = KeyItemTitle(id);
+            row.detail = "Slot " + std::to_string(slot + 1);
+            row.kind = Kind::Action;
+            row.destructive = true;
+            if (id > ITEM_NONE && id <= ITEM_UNUSED_PRISON_KEY_3)
+                ItemPortrait(row, id);
+            row.id = "key-slot/" + std::to_string(slot);
+            row.activate = EditSave([slot, id] {
+                if (gPlayerData.keyItems[slot] == id)
+                    gPlayerData.keyItems[slot] = ITEM_NONE;
+            });
+            inventory.rows.push_back(std::move(row));
+        }
+        if (inventory.rows.empty()) {
+            Row empty;
+            empty.title = "No Key Items Held";
+            inventory.rows.push_back(std::move(empty));
+        }
+        page.sections.push_back(std::move(inventory));
+        Section available { "Available Key Items",
+                            used == MAX_KEY_ITEM_SIZE
+                                ? "Key item inventory is full. Remove an item before adding another."
+                                : "Switch an item on to add it, or off to remove one held copy.",
+                            {} };
+        for (int id = ITEM_NONE + 1; id <= ITEM_UNUSED_PRISON_KEY_3; ++id) {
+            const char* path = reinterpret_cast<const char*>(gItemIconRasterOffsets[id]);
+            if (!path || !std::strstr(path, "key/"))
+                continue;
+            const bool held = PlayerHasKeyItem(id);
+            Row row;
+            row.title = KeyItemTitle(id);
+            ItemPortrait(row, id);
+            row.kind = Kind::Toggle;
+            row.value = held;
+            row.enabled = held || used < MAX_KEY_ITEM_SIZE;
+            row.change = ChangeSave([id](double value) {
+                const bool held = PlayerHasKeyItem(id);
+                if (bool(value) != held && (!value || CountUsedKeyItemSlots() < MAX_KEY_ITEM_SIZE))
+                    AddRemove_KeyItem(id, held);
+            });
+            available.rows.push_back(std::move(row));
+        }
+        page.sections.push_back(std::move(available));
     } else if (key == "save/letters") {
         page.title = "Letters";
         page.searchable = true;
@@ -1848,7 +2013,7 @@ Page SaveEditorPage(const std::string& key) {
               { collect, deliver, clear } }
         );
         for (int chain = 0; chain < 2; ++chain) {
-            Section letters { chain ? "Chain Letters" : "Individual Letters", "", { } };
+            Section letters { chain ? "Chain Letters" : "Individual Letters", "", {} };
             const auto& list = chain ? chainLetterList : letterList;
             for (size_t i = 0; i < list.size(); ++i) {
                 Row row;
@@ -1891,7 +2056,7 @@ Page SaveEditorPage(const std::string& key) {
             true
         );
         page.sections.push_back({ "Cookbook", "", { all, none } });
-        Section recipes { "Recipes", "", { } };
+        Section recipes { "Recipes", "", {} };
         for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i) {
             const int id = CookableItemIDs[i];
             Row row;
@@ -1934,7 +2099,7 @@ Page SaveEditorPage(const std::string& key) {
               "These are the 63 overworld pieces Merluvlee can predict. There are 160 Star Pieces in total.",
               { all, none } }
         );
-        Section pieces { "Locations", "", { } };
+        Section pieces { "Locations", "", {} };
         for (size_t i = 0; i < starPieceList.size(); ++i) {
             Row row;
             row.title = starPieceList[i].location;
@@ -1968,7 +2133,7 @@ Page SaveEditorPage(const std::string& key) {
               "Bulk actions apply to the full list below, respecting Hide Unused.",
               { Toggle("Hide Unused", "gSettings.Native.HideUnusedTattles", true), all, none } }
         );
-        Section tattles { "Enemies", "", { } };
+        Section tattles { "Enemies", "", {} };
         for (const auto& tattle : gActorTypeNames) {
             if (hide && tattle.isUnused)
                 continue;

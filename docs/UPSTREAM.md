@@ -28,6 +28,8 @@ These are the files PaperReality changes (full list in [CHANGES.md](CHANGES.md))
 
 ## Merge log
 
+* 2026-11-07: integrate upstream `develop` at `da70b9ea5c8efded02680865b4da76a9292e4c50` (#280 and #281): macOS runner/deployment-target updates and the Save Editor Key Items tab. Add the matching native UIKit page at Save Editor → Key Items. Preserve the iOS SDK 18.5/Xcode 16.4 build, iOS fixes, and libultraship pin. The integration workflow performs a normal upstream merge on its branch and builds the exact merged source before integration into `main`.
+
 * 2026-10-31: included upstream `develop` at 6cecd01a7 (#278) in `experimental/uikit-settings` for 1.0.5. The four-file merge fixes pointer-sized script buffers and resets script/worker lists on soft reset; it adds no settings. The ground-leaf diagnostics and offset experiment remain on their isolated branch.
 
 * 2026-10-24: merged upstream `develop` at 781d164cf (#269, #270, #272) into `experimental/uikit-settings` with no conflicts. The new gameplay settings use the native UIKit mapping; the iOS libultraship fork and its AirPlay/frame-pacing changes are retained.
@@ -37,3 +39,4 @@ These are the files PaperReality changes (full list in [CHANGES.md](CHANGES.md))
 * Don't rename source files, folders, functions or the `Paperboat` strings in code. Only the README, docs and workflow output names say PaperReality.
 * Put new iOS-only code in new files (like `src/port/ios/` and `TouchDragScroll.*`) rather than rewriting upstream files.
 * Never merge code from projects without a license. Check where a change comes from before it goes in.
+

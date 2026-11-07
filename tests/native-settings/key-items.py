@@ -53,7 +53,8 @@ struct LetterData { const char* name; int itemID; int obtainedFlag = 0; bool ret
 harness += '\n'.join('#define ' + flag + ' 0' for flag in flags) + '\n' + letters
 harness += '\n'.join(function(signature) for signature in (
     'bool PlayerHasKeyItem(', 'int32_t CountUsedKeyItemSlots(', 'void AddRemove_KeyItem(',
-    'std::function<void()> EditSave(', 'std::function<void(double)> ChangeSave(', 'std::string KeyItemTitle('
+    'std::function<void()> EditSave(', 'std::function<void(double)> ChangeSave(', 'bool IsUnusedKeyItem(',
+    'std::string KeyItemTitle('
 ))
 harness += '\nPage BuildKeyItems() { Page page; if (!SaveLoaded()) return page;\n' + page + '\nreturn page; }\n'
 harness += r'''
@@ -71,7 +72,14 @@ int main() {
     Require(page.title == "Key Items" && page.searchable, "Missing native page metadata");
     Require(page.subtitle == "0 of 32 slots used", "Incorrect initial capacity");
     Require(page.sections[0].title == "Held Key Items (0/32)", "Capacity is missing from the visible UIKit section header");
-    Require(page.sections[1].rows.size() == 127, "Catalog contains empty or non-key items");
+    Require(page.sections.size() == 3 && page.sections.back().title == "Unused Key Items", "Unused section must be last");
+    Require(page.sections[1].rows.size() == 114 && page.sections[2].rows.size() == 13, "Key item grouping lost or duplicated entries");
+    for (const auto& row : page.sections[1].rows)
+        Require(!row.title.starts_with("Unused"), "Unused entry is mixed into normal key items");
+    for (const auto& row : page.sections[2].rows)
+        Require(row.title.starts_with("Unused"), "Unused entry has no explicit label");
+    Require(!IsUnusedKeyItem(ITEM_ARTIFACT) && !IsUnusedKeyItem(ITEM_LETTER_TO_MERLON)
+            && !IsUnusedKeyItem(ITEM_LETTER_CHAIN_GOOMPAPA_2), "Obtainable quest items were classified as unused");
     auto map = Find(page, "item/8");
     map.change(1);
     map.change(1);
@@ -99,7 +107,9 @@ int main() {
     loaded = true;
     map.change(std::numeric_limits<double>::quiet_NaN());
     Require(CountUsedKeyItemSlots() == 32, "Invalid input changed inventory");
-    Require(KeyItemTitle(ITEM_MAP) == "Map" && KeyItemTitle(ITEM_BIG_MAP) == "Big Map", "Shared map icons are ambiguous");
+    Require(KeyItemTitle(ITEM_MAP) == "Unused Map" && KeyItemTitle(ITEM_BIG_MAP) == "Unused Big Map", "Shared map icons are ambiguous");
+    Require(KeyItemTitle(ITEM_UNUSED_LETTER_1) == "Unused Letter 1"
+            && KeyItemTitle(ITEM_UNUSED_LETTER_7) == "Unused Letter 7", "Unused letters do not have readable numbered labels");
     Require(KeyItemTitle(ITEM_LETTER_TO_MERLON) == "Letter to Merlon", "Individual letter name missing");
     Require(KeyItemTitle(ITEM_LETTER_CHAIN_GOOMPAPA_2) == "Chain Letter to Goompapa (2nd)", "Final chain letter name missing");
     Require(KeyItemTitle(ITEM_ARTIFACT) == ItemTitle(ITEM_ARTIFACT), "Artifact misidentified as a letter");

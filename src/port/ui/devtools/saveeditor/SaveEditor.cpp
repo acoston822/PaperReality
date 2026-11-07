@@ -1927,7 +1927,7 @@ Page SaveEditorPage(const std::string& key) {
         const int used = CountUsedKeyItemSlots();
         page.subtitle = std::to_string(used) + " of " + std::to_string(MAX_KEY_ITEM_SIZE) + " slots used";
         Section inventory {
-            "Held Key Items",
+            "Held Key Items (" + std::to_string(used) + "/" + std::to_string(MAX_KEY_ITEM_SIZE) + ")",
             "Tap a held item to remove it. Letters share these 32 slots. Edits do not update story progress or grant "
             "rewards; use Letters to edit delivery progress. Save in game to keep changes.",
             {}

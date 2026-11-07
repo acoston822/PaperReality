@@ -70,6 +70,7 @@ int main() {
     auto page = BuildKeyItems();
     Require(page.title == "Key Items" && page.searchable, "Missing native page metadata");
     Require(page.subtitle == "0 of 32 slots used", "Incorrect initial capacity");
+    Require(page.sections[0].title == "Held Key Items (0/32)", "Capacity is missing from the visible UIKit section header");
     Require(page.sections[1].rows.size() == 127, "Catalog contains empty or non-key items");
     auto map = Find(page, "item/8");
     map.change(1);

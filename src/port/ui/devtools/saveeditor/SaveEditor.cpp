@@ -1611,7 +1611,7 @@ namespace {
         };
     }
     template <typename T>
-    Row Stat(const std::string& title, T& field, int min, int max, int step = 1, std::function<void()> after = { }) {
+    Row Stat(const std::string& title, T& field, int min, int max, int step = 1, std::function<void()> after = {}) {
         Row row;
         row.title = title;
         row.kind = Kind::Integer;
@@ -1666,17 +1666,28 @@ namespace {
     }
     std::string KeyItemTitle(int item) {
         switch (item) {
-            case ITEM_MAP: return "Map";
-            case ITEM_BIG_MAP: return "Big Map";
-            case ITEM_ODD_KEY: return "Odd Key";
-            case ITEM_KOOT_ALT_PHOTO: return "Alternate Photo";
-            case ITEM_UNUSED_PEACH_KEY: return "Unused Peach Key";
-            case ITEM_WAREHOUSE_KEY: return "Warehouse Key";
-            case ITEM_PRISON_KEY: return "Prison Key";
-            case ITEM_UNUSED_PRISON_KEY_1: return "Unused Prison Key 1";
-            case ITEM_UNUSED_PRISON_KEY_2: return "Unused Prison Key 2";
-            case ITEM_UNUSED_PRISON_KEY_3: return "Unused Prison Key 3";
-            default: break;
+            case ITEM_MAP:
+                return "Map";
+            case ITEM_BIG_MAP:
+                return "Big Map";
+            case ITEM_ODD_KEY:
+                return "Odd Key";
+            case ITEM_KOOT_ALT_PHOTO:
+                return "Alternate Photo";
+            case ITEM_UNUSED_PEACH_KEY:
+                return "Unused Peach Key";
+            case ITEM_WAREHOUSE_KEY:
+                return "Warehouse Key";
+            case ITEM_PRISON_KEY:
+                return "Prison Key";
+            case ITEM_UNUSED_PRISON_KEY_1:
+                return "Unused Prison Key 1";
+            case ITEM_UNUSED_PRISON_KEY_2:
+                return "Unused Prison Key 2";
+            case ITEM_UNUSED_PRISON_KEY_3:
+                return "Unused Prison Key 3";
+            default:
+                break;
         }
         for (const auto& letter : letterList)
             if (letter.itemID == item)
@@ -1746,20 +1757,18 @@ void AppendSaveEditorTextureCoverage(std::ostream& report) {
         InspectImagePresence(raster.c_str(), palette.c_str(), report);
 }
 Page SaveEditorPage(const std::string& key) {
-    Page page { key, "Save Editor", "", { } };
+    Page page { key, "Save Editor", "", {} };
     if (key == "save/root") {
-        Section sections { "Current Game", "Edits change the loaded game. Save in game to keep those changes.", { } };
-        const std::vector<std::pair<std::string, std::string>> tabs = { { "Player", "player" },
-                                                                        { "Badges", "badges" },
-                                                                        { "Items", "items" },
-                                                                        { "Key Items", "key-items" },
-                                                                        { "Party", "party" },
-                                                                        { "Letters", "letters" },
-                                                                        { "Recipes", "recipes" },
-                                                                        { "Star Pieces", "star-pieces" },
-                                                                        { "Tattles", "tattles" } };
-        const char* icons[] = { "person",   "seal",       "bag", "key", "person.2",
-                                "envelope", "fork.knife", "star", "text.book.closed" };
+        Section sections { "Current Game", "Edits change the loaded game. Save in game to keep those changes.", {} };
+        const std::vector<std::pair<std::string, std::string>> tabs = {
+            { "Player", "player" },   { "Badges", "badges" },
+            { "Items", "items" },     { "Key Items", "key-items" },
+            { "Party", "party" },     { "Letters", "letters" },
+            { "Recipes", "recipes" }, { "Star Pieces", "star-pieces" },
+            { "Tattles", "tattles" }
+        };
+        const char* icons[] = { "person",          "seal", "bag", "key", "person.2", "envelope", "fork.knife", "star",
+                                "text.book.closed" };
         for (size_t i = 0; i < tabs.size(); ++i) {
             auto row = Link(tabs[i].first, "save/" + tabs[i].second, icons[i]);
             row.enabled = SaveLoaded();
@@ -1859,7 +1868,7 @@ Page SaveEditorPage(const std::string& key) {
         Section items { "",
                         badges ? "Switch a badge on to add it to your collection. This does not equip it."
                                : "Tap an item to add it to the current inventory.",
-                        { } };
+                        {} };
         Section unused { "Unused", "Not obtainable through normal gameplay.", {} };
         bool full = true;
         for (const int item : gPlayerData.invItems)
@@ -1893,7 +1902,7 @@ Page SaveEditorPage(const std::string& key) {
             page.sections.push_back(std::move(unused));
     } else if (key == "save/items") {
         page.title = "Items";
-        Section inventory { "Inventory", "Tap a held item to remove it. Inventory holds ten items.", { } };
+        Section inventory { "Inventory", "Tap a held item to remove it. Inventory holds ten items.", {} };
         for (int i = 0; i < MAX_INVENTORY_SIZE; ++i) {
             const int id = gPlayerData.invItems[i];
             Row row;
@@ -1919,7 +1928,8 @@ Page SaveEditorPage(const std::string& key) {
         page.subtitle = std::to_string(used) + " of " + std::to_string(MAX_KEY_ITEM_SIZE) + " slots used";
         Section inventory {
             "Held Key Items",
-            "Tap a held item to remove it. Letters share these 32 slots. Edits do not update story progress or grant rewards; use Letters to edit delivery progress. Save in game to keep changes.",
+            "Tap a held item to remove it. Letters share these 32 slots. Edits do not update story progress or grant "
+            "rewards; use Letters to edit delivery progress. Save in game to keep changes.",
             {}
         };
         for (int slot = 0; slot < MAX_KEY_ITEM_SIZE; ++slot) {
@@ -1946,12 +1956,11 @@ Page SaveEditorPage(const std::string& key) {
             inventory.rows.push_back(std::move(empty));
         }
         page.sections.push_back(std::move(inventory));
-        Section available {
-            "Available Key Items",
-            used == MAX_KEY_ITEM_SIZE ? "Key item inventory is full. Remove an item before adding another."
-                                     : "Switch an item on to add it, or off to remove one held copy.",
-            {}
-        };
+        Section available { "Available Key Items",
+                            used == MAX_KEY_ITEM_SIZE
+                                ? "Key item inventory is full. Remove an item before adding another."
+                                : "Switch an item on to add it, or off to remove one held copy.",
+                            {} };
         for (int id = ITEM_NONE + 1; id <= ITEM_UNUSED_PRISON_KEY_3; ++id) {
             const char* path = reinterpret_cast<const char*>(gItemIconRasterOffsets[id]);
             if (!path || !std::strstr(path, "key/"))
@@ -2004,7 +2013,7 @@ Page SaveEditorPage(const std::string& key) {
               { collect, deliver, clear } }
         );
         for (int chain = 0; chain < 2; ++chain) {
-            Section letters { chain ? "Chain Letters" : "Individual Letters", "", { } };
+            Section letters { chain ? "Chain Letters" : "Individual Letters", "", {} };
             const auto& list = chain ? chainLetterList : letterList;
             for (size_t i = 0; i < list.size(); ++i) {
                 Row row;
@@ -2047,7 +2056,7 @@ Page SaveEditorPage(const std::string& key) {
             true
         );
         page.sections.push_back({ "Cookbook", "", { all, none } });
-        Section recipes { "Recipes", "", { } };
+        Section recipes { "Recipes", "", {} };
         for (int i = 0; i < NUM_COOKABLE_RECIPES; ++i) {
             const int id = CookableItemIDs[i];
             Row row;
@@ -2090,7 +2099,7 @@ Page SaveEditorPage(const std::string& key) {
               "These are the 63 overworld pieces Merluvlee can predict. There are 160 Star Pieces in total.",
               { all, none } }
         );
-        Section pieces { "Locations", "", { } };
+        Section pieces { "Locations", "", {} };
         for (size_t i = 0; i < starPieceList.size(); ++i) {
             Row row;
             row.title = starPieceList[i].location;
@@ -2124,7 +2133,7 @@ Page SaveEditorPage(const std::string& key) {
               "Bulk actions apply to the full list below, respecting Hide Unused.",
               { Toggle("Hide Unused", "gSettings.Native.HideUnusedTattles", true), all, none } }
         );
-        Section tattles { "Enemies", "", { } };
+        Section tattles { "Enemies", "", {} };
         for (const auto& tattle : gActorTypeNames) {
             if (hide && tattle.isUnused)
                 continue;
@@ -2141,4 +2150,3 @@ Page SaveEditorPage(const std::string& key) {
     return page;
 }
 } // namespace Paperboat::NativeSettings
-

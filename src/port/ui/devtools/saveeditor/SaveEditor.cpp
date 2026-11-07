@@ -1664,12 +1664,46 @@ namespace {
             );
         };
     }
+    bool IsUnusedKeyItem(int item) {
+        switch (item) {
+            case ITEM_MAP:
+            case ITEM_BIG_MAP:
+            case ITEM_UNUSED_LETTER_1:
+            case ITEM_UNUSED_LETTER_2:
+            case ITEM_UNUSED_LETTER_3:
+            case ITEM_UNUSED_LETTER_4:
+            case ITEM_UNUSED_LETTER_5:
+            case ITEM_UNUSED_LETTER_6:
+            case ITEM_UNUSED_LETTER_7:
+            case ITEM_UNUSED_PEACH_KEY:
+            case ITEM_UNUSED_PRISON_KEY_1:
+            case ITEM_UNUSED_PRISON_KEY_2:
+            case ITEM_UNUSED_PRISON_KEY_3:
+                return true;
+            default:
+                return false;
+        }
+    }
     std::string KeyItemTitle(int item) {
         switch (item) {
             case ITEM_MAP:
-                return "Map";
+                return "Unused Map";
             case ITEM_BIG_MAP:
-                return "Big Map";
+                return "Unused Big Map";
+            case ITEM_UNUSED_LETTER_1:
+                return "Unused Letter 1";
+            case ITEM_UNUSED_LETTER_2:
+                return "Unused Letter 2";
+            case ITEM_UNUSED_LETTER_3:
+                return "Unused Letter 3";
+            case ITEM_UNUSED_LETTER_4:
+                return "Unused Letter 4";
+            case ITEM_UNUSED_LETTER_5:
+                return "Unused Letter 5";
+            case ITEM_UNUSED_LETTER_6:
+                return "Unused Letter 6";
+            case ITEM_UNUSED_LETTER_7:
+                return "Unused Letter 7";
             case ITEM_ODD_KEY:
                 return "Odd Key";
             case ITEM_KOOT_ALT_PHOTO:
@@ -1695,8 +1729,6 @@ namespace {
         for (const auto& letter : chainLetterList)
             if (letter.itemID == item)
                 return std::string("Chain Letter to ") + letter.name;
-        if (item >= ITEM_UNUSED_LETTER_1 && item <= ITEM_UNUSED_LETTER_7 && item != ITEM_ARTIFACT)
-            return "Unused Letter " + std::to_string(item);
         if (item <= ITEM_NONE || item > ITEM_UNUSED_PRISON_KEY_3)
             return "Unknown Key Item (" + std::to_string(item) + ")";
         return ItemTitle(item);
@@ -1961,6 +1993,7 @@ Page SaveEditorPage(const std::string& key) {
                                 ? "Key item inventory is full. Remove an item before adding another."
                                 : "Switch an item on to add it, or off to remove one held copy.",
                             {} };
+        Section unused { "Unused Key Items", "Not obtainable through normal gameplay.", {} };
         for (int id = ITEM_NONE + 1; id <= ITEM_UNUSED_PRISON_KEY_3; ++id) {
             const char* path = reinterpret_cast<const char*>(gItemIconRasterOffsets[id]);
             if (!path || !std::strstr(path, "key/"))
@@ -1977,9 +2010,12 @@ Page SaveEditorPage(const std::string& key) {
                 if (bool(value) != held && (!value || CountUsedKeyItemSlots() < MAX_KEY_ITEM_SIZE))
                     AddRemove_KeyItem(id, held);
             });
-            available.rows.push_back(std::move(row));
+            auto& section = IsUnusedKeyItem(id) ? unused : available;
+            section.rows.push_back(std::move(row));
         }
         page.sections.push_back(std::move(available));
+        if (!unused.rows.empty())
+            page.sections.push_back(std::move(unused));
     } else if (key == "save/letters") {
         page.title = "Letters";
         page.searchable = true;
